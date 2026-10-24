@@ -2,7 +2,8 @@ import type { Request, Router } from 'express';
 import { depositState } from '../deposits.js';
 import { z } from 'zod';
 import { shopId } from '../auth.js';
-import { accessStatus, informPayment, invoice, invoicePix, listInvoices, shopBilling, monthlyPrice } from '../billing.js';
+import { accessStatus, billingInfo, informPayment, invoice, invoicePix, listInvoices, saveBillingInfo, shopBilling, monthlyPrice } from '../billing.js';
+import { asaasEnabled, asaasPix, chargeInvoice } from '../asaas.js';
 import { connectionInfo } from '../connection.js';
 import { availableQty } from '../stock.js';
 import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
@@ -75,6 +76,17 @@ export function registerFinanceRoutes(router: Router): void {
     const status = accessStatus(shop);
     const invoices = listInvoices({ shopId: shop });
     const current = status.open[0] ?? null;
+    const auto = asaasEnabled();
+    const info = billingInfo(shop);
+    // Com o Asaas: PIX com baixa automática (precisa do CPF/CNPJ). Sem ele: PIX do master, confirmado à mão.
+    let pix: { payload: string; qr: string; url?: string | null; auto?: boolean } | null = null;
+    let pixError: string | null = null;
+    if (current && auto && info.billing_document) {
+      const r = await asaasPix(current);
+      if (r && 'payload' in r) pix = { ...r, auto: true };
+      else pixError = r?.error ?? null;
+    }
+    if (current && !pix) pix = await invoicePix(current);
     res.json({
       plan: s.plan_name,
       price_cents: monthlyPrice(s),
@@ -83,9 +95,24 @@ export function registerFinanceRoutes(router: Router): void {
       blocked: status.blocked,
       graceDays: status.graceDays,
       blockOn: status.blockOn,
-      current: current ? { ...current, pix: await invoicePix(current) } : null,
+      current: current ? { ...current, pix, pixError } : null,
       invoices,
+      billing: { auto, needsDocument: auto && !info.billing_document, ...info },
     });
+  });
+
+  /** CPF/CNPJ e nome para a cobrança automática e a nota fiscal da mensalidade. */
+  router.put('/billing-info', async (req, res) => {
+    const body = parseBody(
+      z.object({ document: z.string().trim().max(20), name: z.string().trim().min(2, 'Informe o nome ou a razão social.').max(100), email: z.email().nullish().or(z.literal('')) }),
+      req.body,
+    );
+    const shop = shopId(req);
+    const info = saveBillingInfo(shop, { document: body.document, name: body.name, email: body.email || null });
+    // Já cria a cobrança da fatura em aberto, para o PIX aparecer na hora.
+    const open = accessStatus(shop).open[0];
+    if (open) await chargeInvoice(open.id);
+    res.json(info);
   });
 
   router.post('/subscription/:id/inform', (req, res) => {

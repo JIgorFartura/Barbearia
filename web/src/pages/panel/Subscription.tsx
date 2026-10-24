@@ -1,6 +1,6 @@
 import { Copy, CreditCard, Lock } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
-import { Badge, Button, Card, ErrorText } from '../../components/ui';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { Badge, Button, Card, ErrorText, Field, Input } from '../../components/ui';
 import { api } from '../../lib/api';
 import { date, money } from '../../lib/format';
 
@@ -13,6 +13,7 @@ interface Invoice {
   status: 'open' | 'paid' | 'cancelled';
   paid_at: string | null;
   informed_at: string | null;
+  nfse_url: string | null;
   overdue: boolean;
 }
 
@@ -24,8 +25,10 @@ interface SubscriptionData {
   blocked: boolean;
   graceDays: number;
   blockOn: string | null;
-  current: (Invoice & { pix: { payload: string; qr: string } | null }) | null;
+  /** PIX da fatura: com o Asaas (auto) a baixa é automática; senão o master confirma. */
+  current: (Invoice & { pix: { payload: string; qr: string; url?: string | null; auto?: boolean } | null; pixError: string | null }) | null;
   invoices: Invoice[];
+  billing: { auto: boolean; needsDocument: boolean; billing_document: string | null; billing_name: string | null; billing_email: string | null };
 }
 
 /** Mensalidade da plataforma: fatura em aberto com PIX e histórico. */
@@ -33,6 +36,7 @@ export function Subscription() {
   const [data, setData] = useState<SubscriptionData | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingInfo, setEditingInfo] = useState(false);
   const load = useCallback(() => {
     api<SubscriptionData>('GET', '/api/shop/subscription').then(setData, (e) => setError(e.message));
   }, []);
@@ -53,6 +57,11 @@ export function Subscription() {
           {data.price_cents ? `${money(data.price_cents)} por mês, vence todo dia ${data.billing_day}` : 'Sem mensalidade definida'}
           {data.trial_until && data.trial_until >= today && ` · grátis até ${date(data.trial_until)}`}
         </p>
+        {data.billing.auto && !data.billing.needsDocument && !editingInfo && (
+          <button className="text-xs text-zinc-500 underline hover:text-zinc-900" onClick={() => setEditingInfo(true)}>
+            Dados para a nota fiscal: {data.billing.billing_name}
+          </button>
+        )}
       </div>
 
       {data.blocked && (
@@ -63,6 +72,16 @@ export function Subscription() {
             <p className="text-sm">O site e a área dos clientes continuam no ar, mas o painel e o robô com IA ficam limitados até o pagamento ser confirmado.</p>
           </div>
         </div>
+      )}
+
+      {data.billing.auto && (data.billing.needsDocument || editingInfo) && (
+        <BillingInfoCard
+          info={data.billing}
+          onSaved={() => {
+            setEditingInfo(false);
+            load();
+          }}
+        />
       )}
 
       {cur ? (
@@ -101,13 +120,29 @@ export function Subscription() {
           ) : (
             <p className="text-sm text-zinc-500">Fale com o administrador da plataforma para receber os dados de pagamento.</p>
           )}
-          <div className="flex flex-wrap items-center gap-3 border-t border-zinc-100 pt-3">
-            {cur.informed_at ? (
-              <p className="text-sm text-emerald-700">Pagamento informado em {date(cur.informed_at)}. Assim que for confirmado, a fatura fica como paga.</p>
-            ) : (
-              <Button onClick={() => api('POST', `/api/shop/subscription/${cur.id}/inform`).then(load, (e) => setError(e.message))}>Já paguei</Button>
-            )}
-          </div>
+          {cur.pix?.auto && (
+            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              A confirmação é automática: alguns minutos depois do PIX, a fatura fica paga sozinha.
+              {cur.pix.url && (
+                <>
+                  {' '}
+                  <a href={cur.pix.url} target="_blank" rel="noreferrer" className="font-medium underline">
+                    Abrir a fatura
+                  </a>
+                </>
+              )}
+            </p>
+          )}
+          {cur.pixError && <p className="text-xs text-zinc-500">Cobrança automática indisponível agora ({cur.pixError}). Use o PIX acima.</p>}
+          {!cur.pix?.auto && (
+            <div className="flex flex-wrap items-center gap-3 border-t border-zinc-100 pt-3">
+              {cur.informed_at ? (
+                <p className="text-sm text-emerald-700">Pagamento informado em {date(cur.informed_at)}. Assim que for confirmado, a fatura fica como paga.</p>
+              ) : (
+                <Button onClick={() => api('POST', `/api/shop/subscription/${cur.id}/inform`).then(load, (e) => setError(e.message))}>Já paguei</Button>
+              )}
+            </div>
+          )}
           <ErrorText error={error} />
         </Card>
       ) : (
@@ -129,6 +164,11 @@ export function Subscription() {
                     <span className="text-zinc-500"> · vence {date(i.due_date)}</span>
                   </span>
                   <span className="flex items-center gap-2">
+                    {i.nfse_url && (
+                      <a href={i.nfse_url} target="_blank" rel="noreferrer" className="text-xs font-medium text-zinc-600 underline">
+                        Nota fiscal
+                      </a>
+                    )}
                     <span className="tabular-nums">{money(i.amount_cents)}</span>
                     <Badge tone={i.status === 'paid' ? 'green' : i.status === 'cancelled' ? 'zinc' : i.overdue ? 'red' : 'gold'}>
                       {i.status === 'paid' ? `Paga ${date(i.paid_at)}` : i.status === 'cancelled' ? 'Cancelada' : i.overdue ? 'Vencida' : 'Em aberto'}
@@ -141,5 +181,52 @@ export function Subscription() {
         </div>
       )}
     </section>
+  );
+}
+
+/** CPF/CNPJ e nome para a cobrança automática (Asaas) e a nota fiscal da mensalidade. */
+function BillingInfoCard({ info, onSaved }: { info: SubscriptionData['billing']; onSaved: () => void }) {
+  const [document, setDocument] = useState(info.billing_document ?? '');
+  const [name, setName] = useState(info.billing_name ?? '');
+  const [email, setEmail] = useState(info.billing_email ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api('PUT', '/api/shop/billing-info', { document, name, email });
+      onSaved();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card className="max-w-xl">
+      <form onSubmit={submit} className="space-y-3">
+        <div>
+          <p className="font-semibold">Dados para a cobrança e a nota fiscal</p>
+          <p className="text-sm text-zinc-500">Com eles, a mensalidade sai por PIX com confirmação automática e a nota fiscal vem no seu nome.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="CPF ou CNPJ">
+            <Input required inputMode="numeric" value={document} placeholder="00.000.000/0001-00" onChange={(e) => setDocument(e.target.value)} />
+          </Field>
+          <Field label="Nome ou razão social">
+            <Input required value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+        </div>
+        <Field label="E-mail para a nota (opcional)">
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+        <ErrorText error={error} />
+        <Button type="submit" loading={busy}>
+          Salvar
+        </Button>
+      </form>
+    </Card>
   );
 }

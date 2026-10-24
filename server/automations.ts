@@ -5,6 +5,8 @@ import { askReviews } from './reviews.js';
 import { clubBilling } from './club.js';
 import { expireDeposits } from './deposits.js';
 import { birthdayGifts } from './growth.js';
+import { syncAsaasCharges } from './asaas.js';
+import { invoiceReminders } from './invoiceReminders.js';
 import { accessStatus, ensureInvoices } from './billing.js';
 import { config } from './config.js';
 import { askConsumption } from './consumption.js';
@@ -282,6 +284,11 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
     if (Math.abs(now.getTime() - lastInvoiceCheck) >= 3600000) {
       lastInvoiceCheck = now.getTime();
       automationStatus.lastInvoices = ensureInvoices(now);
+      // Cobrança PIX no Asaas (se configurado) e lembrete da mensalidade no WhatsApp da plataforma.
+      if (config.automations) {
+        await syncAsaasCharges().catch((err) => console.error('[asaas]', err));
+        await invoiceReminders(now).catch((err) => console.error('[mensalidade]', err));
+      }
     }
     // Cópia de segurança do dia (a partir das 3h); uma falha aqui não para os lembretes.
     const backedUp = await dailyBackup(now).catch((err) => console.error('[backup]', err));

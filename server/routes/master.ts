@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { PIX_KEY_TYPES, guessPixKeyType, normalizePixKey, pixKeyType } from '../pix.js';
+import { asaasSettings, cancelInvoiceEverywhere, issueNfse, rotateWebhookToken, saveAsaasSettings, syncManualPayment, testAsaas } from '../asaas.js';
 import { z } from 'zod';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,9 +9,9 @@ import { automationStatus } from '../automations.js';
 import { backupPath, backupStatus, createBackup, listBackups, remoteConfig } from '../backup.js';
 import {
   accessStatus,
-  cancelInvoice,
   createInvoice,
   ensureInvoices,
+  invoice,
   listInvoices,
   markInvoicePaid,
   monthlyPrice,
@@ -295,22 +297,34 @@ masterRouter.put('/plans/:id', (req, res) => {
 });
 
 masterRouter.get('/settings', (_req, res) => {
-  res.json(platformSettings());
+  res.json(settingsView());
 });
 
+const settingsView = () => {
+  const s = platformSettings();
+  return { ...s, pix_type: s.pix_key ? pixKeyType(s.pix_key) : 'cpf' };
+};
+
 masterRouter.put('/settings', (req, res) => {
-  const b = parseBody(
+  const { pix_type, ...b } = parseBody(
     z.object({
       grace_days: z.number().int().min(0).max(60),
       trial_days: z.number().int().min(0).max(365),
+      pix_type: z.enum(PIX_KEY_TYPES).nullish(),
       pix_key: z.string().trim().max(77),
       pix_name: z.string().trim().max(60),
       pix_city: z.string().trim().max(40),
     }),
     req.body,
   );
-  savePlatformSettings(b);
-  res.json(platformSettings());
+  // Chave no formato que os bancos aceitam no PIX copia e cola (ex.: celular como +55...).
+  let key = '';
+  if (b.pix_key) {
+    key = normalizePixKey(pix_type ?? guessPixKeyType(b.pix_key), b.pix_key) ?? '';
+    if (!key) throw new HttpError(400, 'Chave PIX inválida para o tipo escolhido.');
+  }
+  savePlatformSettings({ ...b, pix_key: key });
+  res.json(settingsView());
 });
 
 masterRouter.get('/billing', (req, res) => {
@@ -345,11 +359,79 @@ masterRouter.post('/invoices/:id/pay', (req, res) => {
     }),
     req.body,
   );
-  res.json(markInvoicePaid(idParam(req), b));
+  const inv = markInvoicePaid(idParam(req), b);
+  // Pagou por fora: dá baixa também no Asaas (e pede a nota fiscal, se ligada).
+  void syncManualPayment(inv.id);
+  res.json(inv);
 });
 
-masterRouter.post('/invoices/:id/cancel', (req, res) => {
-  res.json(cancelInvoice(idParam(req)));
+masterRouter.post('/invoices/:id/cancel', async (req, res) => {
+  res.json(await cancelInvoiceEverywhere(idParam(req)));
+});
+
+/** Tenta de novo a nota fiscal de uma mensalidade paga. */
+masterRouter.post('/invoices/:id/nfse', async (req, res) => {
+  const id = idParam(req);
+  run('UPDATE invoices SET nfse_error = NULL WHERE id = ?', [id]);
+  const ok = await issueNfse(id);
+  const inv = invoice(id);
+  if (!ok && inv.nfse_error) throw new HttpError(502, inv.nfse_error);
+  res.json(inv);
+});
+
+// ---------- cobrança automática pelo Asaas (PIX com baixa automática e nota fiscal)
+
+const asaasView = () => {
+  const s = asaasSettings();
+  return {
+    env: s.env,
+    hasKey: Boolean(s.apiKey),
+    keyHint: s.apiKey ? `••••${s.apiKey.slice(-4)}` : null,
+    webhookUrl: `${config.appUrl}/api/webhooks/asaas`,
+    webhookToken: s.webhookToken || null,
+    nfse: s.nfse,
+    shopsWithoutDocument: all<{ id: number; name: string }>(
+      'SELECT id, name FROM barbershops WHERE active = 1 AND billing_document IS NULL ORDER BY name COLLATE NOCASE',
+    ),
+  };
+};
+
+masterRouter.get('/asaas', (_req, res) => {
+  res.json(asaasView());
+});
+
+masterRouter.put('/asaas', (req, res) => {
+  const b = parseBody(
+    z.object({
+      env: z.enum(['sandbox', 'production']),
+      apiKey: z.string().trim().max(300).nullish(),
+      nfse: z.object({
+        enabled: z.boolean(),
+        serviceName: z.string().trim().max(250),
+        serviceCode: z.string().trim().max(30),
+        iss: z.number().min(0).max(10),
+        observations: z.string().trim().max(500),
+      }),
+    }),
+    req.body,
+  );
+  if (b.nfse.enabled && !b.nfse.serviceName) throw new HttpError(400, 'Para emitir a nota, informe o serviço (como está no cadastro da prefeitura).');
+  saveAsaasSettings({ env: b.env, apiKey: b.apiKey || null, nfse: b.nfse });
+  res.json(asaasView());
+});
+
+masterRouter.post('/asaas/test', async (_req, res) => {
+  try {
+    await testAsaas();
+  } catch (err) {
+    throw new HttpError(502, (err as Error).message);
+  }
+  res.json({ ok: true });
+});
+
+masterRouter.post('/asaas/token', (_req, res) => {
+  rotateWebhookToken();
+  res.json(asaasView());
 });
 
 // ---------- avisos e atualizações para as barbearias

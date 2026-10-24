@@ -782,6 +782,29 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbershops ADD COLUMN birthday_enabled INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE barbershops ADD COLUMN birthday_offer_id INTEGER REFERENCES offers(id) ON DELETE SET NULL;
   `,
+  // 8) Mensalidade cobrada pelo Asaas (PIX com baixa automática e nota fiscal) e lembrete da fatura no WhatsApp.
+  `
+  -- Dados da barbearia para a cobrança e a nota fiscal (CPF ou CNPJ só com números).
+  ALTER TABLE barbershops ADD COLUMN billing_document TEXT;
+  ALTER TABLE barbershops ADD COLUMN billing_name TEXT;
+  ALTER TABLE barbershops ADD COLUMN billing_email TEXT;
+  ALTER TABLE barbershops ADD COLUMN asaas_customer_id TEXT;
+
+  ALTER TABLE invoices ADD COLUMN asaas_payment_id TEXT;
+  ALTER TABLE invoices ADD COLUMN asaas_invoice_url TEXT;
+  ALTER TABLE invoices ADD COLUMN asaas_pix_payload TEXT;
+  ALTER TABLE invoices ADD COLUMN asaas_pix_qr TEXT;
+  ALTER TABLE invoices ADD COLUMN asaas_error TEXT;
+  CREATE UNIQUE INDEX invoices_asaas ON invoices (asaas_payment_id) WHERE asaas_payment_id IS NOT NULL;
+  -- Nota fiscal de serviço emitida pelo Asaas depois do pagamento.
+  ALTER TABLE invoices ADD COLUMN nfse_id TEXT;
+  ALTER TABLE invoices ADD COLUMN nfse_status TEXT;
+  ALTER TABLE invoices ADD COLUMN nfse_url TEXT;
+  ALTER TABLE invoices ADD COLUMN nfse_error TEXT;
+  -- Lembretes da fatura pelo WhatsApp da plataforma (antes de vencer e depois de vencida).
+  ALTER TABLE invoices ADD COLUMN reminded_at TEXT;
+  ALTER TABLE invoices ADD COLUMN overdue_reminded_at TEXT;
+  `,
 ];
 
 function migrate(): void {

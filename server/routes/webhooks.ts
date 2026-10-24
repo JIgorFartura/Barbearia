@@ -1,4 +1,5 @@
 import { Router, type Request } from 'express';
+import { handleAsaasEvent } from '../asaas.js';
 import { handleInbound } from '../bot/inbound.js';
 import { setConnection } from '../connection.js';
 import { get } from '../db.js';
@@ -61,4 +62,9 @@ webhooksRouter.post('/evolution/:token', (req, res) => {
     return;
   }
   processLater(shop, parseEvolutionWebhook(req.body));
+});
+
+/** Avisos do Asaas (mensalidade paga, nota fiscal emitida). O token vem no cabeçalho asaas-access-token. */
+webhooksRouter.post('/asaas', (req, res) => {
+  res.json(handleAsaasEvent(req.get('asaas-access-token') ?? undefined, req.body ?? {}));
 });

@@ -114,12 +114,20 @@ export interface InvoiceView {
   method: string | null;
   notes: string | null;
   informed_at: string | null;
+  /** Cobrança criada no Asaas (baixa automática). */
+  asaas: number;
+  asaas_invoice_url: string | null;
+  asaas_error: string | null;
+  nfse_status: string | null;
+  nfse_url: string | null;
+  nfse_error: string | null;
   overdue: boolean;
 }
 
 const INVOICE_SELECT = `
   SELECT i.id, i.barbershop_id, b.name AS shop_name, i.reference, i.description, i.amount_cents, i.due_date, i.status,
-         i.paid_at, i.method, i.notes, i.informed_at
+         i.paid_at, i.method, i.notes, i.informed_at, i.asaas_payment_id IS NOT NULL AS asaas, i.asaas_invoice_url, i.asaas_error,
+         i.nfse_status, i.nfse_url, i.nfse_error
     FROM invoices i JOIN barbershops b ON b.id = i.barbershop_id`;
 
 const withOverdue = (i: Omit<InvoiceView, 'overdue'>, today: string): InvoiceView => ({ ...i, overdue: i.status === 'open' && i.due_date < today });
@@ -201,6 +209,42 @@ export function createInvoice(shopId: number, data: { description: string; amoun
     nowIso(),
   ]).lastInsertRowid;
   return invoice(id);
+}
+
+/** CPF ou CNPJ válido (dígitos verificadores), só números. */
+export function validTaxId(digits: string): boolean {
+  if (!/^\d{11}$|^\d{14}$/.test(digits) || /^(\d)\1+$/.test(digits)) return false;
+  const check = (base: string, weights: number[]) => {
+    const sum = weights.reduce((t, w, i) => t + Number(base[i]) * w, 0);
+    const r = sum % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  if (digits.length === 11) {
+    const d1 = check(digits, [10, 9, 8, 7, 6, 5, 4, 3, 2]);
+    const d2 = check(digits, [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]);
+    return d1 === Number(digits[9]) && d2 === Number(digits[10]);
+  }
+  const d1 = check(digits, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const d2 = check(digits, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return d1 === Number(digits[12]) && d2 === Number(digits[13]);
+}
+
+/** Dados da barbearia para a cobrança e a nota fiscal. */
+export function billingInfo(shopId: number) {
+  return get<{ billing_document: string | null; billing_name: string | null; billing_email: string | null }>(
+    'SELECT billing_document, billing_name, billing_email FROM barbershops WHERE id = ?',
+    [shopId],
+  )!;
+}
+
+export function saveBillingInfo(shopId: number, data: { document: string; name: string; email: string | null }) {
+  const digits = data.document.replace(/\D/g, '');
+  if (!validTaxId(digits)) throw new HttpError(400, 'CPF ou CNPJ inválido.');
+  const before = billingInfo(shopId);
+  run('UPDATE barbershops SET billing_document = ?, billing_name = ?, billing_email = ? WHERE id = ?', [digits, data.name, data.email, shopId]);
+  // Mudou o documento: o cadastro no Asaas é refeito na próxima cobrança.
+  if (before.billing_document !== digits) run('UPDATE barbershops SET asaas_customer_id = NULL WHERE id = ?', [shopId]);
+  return billingInfo(shopId);
 }
 
 /** Barbearia avisa que pagou (o master confere e confirma). */

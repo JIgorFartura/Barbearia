@@ -75,6 +75,15 @@ export function normalizePixKey(type: PixKeyType, value: string): string | null 
   }
 }
 
+/** Tipo provável de uma chave digitada sem o tipo (e-mail, aleatória, +55... ou CPF/CNPJ). */
+export function guessPixKeyType(raw: string): PixKeyType {
+  const v = raw.trim();
+  if (v.includes('@')) return 'email';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(v)) return 'aleatoria';
+  if (v.startsWith('+') || v.includes('(')) return 'celular';
+  return 'cpf';
+}
+
 /** Tipo de uma chave já salva (para a tela). */
 export function pixKeyType(key: string): PixKeyType {
   if (key.startsWith('+55')) return 'celular';

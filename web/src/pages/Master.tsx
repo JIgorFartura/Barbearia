@@ -29,6 +29,7 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
+import { AsaasCard } from './master/AsaasCard';
 import { api } from '../lib/api';
 import { centsToInput, parseMoney } from '../lib/finance';
 import { addDays, date, money, phone as fmtPhone, todayStr } from '../lib/format';
@@ -683,6 +684,12 @@ interface Invoice {
   paid_at: string | null;
   method: string | null;
   informed_at: string | null;
+  /** Cobrança no Asaas (baixa automática) e nota fiscal. */
+  asaas: number;
+  asaas_error: string | null;
+  nfse_status: string | null;
+  nfse_url: string | null;
+  nfse_error: string | null;
   overdue: boolean;
 }
 
@@ -700,6 +707,7 @@ interface Revenue {
 interface Settings {
   grace_days: number;
   trial_days: number;
+  pix_type: 'cpf' | 'celular' | 'email' | 'aleatoria';
   pix_key: string;
   pix_name: string;
   pix_city: string;
@@ -780,7 +788,26 @@ function BillingTab() {
                     <p className="text-xs text-zinc-500">
                       vence {date(i.due_date)}
                       {i.informed_at && i.status === 'open' && <span className="text-emerald-700"> · pagamento informado {date(i.informed_at)}</span>}
+                      {Boolean(i.asaas) && ' · PIX Asaas (baixa automática)'}
+                      {i.nfse_url && (
+                        <>
+                          {' · '}
+                          <a href={i.nfse_url} target="_blank" rel="noreferrer" className="font-medium text-zinc-700 underline">
+                            nota fiscal
+                          </a>
+                        </>
+                      )}
+                      {!i.nfse_url && i.nfse_status && ` · nota ${i.nfse_status.toLowerCase()}`}
                     </p>
+                    {i.asaas_error && i.status === 'open' && <p className="text-xs text-red-600">Asaas: {i.asaas_error}</p>}
+                    {i.nfse_error && (
+                      <p className="text-xs text-red-600">
+                        Nota fiscal: {i.nfse_error}{' '}
+                        <button className="font-medium underline" onClick={() => api('POST', `/api/master/invoices/${i.id}/nfse`).then(load, (e) => alert(e.message))}>
+                          Tentar de novo
+                        </button>
+                      </p>
+                    )}
                   </div>
                   <span className="flex items-center gap-2">
                     <b className="whitespace-nowrap tabular-nums">{money(i.amount_cents)}</b>
@@ -838,6 +865,7 @@ function BillingTab() {
         </Card>
         <SettingsCard />
       </div>
+      <AsaasCard />
 
       {paying && (
         <PayInvoiceModal
@@ -902,9 +930,19 @@ function SettingsCard() {
         }}
       >
         <p className="font-semibold">Recebimento e regras</p>
-        <Field label="Sua chave PIX" hint="As faturas mostram QR Code e PIX copia e cola com o valor certo.">
-          <Input value={s.pix_key} placeholder="CPF/CNPJ, e-mail, celular ou chave aleatória" onChange={(e) => set('pix_key', e.target.value)} />
-        </Field>
+        <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
+          <Field label="Tipo de chave">
+            <select className={inputClass} value={s.pix_type} onChange={(e) => set('pix_type', e.target.value as Settings['pix_type'])}>
+              <option value="cpf">CPF ou CNPJ</option>
+              <option value="celular">Celular</option>
+              <option value="email">E-mail</option>
+              <option value="aleatoria">Chave aleatória</option>
+            </select>
+          </Field>
+          <Field label="Sua chave PIX" hint="As faturas mostram QR Code e PIX copia e cola com o valor certo (sem Asaas, você confirma à mão).">
+            <Input value={s.pix_key} placeholder="Chave cadastrada no seu banco" onChange={(e) => set('pix_key', e.target.value)} />
+          </Field>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Nome do recebedor">
             <Input value={s.pix_name} onChange={(e) => set('pix_name', e.target.value)} />
