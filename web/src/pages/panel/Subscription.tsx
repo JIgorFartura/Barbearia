@@ -1,5 +1,6 @@
 import { Copy, CreditCard, Lock } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useReloadOnBack } from '../../components/OnlinePay';
 import { Badge, Button, Card, ErrorText, Field, Input } from '../../components/ui';
 import { api } from '../../lib/api';
 import { date, money } from '../../lib/format';
@@ -26,10 +27,12 @@ interface SubscriptionData {
   graceDays: number;
   blockOn: string | null;
   /**
-   * Fatura em aberto. Com o Asaas: página de pagamento (PIX, cartão de crédito ou boleto) e PIX com baixa
-   * automática (auto). Sem ele: PIX do master, confirmado à mão.
+   * Fatura em aberto. Com o Asaas: PIX com baixa automática (auto) e a página do Asaas. Sem ele: PIX do
+   * master, confirmado à mão. byCard: será cobrada sozinha no cartão automático (Cielo).
    */
-  current: (Invoice & { pix: { payload: string; qr: string; auto?: boolean } | null; payUrl: string | null; pixError: string | null }) | null;
+  current: (Invoice & { pix: { payload: string; qr: string; auto?: boolean } | null; payUrl: string | null; pixError: string | null; byCard: boolean }) | null;
+  /** Cartão automático pela Cielo: a mensalidade é cobrada sozinha todo mês, no mesmo dia. */
+  card: { available: boolean; active: boolean; amount_cents: number | null; since: string | null; last_paid_at: string | null; error: string | null };
   invoices: Invoice[];
   billing: { auto: boolean; needsDocument: boolean; billing_document: string | null; billing_name: string | null; billing_email: string | null };
 }
@@ -40,15 +43,41 @@ export function Subscription() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingInfo, setEditingInfo] = useState(false);
+  const [busy, setBusy] = useState(false);
   const load = useCallback(() => {
     api<SubscriptionData>('GET', '/api/shop/subscription').then(setData, (e) => setError(e.message));
   }, []);
   useEffect(load, [load]);
+  useReloadOnBack();
 
   if (!data) return <ErrorText error={error} />;
   const cur = data.current;
+  const card = data.card;
   // Pelo Asaas a fatura é baixada sozinha quando o pagamento cai (sem "Já paguei").
   const auto = Boolean(cur && (cur.payUrl || cur.pix?.auto));
+
+  /** Abre a página da Cielo: paga a fatura em aberto e deixa o cartão cadastrado para os próximos meses. */
+  async function payByCard() {
+    setBusy(true);
+    setError(null);
+    try {
+      location.assign((await api<{ url: string }>('POST', '/api/shop/subscription/card')).url);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
+  async function stopCard() {
+    if (!confirm('Desligar a cobrança automática no cartão? As próximas mensalidades você paga pelo PIX ou cadastra o cartão de novo.')) return;
+    setError(null);
+    try {
+      await api('DELETE', '/api/shop/subscription/card');
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
   const today = new Date().toLocaleDateString('en-CA');
 
   return (
@@ -89,6 +118,22 @@ export function Subscription() {
         />
       )}
 
+      {card.active && (
+        <Card className="max-w-xl space-y-2">
+          <p className="flex items-center gap-2 font-semibold">
+            <CreditCard className="size-4 text-emerald-600" /> Cartão automático ligado
+          </p>
+          <p className="text-sm text-zinc-600">
+            A Cielo cobra {card.amount_cents ? money(card.amount_cents) : 'a mensalidade'} todo mês, no vencimento (dia {data.billing_day}).
+            {card.last_paid_at && ` Último pagamento: ${date(card.last_paid_at)}.`}
+          </p>
+          {card.error && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{card.error}</p>}
+          <button className="text-xs text-zinc-500 underline hover:text-red-600" onClick={stopCard}>
+            Desligar o cartão automático
+          </button>
+        </Card>
+      )}
+
       {cur ? (
         <Card className="max-w-xl space-y-4">
           <div className="flex items-start justify-between gap-3">
@@ -104,6 +149,22 @@ export function Subscription() {
           {!data.blocked && cur.overdue && data.blockOn && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">⚠ Pague até {date(data.blockOn)} para não ter o acesso suspenso.</p>
           )}
+          {cur.byCard && (
+            <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              <CreditCard className="size-4 shrink-0" /> Será cobrada sozinha no cartão, no vencimento ({date(cur.due_date)}).
+            </p>
+          )}
+          {card.available && !cur.byCard && (
+            <div className="space-y-1">
+              <Button className="w-full" loading={busy} onClick={payByCard}>
+                <CreditCard className="size-4" /> {card.active ? 'Usar outro cartão' : 'Pagar no cartão e deixar automático'}
+              </Button>
+              <p className="text-center text-xs text-zinc-500">
+                Página segura da Cielo. Ela cobra o mesmo valor todo mês, no mesmo dia (a mensalidade passa a vencer nesse dia). Desligue quando quiser.
+              </p>
+            </div>
+          )}
+          {card.available && !cur.byCard && cur.pix && <p className="text-center text-xs text-zinc-400">ou pague este mês no PIX</p>}
           {cur.pix && (
             <div className="grid items-center gap-4 sm:grid-cols-[180px_1fr]">
               <img src={cur.pix.qr} alt="QR Code PIX" className="mx-auto size-44 rounded-lg ring-1 ring-zinc-200" />
@@ -123,7 +184,7 @@ export function Subscription() {
               </div>
             </div>
           )}
-          {cur.payUrl && (
+          {cur.payUrl && !card.available && (
             <a
               href={cur.payUrl}
               target="_blank"
@@ -133,8 +194,8 @@ export function Subscription() {
               <CreditCard className="size-4" /> {cur.pix ? 'Pagar com cartão ou boleto' : 'Pagar com cartão, boleto ou PIX'}
             </a>
           )}
-          {!cur.pix && !cur.payUrl && <p className="text-sm text-zinc-500">Fale com o administrador da plataforma para receber os dados de pagamento.</p>}
-          {auto && (
+          {!cur.pix && !cur.payUrl && !card.available && <p className="text-sm text-zinc-500">Fale com o administrador da plataforma para receber os dados de pagamento.</p>}
+          {auto && !cur.byCard && (
             <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
               A confirmação é automática: alguns minutos depois do pagamento, a fatura fica paga sozinha (no cartão, na hora da aprovação).
             </p>
@@ -154,7 +215,9 @@ export function Subscription() {
       ) : (
         <Card className="max-w-xl">
           <p className="font-semibold">Tudo em dia ✓</p>
-          <p className="text-sm text-zinc-500">Nenhuma fatura em aberto.</p>
+          <p className="text-sm text-zinc-500">
+            Nenhuma fatura em aberto.{card.available && !card.active ? ' Na próxima mensalidade, você pode pagar no cartão e deixar automático.' : ''}
+          </p>
         </Card>
       )}
 

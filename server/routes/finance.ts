@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { shopId } from '../auth.js';
 import { accessStatus, billingInfo, informPayment, invoice, invoicePix, listInvoices, saveBillingInfo, shopBilling, monthlyPrice } from '../billing.js';
 import { asaasEnabled, asaasPix, chargeInvoice } from '../asaas.js';
+import { cancelSubscriptionCard, subscriptionCardLink, subscriptionCardState } from '../cards.js';
 import { connectionInfo } from '../connection.js';
 import { availableQty } from '../stock.js';
 import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
@@ -78,12 +79,15 @@ export function registerFinanceRoutes(router: Router): void {
     const current = status.open[0] ?? null;
     const auto = asaasEnabled();
     const info = billingInfo(shop);
+    // Cartão automático (Cielo): a fatura do mês é cobrada sozinha no cartão, no dia de vencimento.
+    const card = subscriptionCardState(shop);
+    const byCard = Boolean(current && card.active && !current.overdue);
     // Com o Asaas: PIX com baixa automática (precisa do CPF/CNPJ). Sem ele: PIX do master, confirmado à mão.
     let pix: { payload: string; qr: string } | null = null;
     // Página do Asaas da fatura: PIX, cartão de crédito ou boleto, com baixa automática.
     let payUrl: string | null = null;
     let pixError: string | null = null;
-    if (current && auto && info.billing_document) {
+    if (current && auto && info.billing_document && !byCard) {
       const r = await asaasPix(current);
       if (r && 'url' in r) {
         payUrl = r.url;
@@ -91,7 +95,7 @@ export function registerFinanceRoutes(router: Router): void {
       } else pixError = r?.error ?? null;
     }
     const autoPix = Boolean(pix);
-    if (current && !pix && !payUrl) pix = await invoicePix(current);
+    if (current && !pix && !payUrl && !byCard) pix = await invoicePix(current);
     res.json({
       plan: s.plan_name,
       price_cents: monthlyPrice(s),
@@ -100,10 +104,21 @@ export function registerFinanceRoutes(router: Router): void {
       blocked: status.blocked,
       graceDays: status.graceDays,
       blockOn: status.blockOn,
-      current: current ? { ...current, pix: pix && { ...pix, auto: autoPix }, payUrl, pixError } : null,
+      current: current ? { ...current, pix: pix && { ...pix, auto: autoPix }, payUrl, pixError, byCard } : null,
+      card,
       invoices,
       billing: { auto, needsDocument: auto && !info.billing_document, ...info },
     });
+  });
+
+  /** Cartão automático da mensalidade (Cielo): devolve o link para cadastrar o cartão e pagar a fatura em aberto. */
+  router.post('/subscription/card', async (req, res) => {
+    res.json(await subscriptionCardLink(shopId(req)));
+  });
+
+  router.delete('/subscription/card', async (req, res) => {
+    await cancelSubscriptionCard(shopId(req));
+    res.json(subscriptionCardState(shopId(req)));
   });
 
   /** CPF/CNPJ e nome para a cobrança automática e a nota fiscal da mensalidade. */

@@ -70,8 +70,8 @@ export function TermsPage() {
       <ul>
         <li>O valor, o dia de vencimento e o período grátis (se houver) são combinados na contratação e aparecem no painel, na tela Mensalidade.</li>
         <li>
-          Quando a cobrança é feita pelo Asaas, a mensalidade pode ser paga por PIX, cartão de crédito ou boleto, numa página do Asaas, e a confirmação é
-          automática.
+          A mensalidade pode ser paga no cartão de crédito pela Cielo, com cobrança automática todo mês no mesmo dia (a barbearia desliga quando quiser), ou
+          por PIX. A confirmação dos pagamentos no cartão e no PIX pelo Asaas é automática.
         </li>
         <li>
           Com a mensalidade vencida além da carência informada no painel, o painel fica limitado à tela de pagamento e o robô responde só por menu até a
@@ -79,23 +79,20 @@ export function TermsPage() {
         </li>
         <li>A barbearia pode cancelar quando quiser; o mês em curso não é devolvido.</li>
       </ul>
-      <h2>4. Pagamentos online dos clientes</h2>
+      <h2>4. Pagamentos dos clientes no cartão</h2>
       <ul>
         <li>
-          Quando a plataforma libera, a barbearia pode oferecer aos clientes o pagamento com cartão (e, no clube de assinatura, também boleto ou PIX) pelo
-          Asaas. Para isso, a barbearia mantém uma conta própria no Asaas, sujeita às regras do Asaas.
+          A barbearia pode oferecer aos clientes o pagamento no cartão pela Cielo: o clube de assinatura com cobrança automática todo mês e o sinal do horário.
+          Para isso, a barbearia mantém uma conta própria na Cielo, sujeita às regras da Cielo, e informa no painel as credenciais da API dessa conta.
+        </li>
+        <li>O dinheiro vai direto para a conta Cielo da barbearia: {l.company} não recebe nem repassa esses valores.</li>
+        <li>
+          Os dados do cartão são digitados só na página da Cielo: a plataforma não recebe nem guarda dados de cartão. Na cobrança automática, quem guarda o
+          cartão é a Cielo.
         </li>
         <li>
-          O pagamento entra na conta Asaas de {l.company} e é repassado automaticamente para a conta Asaas da barbearia, descontadas as taxas do Asaas e a taxa
-          da plataforma informada no painel.
-        </li>
-        <li>
-          Os dados do cartão são digitados só na página do Asaas: a plataforma não recebe nem guarda dados de cartão. O CPF pedido ao cliente é repassado ao
-          Asaas e não fica guardado na plataforma.
-        </li>
-        <li>
-          A barbearia responde pela relação com o cliente que pagou online, inclusive devoluções, contestações e notas fiscais. Estornos feitos pelo Asaas
-          tiram da conta da barbearia o valor repassado.
+          A barbearia responde pela relação com o cliente que pagou no cartão, inclusive devoluções, contestações, notas fiscais e o cancelamento da cobrança
+          automática no site da Cielo quando o sistema avisar que não conseguiu cancelar.
         </li>
       </ul>
       <h2>5. WhatsApp e mensagens aos clientes</h2>
@@ -115,12 +112,12 @@ export function TermsPage() {
         </li>
         <li>
           A administração da plataforma não tem acesso pelo sistema à agenda, aos barbeiros, aos clientes nem às conversas da barbearia: cuida só do cadastro, do
-          acesso do dono, da mensalidade e dos pagamentos online (valores, formas de pagamento e repasses, sem o nome dos clientes). As cópias de segurança só
-          podem ser baixadas criptografadas, para restaurar o serviço.
+          acesso do dono, da mensalidade e dos pagamentos online (valores e formas de pagamento, sem o nome dos clientes). As cópias de segurança só podem ser
+          baixadas criptografadas, para restaurar o serviço.
         </li>
         <li>
           {l.company} usa fornecedores necessários ao serviço (hospedagem, armazenamento das cópias de segurança, envio de mensagens de WhatsApp, processamento
-          de pagamentos pelo Asaas e, quando ligada, a inteligência artificial que interpreta as mensagens recebidas pelo robô).
+          de pagamentos pela Cielo e pelo Asaas e, quando ligada, a inteligência artificial que interpreta as mensagens recebidas pelo robô).
         </li>
         <li>
           A barbearia mantém a sua política de privacidade (a plataforma publica uma no site da barbearia) e atende aos pedidos dos clientes; o painel tem as
@@ -171,12 +168,12 @@ export function PrivacyPage() {
       <ul>
         <li>De quem usa o painel (donos, gerentes e barbeiros): nome, e-mail, celular, senha (guardada criptografada), registros de acesso e ações feitas no painel.</li>
         <li>
-          Da barbearia, para a mensalidade, a nota fiscal e os repasses dos pagamentos online: CPF ou CNPJ, nome ou razão social, e-mail para a nota e o
-          identificador da carteira (Wallet ID) da conta Asaas.
+          Da barbearia, para a mensalidade e a nota fiscal: CPF ou CNPJ, nome ou razão social e e-mail para a nota; para receber dos clientes no cartão, as
+          credenciais da API da conta Cielo dela (guardadas no servidor e nunca mostradas de volta).
         </li>
         <li>
-          Dos pagamentos online: valor, forma de pagamento, situação e repasse. Os dados do cartão são digitados só na página do Asaas; não recebemos nem
-          guardamos dados de cartão.
+          Dos pagamentos online: valor, forma de pagamento e situação. Os dados do cartão são digitados só na página da Cielo; não recebemos nem guardamos dados
+          de cartão.
         </li>
         <li>
           Dos clientes das barbearias: tratamos em nome de cada barbearia, que é a controladora. A política de cada barbearia fica no site dela, no link
@@ -192,8 +189,8 @@ export function PrivacyPage() {
       </ul>
       <h2>4. Com quem compartilhamos</h2>
       <p>
-        Só com fornecedores necessários: hospedagem e armazenamento de cópias de segurança, envio de mensagens de WhatsApp, processamento de pagamentos e notas
-        fiscais (Asaas) e, quando ligada, a inteligência artificial que lê as mensagens recebidas pelo robô para respondê-las. Não vendemos dados pessoais.
+        Só com fornecedores necessários: hospedagem e armazenamento de cópias de segurança, envio de mensagens de WhatsApp, processamento de pagamentos (Cielo e
+        Asaas), notas fiscais (Asaas) e, quando ligada, a inteligência artificial que lê as mensagens recebidas pelo robô para respondê-las. Não vendemos dados pessoais.
       </p>
       <h2>5. Por quanto tempo</h2>
       <p>
@@ -223,7 +220,7 @@ interface ShopPolicy {
   legal: Legal;
   ai: boolean;
   whatsapp: boolean;
-  /** Aceita pagamento com cartão pelo Asaas. */
+  /** Aceita pagamento no cartão pela Cielo. */
   online: boolean;
 }
 
@@ -257,8 +254,8 @@ export function ShopPrivacyPage({ slug }: { slug: string }) {
       </ul>
       {p.online && (
         <p>
-          Se você pagar online (cartão), os dados do cartão são digitados só na página segura do Asaas, que processa o pagamento: a barbearia e o sistema não
-          recebem nem guardam esses dados. O CPF pedido para o pagamento é repassado ao Asaas e não fica guardado no sistema da barbearia.
+          Se você pagar no cartão, os dados do cartão são digitados só na página segura da Cielo, que processa o pagamento: a barbearia e o sistema não recebem
+          nem guardam esses dados. No clube, quem guarda o cartão para a cobrança automática de cada mês é a Cielo; você cancela quando quiser, pela sua área.
         </p>
       )}
       <h2>3. Para que usamos</h2>
@@ -283,7 +280,7 @@ export function ShopPrivacyPage({ slug }: { slug: string }) {
       )}
       <h2>{p.ai ? 5 : 4}. Com quem compartilhamos</h2>
       <p>
-        Só com os fornecedores necessários: o sistema da barbearia, o WhatsApp, a hospedagem{p.online ? ', o Asaas (quando você paga online)' : ''}
+        Só com os fornecedores necessários: o sistema da barbearia, o WhatsApp, a hospedagem{p.online ? ', a Cielo (quando você paga no cartão)' : ''}
         {p.ai ? ' e a inteligência artificial do robô' : ''}. Parceiros da barbearia só veem o voucher que você apresentar. Não vendemos seus dados.
       </p>
       <h2>{p.ai ? 6 : 5}. Bases legais</h2>

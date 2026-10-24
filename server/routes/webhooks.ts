@@ -1,5 +1,6 @@
-import { Router, type Request } from 'express';
+import express, { Router, type Request } from 'express';
 import { handleAsaasEvent } from '../asaasWebhook.js';
+import { handleCieloNotice } from '../cards.js';
 import { handleInbound } from '../bot/inbound.js';
 import { setConnection } from '../connection.js';
 import { get } from '../db.js';
@@ -62,6 +63,14 @@ webhooksRouter.post('/evolution/:token', (req, res) => {
     return;
   }
   processLater(shop, parseEvolutionWebhook(req.body));
+});
+
+/**
+ * Avisos da Cielo (pagamento no cartão e mudança de situação). Cada recebedor tem a sua URL, com um
+ * segredo; os dados vêm como formulário (ou JSON, com o endereço para buscar o pagamento).
+ */
+webhooksRouter.post('/cielo/:token', express.urlencoded({ extended: false, limit: '64kb' }), async (req, res) => {
+  res.json(await handleCieloNotice(String(req.params.token ?? ''), req.body ?? {}));
 });
 
 /** Avisos do Asaas (mensalidade paga, nota fiscal emitida). O token vem no cabeçalho asaas-access-token. */

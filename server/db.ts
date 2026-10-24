@@ -849,6 +849,53 @@ const MIGRATIONS: (string | Rebuild)[] = [
   -- Cadastro do cliente no Asaas (o CPF fica só lá, não no sistema).
   ALTER TABLE customers ADD COLUMN asaas_customer_id TEXT;
   `,
+  // 11) Cartão pela Cielo (Link de Pagamento): menor taxa, dinheiro em 1 dia útil e cobrança recorrente.
+  //     Cada recebedor usa a própria conta Cielo: a plataforma (mensalidade) e cada barbearia (clube e
+  //     sinal). Sai o cartão pelo Asaas com repasse (a Cielo não divide o pagamento).
+  `
+  CREATE TABLE card_links (
+    id INTEGER PRIMARY KEY,
+    -- Quem recebe: a plataforma (mensalidade das barbearias) ou a barbearia (clube e sinal dos clientes).
+    receiver TEXT NOT NULL CHECK (receiver IN ('platform', 'shop')),
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('mensalidade', 'clube', 'sinal')),
+    -- Recorrente: a Cielo guarda o cartão e cobra sozinha todo mês.
+    recurrent INTEGER NOT NULL DEFAULT 0,
+    link_id TEXT NOT NULL UNIQUE,
+    sku TEXT NOT NULL,
+    url TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    charge_id INTEGER REFERENCES charges(id) ON DELETE SET NULL,
+    club_member_id INTEGER REFERENCES club_members(id) ON DELETE SET NULL,
+    -- open: esperando o 1º pagamento · active: cobrança mensal ligada · paid: avulso pago · cancelled
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'active', 'paid', 'cancelled')),
+    recurrent_payment_id TEXT,
+    last_paid_at TEXT,
+    -- Última recusa do cartão (ou falha ao cancelar na Cielo), para o painel mostrar.
+    error TEXT,
+    checked_at TEXT,
+    created_at TEXT NOT NULL,
+    cancelled_at TEXT
+  );
+  CREATE INDEX card_links_shop ON card_links (barbershop_id, kind, status);
+  CREATE INDEX card_links_member ON card_links (club_member_id);
+  CREATE INDEX card_links_recurrent ON card_links (recurrent_payment_id);
+  ALTER TABLE gateway_payments ADD COLUMN card_link_id INTEGER REFERENCES card_links(id) ON DELETE SET NULL;
+
+  -- Conta Cielo da barbearia (credenciais da API do Link de Pagamento) e a taxa para lançar no caixa.
+  ALTER TABLE barbershops ADD COLUMN cielo_client_id TEXT;
+  ALTER TABLE barbershops ADD COLUMN cielo_client_secret TEXT;
+  ALTER TABLE barbershops ADD COLUMN cielo_webhook_token TEXT;
+  ALTER TABLE barbershops ADD COLUMN cielo_webhook_at TEXT;
+  ALTER TABLE barbershops ADD COLUMN cielo_fee_pct REAL NOT NULL DEFAULT 3.48;
+  ALTER TABLE barbershops ADD COLUMN card_enabled INTEGER NOT NULL DEFAULT 0;
+  CREATE UNIQUE INDEX barbershops_cielo_token ON barbershops (cielo_webhook_token);
+
+  ALTER TABLE barbershops DROP COLUMN asaas_wallet_id;
+  ALTER TABLE barbershops DROP COLUMN online_payments;
+  ALTER TABLE customers DROP COLUMN asaas_customer_id;
+  DELETE FROM platform_settings WHERE key IN ('online_enabled', 'online_fee_pct');
+  `,
 ];
 
 function migrate(): void {

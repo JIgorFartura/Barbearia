@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { cancelInvoice, invoice, markInvoicePaid, type InvoiceView } from './billing.js';
 import { all, get, run, tx } from './db.js';
+import { platformCardReady } from './cardSettings.js';
 import { recordGatewayPayment } from './gatewayPayments.js';
 import { HttpError } from './http.js';
 import { localNow } from './time.js';
@@ -9,7 +10,8 @@ import { localNow } from './time.js';
  * Asaas da plataforma (opcional). Cada mensalidade vira uma cobrança que a barbearia paga com PIX
  * (QR Code na tela), cartão ou boleto; quando o pagamento cai, o Asaas avisa (webhook) e a fatura é
  * baixada sozinha, liberando o acesso. Com a nota fiscal ligada, o Asaas emite a NFS-e de cada
- * mensalidade paga. Os pagamentos online dos clientes das barbearias ficam em onlinePayments.ts.
+ * mensalidade paga. Com o cartão pela Cielo ligado (taxa menor e cobrança automática todo mês), o
+ * Asaas fica só com o PIX.
  * Sem Asaas configurado, continua o PIX estático do master com confirmação manual.
  */
 
@@ -21,8 +23,6 @@ export interface AsaasSettings {
   /** Token que o Asaas manda no cabeçalho asaas-access-token de cada aviso (webhook). */
   webhookToken: string;
   nfse: { enabled: boolean; serviceName: string; serviceCode: string; iss: number; observations: string };
-  /** Pagamentos online dos clientes das barbearias (cartão), com repasse para a conta Asaas de cada uma. */
-  online: { enabled: boolean; feePct: number };
   /** Quando chegou o último aviso válido do Asaas (mostra que o webhook está ligado). */
   webhookAt: string | null;
 }
@@ -41,8 +41,6 @@ const KEYS = [
   'nfse_service_code',
   'nfse_iss',
   'nfse_observations',
-  'online_enabled',
-  'online_fee_pct',
   'asaas_webhook_at',
 ];
 
@@ -60,7 +58,6 @@ export function asaasSettings(): AsaasSettings {
       iss: Number(m.nfse_iss ?? 0),
       observations: m.nfse_observations ?? '',
     },
-    online: { enabled: m.online_enabled === '1', feePct: Number(m.online_fee_pct ?? 0) },
     webhookAt: m.asaas_webhook_at ?? null,
   };
 }
@@ -68,7 +65,7 @@ export function asaasSettings(): AsaasSettings {
 const setKey = (key: string, value: string) =>
   run('INSERT INTO platform_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, value]);
 
-export function saveAsaasSettings(s: { env: AsaasEnv; apiKey?: string | null; nfse: AsaasSettings['nfse']; online?: AsaasSettings['online'] }): AsaasSettings {
+export function saveAsaasSettings(s: { env: AsaasEnv; apiKey?: string | null; nfse: AsaasSettings['nfse'] }): AsaasSettings {
   tx(() => {
     setKey('asaas_env', s.env);
     // Chave em branco = mantém a atual (a tela nunca recebe a chave de volta).
@@ -79,10 +76,6 @@ export function saveAsaasSettings(s: { env: AsaasEnv; apiKey?: string | null; nf
     setKey('nfse_service_code', s.nfse.serviceCode);
     setKey('nfse_iss', String(s.nfse.iss));
     setKey('nfse_observations', s.nfse.observations);
-    if (s.online) {
-      setKey('online_enabled', s.online.enabled ? '1' : '0');
-      setKey('online_fee_pct', String(s.online.feePct));
-    }
   });
   return asaasSettings();
 }
@@ -194,8 +187,9 @@ export async function chargeInvoice(invoiceId: number): Promise<boolean> {
       const today = localNow().date;
       const p = await asaasCall<{ id: string; invoiceUrl: string | null }>('POST', '/payments', {
         customer,
-        // Indefinida: na página do Asaas a barbearia escolhe PIX, cartão de crédito ou boleto.
-        billingType: 'UNDEFINED',
+        // Indefinida: na página do Asaas a barbearia escolhe PIX, cartão ou boleto. Com o cartão pela
+        // Cielo (mais barato e automático), o Asaas fica só com o PIX.
+        billingType: platformCardReady() ? 'PIX' : 'UNDEFINED',
         value: inv.amount_cents / 100,
         // O Asaas não aceita vencimento no passado (fatura já vencida vence hoje).
         dueDate: inv.due_date < today ? today : inv.due_date,
@@ -232,6 +226,7 @@ export async function syncAsaasCharges(limit = 20): Promise<number> {
   const pending = all<{ id: number }>(
     `SELECT i.id FROM invoices i JOIN barbershops b ON b.id = i.barbershop_id
       WHERE i.status = 'open' AND (i.asaas_payment_id IS NULL OR i.asaas_pix_payload IS NULL) AND b.billing_document IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM card_links l WHERE l.receiver = 'platform' AND l.barbershop_id = i.barbershop_id AND l.kind = 'mensalidade' AND l.status = 'active')
       ORDER BY i.due_date LIMIT ?`,
     [limit],
   );
@@ -296,14 +291,17 @@ export function invoicePaidByAsaas(invoiceId: number, p: AsaasPayment): { ok: tr
 /** Pede ao Asaas a nota fiscal (NFS-e) da mensalidade paga. Erros ficam na fatura para o master ver. */
 export async function issueNfse(invoiceId: number): Promise<boolean> {
   const s = asaasSettings();
-  const inv = get<{ id: number; description: string; amount_cents: number; asaas_payment_id: string | null; nfse_id: string | null; status: string }>(
-    'SELECT id, description, amount_cents, asaas_payment_id, nfse_id, status FROM invoices WHERE id = ?',
+  const inv = get<{ id: number; barbershop_id: number; description: string; amount_cents: number; asaas_payment_id: string | null; nfse_id: string | null; status: string }>(
+    'SELECT id, barbershop_id, description, amount_cents, asaas_payment_id, nfse_id, status FROM invoices WHERE id = ?',
     [invoiceId],
   );
-  if (!s.nfse.enabled || !inv || inv.status !== 'paid' || !inv.asaas_payment_id || inv.nfse_id) return false;
+  if (!s.nfse.enabled || !asaasEnabled() || !inv || inv.status !== 'paid' || inv.nfse_id) return false;
   try {
+    // Paga pelo Asaas: a nota fica ligada à cobrança. Paga de outro jeito (cartão pela Cielo, PIX do
+    // master): nota avulsa no cadastro da barbearia no Asaas.
+    const target = inv.asaas_payment_id ? { payment: inv.asaas_payment_id } : { customer: await ensureCustomer(inv.barbershop_id) };
     const nf = await asaasCall<{ id: string; status: string }>('POST', '/invoices', {
-      payment: inv.asaas_payment_id,
+      ...target,
       serviceDescription: inv.description,
       observations: s.nfse.observations || 'Mensalidade do sistema de gestão para barbearias.',
       value: inv.amount_cents / 100,
@@ -326,23 +324,31 @@ export async function syncManualPayment(invoiceId: number): Promise<void> {
   const inv = get<{ asaas_payment_id: string | null; amount_cents: number; paid_at: string | null }>('SELECT asaas_payment_id, amount_cents, paid_at FROM invoices WHERE id = ?', [
     invoiceId,
   ]);
-  if (!inv?.asaas_payment_id || !asaasEnabled()) return;
-  try {
-    await asaasCall('POST', `/payments/${inv.asaas_payment_id}/receiveInCash`, { paymentDate: inv.paid_at ?? localNow().date, value: inv.amount_cents / 100, notifyCustomer: false });
-  } catch (err) {
-    run('UPDATE invoices SET asaas_error = ? WHERE id = ?', [`Baixa no Asaas: ${(err as Error).message}`.slice(0, 300), invoiceId]);
+  if (!inv || !asaasEnabled()) return;
+  if (inv.asaas_payment_id) {
+    try {
+      await asaasCall('POST', `/payments/${inv.asaas_payment_id}/receiveInCash`, { paymentDate: inv.paid_at ?? localNow().date, value: inv.amount_cents / 100, notifyCustomer: false });
+    } catch (err) {
+      run('UPDATE invoices SET asaas_error = ? WHERE id = ?', [`Baixa no Asaas: ${(err as Error).message}`.slice(0, 300), invoiceId]);
+    }
   }
   if (asaasSettings().nfse.enabled) await issueNfse(invoiceId);
 }
 
-/** Fatura cancelada: remove a cobrança no Asaas. */
-export async function cancelAsaasCharge(invoiceId: number): Promise<void> {
+/** Fatura cancelada (ou paga no cartão pela Cielo): remove a cobrança no Asaas. Devolve se removeu. */
+export async function cancelAsaasCharge(invoiceId: number): Promise<boolean> {
   const inv = get<{ asaas_payment_id: string | null }>('SELECT asaas_payment_id FROM invoices WHERE id = ?', [invoiceId]);
-  if (!inv?.asaas_payment_id || !asaasEnabled()) return;
+  if (!inv?.asaas_payment_id || !asaasEnabled()) return false;
   try {
     await asaasCall('DELETE', `/payments/${inv.asaas_payment_id}`);
+    run("UPDATE gateway_payments SET status = 'DELETED', updated_at = ? WHERE external_id = ? AND status IN ('PENDING', 'OVERDUE')", [
+      new Date().toISOString(),
+      inv.asaas_payment_id,
+    ]);
+    return true;
   } catch (err) {
     run('UPDATE invoices SET asaas_error = ? WHERE id = ?', [`Cancelar no Asaas: ${(err as Error).message}`.slice(0, 300), invoiceId]);
+    return false;
   }
 }
 

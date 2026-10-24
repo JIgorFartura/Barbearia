@@ -1,5 +1,6 @@
-import { Check, Copy, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { CopyField } from '../../components/CopyField';
 import { Badge, Button, Card, ErrorText, Field, Input, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
 
@@ -10,48 +11,21 @@ interface AsaasView {
   webhookUrl: string;
   webhookToken: string | null;
   nfse: { enabled: boolean; serviceName: string; serviceCode: string; iss: number; observations: string };
-  /** Pagamentos online dos clientes das barbearias (cartão), com repasse e a taxa da plataforma (%). */
-  online: { enabled: boolean; feePct: number };
   /** Último aviso válido do Asaas (mostra que o webhook está ligado). */
   webhookAt: string | null;
   shopsWithoutDocument: { id: number; name: string }[];
 }
 
-function CopyField({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Field label={label}>
-      <div className="flex gap-2">
-        <input readOnly value={value} className={`${inputClass} font-mono text-xs`} onFocus={(e) => e.target.select()} />
-        <Button
-          type="button"
-          variant="ghost"
-          className="shrink-0 !px-3"
-          aria-label={`Copiar ${label}`}
-          onClick={() =>
-            navigator.clipboard?.writeText(value).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 2000);
-            })
-          }
-        >
-          {copied ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
-        </Button>
-      </div>
-    </Field>
-  );
-}
-
-/** Asaas: mensalidade com baixa sozinha (PIX, cartão ou boleto), nota fiscal e pagamento com cartão dos clientes das barbearias. */
+/** Asaas: mensalidade no PIX com baixa sozinha e nota fiscal (o cartão vai pela Cielo). */
 export function AsaasCard() {
   const [data, setData] = useState<AsaasView | null>(null);
-  const [form, setForm] = useState<{ env: AsaasView['env']; apiKey: string; nfse: AsaasView['nfse']; online: AsaasView['online'] } | null>(null);
+  const [form, setForm] = useState<{ env: AsaasView['env']; apiKey: string; nfse: AsaasView['nfse'] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const apply = (v: AsaasView) => {
     setData(v);
-    setForm({ env: v.env, apiKey: '', nfse: v.nfse, online: v.online });
+    setForm({ env: v.env, apiKey: '', nfse: v.nfse });
   };
   useEffect(() => {
     api<AsaasView>('GET', '/api/master/asaas').then(apply);
@@ -78,24 +52,22 @@ export function AsaasCard() {
           await api<AsaasView>('PUT', '/api/master/asaas', {
             ...form,
             nfse: { ...form.nfse, iss: Number(form.nfse.iss) || 0 },
-            online: { ...form.online, feePct: Math.min(30, Math.max(0, Number(form.online.feePct) || 0)) },
           }),
         ),
       'Salvo!',
     );
   const nfse = form.nfse;
   const setNfse = (patch: Partial<AsaasView['nfse']>) => setForm({ ...form, nfse: { ...nfse, ...patch } });
-  const online = form.online;
-  const setOnline = (patch: Partial<AsaasView['online']>) => setForm({ ...form, online: { ...online, ...patch } });
 
   return (
     <Card className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="font-semibold">Pagamentos online (Asaas)</p>
+          <p className="font-semibold">Asaas (opcional): PIX automático e nota fiscal</p>
           <p className="text-sm text-zinc-500">
-            Cada mensalidade vira uma cobrança no Asaas: a barbearia paga com PIX, cartão de crédito ou boleto e, quando o pagamento cai, a fatura é baixada
-            sozinha. Sem o Asaas, vale o PIX acima com confirmação manual.
+            Cada mensalidade vira um PIX com QR Code próprio no Asaas: quando cai, a fatura é baixada sozinha, e a nota fiscal pode sair automática. Com a Cielo
+            ligada, o cartão vai pela Cielo (taxa menor e cobrança automática); sem ela, a página do Asaas também aceita cartão e boleto. Sem o Asaas, vale o PIX
+            acima com confirmação manual.
           </p>
         </div>
         <Badge tone={data.hasKey ? 'green' : 'zinc'}>{data.hasKey ? `Ligado (${data.env === 'production' ? 'produção' : 'testes'})` : 'Desligado'}</Badge>
@@ -161,30 +133,6 @@ export function AsaasCard() {
               <Input value={nfse.observations} onChange={(e) => setNfse({ observations: e.target.value })} />
             </Field>
           </>
-        )}
-      </div>
-
-      <div className="space-y-3 border-t border-zinc-100 pt-4">
-        <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" className="mt-0.5 size-4" checked={online.enabled} onChange={(e) => setOnline({ enabled: e.target.checked })} />
-          <span>
-            <span className="font-medium">Liberar pagamento com cartão para os clientes das barbearias</span>
-            <span className="block text-xs text-zinc-500">
-              Mensalidade do clube (cartão, boleto ou PIX) e sinal do horário (cartão), numa página segura do Asaas, sem passar dados de cartão pelo sistema. O
-              valor cai na sua conta Asaas e é repassado sozinho para a conta Asaas da barbearia quando o Asaas libera o dinheiro (cada uma informa o Wallet ID
-              dela na tela Clube).
-            </span>
-          </span>
-        </label>
-        {online.enabled && (
-          <div className="grid gap-3 sm:grid-cols-[12rem_1fr] sm:items-start">
-            <Field label="Taxa da plataforma (%)">
-              <Input type="number" min={0} max={30} step={0.1} value={online.feePct} onChange={(e) => setOnline({ feePct: Number(e.target.value) })} />
-            </Field>
-            <p className="text-xs text-zinc-500 sm:pt-7">
-              Do valor líquido de cada pagamento (depois da taxa do Asaas), essa parte fica com você; o resto vai para a barbearia. Use 0 para repassar tudo.
-            </p>
-          </div>
         )}
       </div>
 

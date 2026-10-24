@@ -1,4 +1,4 @@
-import { Crown, Pencil, Plus, Search, Send } from 'lucide-react';
+import { CreditCard, Crown, Pencil, Plus, Search, Send } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { OnlineSettingsCard } from '../../components/OnlinePay';
 import { PixSettingsCard } from '../../components/Pix';
@@ -38,6 +38,8 @@ interface Member {
   period: { start: string; end: string } | null;
   used: number;
   open_charge: OpenCharge | null;
+  /** Cartão automático (Cielo): ligado, e o último problema (recusa ou falha ao cancelar). */
+  card: { active: boolean; error: string | null };
 }
 
 interface Overview {
@@ -76,12 +78,12 @@ export function Club() {
   }, [load]);
   if (!data) return <ErrorText error={error} />;
 
-  async function act(fn: () => Promise<unknown>, done?: string) {
+  async function act<T>(fn: () => Promise<T>, done?: string | ((r: T) => string)) {
     setError(null);
     setMsg(null);
     try {
-      await fn();
-      if (done) setMsg(done);
+      const r = await fn();
+      if (done) setMsg(typeof done === 'function' ? done(r) : done);
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -150,9 +152,15 @@ export function Club() {
                             {m.period && ` · vale até ${date(m.period.end)}`}
                             {m.period && (m.plan.uses_per_month ? ` · usou ${m.used} de ${m.plan.uses_per_month}` : ` · usou ${m.used} no mês`)}
                           </p>
+                          {m.card.active && m.status !== 'cancelled' && (
+                            <p className="mt-0.5 flex items-center gap-1 text-xs font-medium text-emerald-700">
+                              <CreditCard className="size-3.5" /> Cartão automático (Cielo)
+                            </p>
+                          )}
                         </div>
                         <Badge tone={st.tone}>{m.state === 'ending' && m.paid_until ? `Cancelou · vale até ${date(m.paid_until)}` : st.label}</Badge>
                       </div>
+                      {m.card.error && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{m.card.error}</p>}
                       {m.open_charge && (
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-zinc-50 px-3 py-2 text-sm">
                           <span>
@@ -179,7 +187,14 @@ export function Club() {
                           className="mt-1 text-xs text-zinc-400 hover:text-red-600"
                           onClick={() =>
                             confirm(`Cancelar a assinatura de ${m.customer_name}? O que já foi pago continua valendo até o fim do mês.`) &&
-                            act(() => api('POST', `/api/shop/club/members/${m.id}/cancel`), 'Assinatura cancelada.')
+                            act(
+                              () => api<{ warning: string | null }>('POST', `/api/shop/club/members/${m.id}/cancel`),
+                              (r) => {
+                                // A Cielo não parou a cobrança no cartão: o dono precisa cancelar lá.
+                                if (r.warning) setError(r.warning);
+                                return 'Assinatura cancelada.';
+                              },
+                            )
                           }
                         >
                           Cancelar assinatura

@@ -28,6 +28,7 @@ import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { AsaasCard } from './master/AsaasCard';
+import { CieloCard } from './master/CieloCard';
 import { OnlinePaymentsCard } from './master/OnlinePayments';
 import { api } from '../lib/api';
 import { centsToInput, parseMoney } from '../lib/finance';
@@ -850,6 +851,7 @@ function BillingTab() {
         </Card>
         <SettingsCard />
       </div>
+      <CieloCard />
       <AsaasCard />
 
       {paying && (

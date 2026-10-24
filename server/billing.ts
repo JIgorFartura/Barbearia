@@ -101,6 +101,31 @@ export function ensureInvoices(now: Date = new Date()): number {
   return created;
 }
 
+const nextMonth = (reference: string) => {
+  const [y, m] = reference.split('-').map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+};
+
+/**
+ * Fatura da próxima mensalidade ainda não paga (cria se ainda não existe): no cartão automático, a
+ * cobrança pode cair antes de a fatura do mês nascer.
+ */
+export function nextMonthlyInvoice(shopId: number, now: Date = new Date()): InvoiceView | null {
+  const s = shopBilling(shopId);
+  const amount = monthlyPrice(s);
+  if (amount <= 0) return null;
+  const latest = get<{ reference: string }>(
+    "SELECT reference FROM invoices WHERE barbershop_id = ? AND reference GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]' ORDER BY reference DESC LIMIT 1",
+    [shopId],
+  );
+  const reference = latest ? nextMonth(latest.reference) : localNow(now).date.slice(0, 7);
+  const id = run(
+    `INSERT INTO invoices (barbershop_id, reference, description, amount_cents, due_date, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    [shopId, reference, `Mensalidade ${monthName(reference)}${s.plan_name ? ` · ${s.plan_name}` : ''}`, amount, dueDate(reference, s.billing_day), nowIso()],
+  ).lastInsertRowid;
+  return invoice(id, now);
+}
+
 export interface InvoiceView {
   id: number;
   barbershop_id: number;

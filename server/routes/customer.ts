@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { charge, chargePix, claimCharge } from '../charges.js';
 import { appointmentDeposit, depositPublic, requireDeposit, sendDepositRequest } from '../deposits.js';
 import { shopBot } from '../messaging.js';
-import { onlineStatus, payChargeOnline } from '../onlinePayments.js';
+import { cancelMemberCard, payChargeByCard } from '../cards.js';
+import { shopCardStatus } from '../cardSettings.js';
 import { birthdayKey, customerReferral, growthSettings } from '../growth.js';
 import { cancelMembership, customerMembership, listPlans, subscribe } from '../club.js';
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
@@ -118,7 +119,7 @@ function myDeposit(req: Request) {
 
 customerRouter.get('/deposits/:id', async (req, res) => {
   const { shopId, customerId, charge: c } = myDeposit(req);
-  res.json({ ...depositPublic(shopId, c), description: c.description, pix: await chargePix(c), ...payOnlineInfo(shopId, customerId) });
+  res.json({ ...depositPublic(shopId, c), description: c.description, pix: await chargePix(c), online: shopCardStatus(shopId).available });
 });
 
 customerRouter.post('/deposits/:id/claim', (req, res) => {
@@ -237,6 +238,8 @@ async function clubState(shopId: number, customerId: number) {
       period: member.period,
       used: member.used,
       paid_until: member.paid_until,
+      /** No cartão automático: a Cielo cobra sozinha todo mês. */
+      card: member.card.active,
     },
     charge: open && {
       id: open.id,
@@ -246,23 +249,15 @@ async function clubState(shopId: number, customerId: number) {
       claimed: Boolean(open.claimed_at),
       pix: await chargePix(open),
     },
-    ...payOnlineInfo(shopId, customerId),
+    /** A barbearia aceita cartão (página segura da Cielo). */
+    online: shopCardStatus(shopId).available,
   };
 }
 
-/** Dá para pagar com cartão (pelo Asaas da plataforma)? E se ainda falta o CPF do cliente. */
-function payOnlineInfo(shopId: number, customerId: number) {
-  return {
-    online: onlineStatus(shopId).available,
-    needsCpf: !get<{ asaas_customer_id: string | null }>('SELECT asaas_customer_id FROM customers WHERE id = ?', [customerId])?.asaas_customer_id,
-  };
-}
-
-/** Pagar online (cartão; no clube também boleto ou PIX): devolve o link da página de pagamento. */
+/** Pagar no cartão (sinal avulso; clube no automático todo mês): devolve o link da página da Cielo. */
 customerRouter.post('/charges/:id/pay-online', async (req, res) => {
   const { shopId, customerId } = ctx(req);
-  const body = parseBody(z.object({ cpf: z.string().max(20).nullish() }), req.body ?? {});
-  res.json(await payChargeOnline(shopId, customerId, idParam(req), body.cpf));
+  res.json(await payChargeByCard(shopId, customerId, idParam(req)));
 });
 
 customerRouter.get('/club', async (req, res) => {
@@ -288,6 +283,8 @@ customerRouter.post('/club/cancel', async (req, res) => {
   const member = customerMembership(shopId, customerId);
   if (!member || member.status === 'cancelled') throw new HttpError(404, 'Você não tem assinatura ativa.');
   cancelMembership(shopId, member.id);
+  // A Cielo para de cobrar o cartão (se falhar agora, a conferência de hora em hora tenta de novo).
+  await cancelMemberCard(member.id);
   res.json(await clubState(shopId, customerId));
 });
 

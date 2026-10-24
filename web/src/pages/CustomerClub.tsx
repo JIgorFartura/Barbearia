@@ -1,4 +1,4 @@
-import { Check, Crown } from 'lucide-react';
+import { Check, CreditCard, Crown } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Section } from '../components/CustomerSection';
 import { OnlinePayButton } from '../components/OnlinePay';
@@ -26,6 +26,8 @@ interface ClubData {
     period: { start: string; end: string } | null;
     used: number;
     paid_until: string | null;
+    /** No cartão automático: a Cielo cobra sozinha todo mês. */
+    card: boolean;
   } | null;
   charge: {
     id: number;
@@ -35,9 +37,8 @@ interface ClubData {
     claimed: boolean;
     pix: { payload: string; qr: string } | null;
   } | null;
-  /** A barbearia aceita cartão (página segura do Asaas); na primeira vez o cliente informa o CPF. */
+  /** A barbearia aceita cartão (página segura da Cielo). */
   online: boolean;
-  needsCpf: boolean;
 }
 
 const br = (d: string | null | undefined) => (d ? d.split('-').reverse().slice(0, 2).join('/') : '');
@@ -107,7 +108,16 @@ export function ClubSection({ slug, accent }: { slug: string; accent: string }) 
               )}
             </p>
           )}
-          {m.state === 'late' && <p className="text-sm text-red-700">Os benefícios do clube voltam assim que o pagamento cair.</p>}
+          {m.state === 'late' && (
+            <p className="text-sm text-red-700">
+              {m.card ? 'A cobrança no cartão não passou. ' : ''}Os benefícios do clube voltam assim que o pagamento cair.
+            </p>
+          )}
+          {m.card && m.status !== 'cancelled' && !c && (
+            <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              <CreditCard className="size-4 shrink-0" /> Cartão cadastrado: a mensalidade é cobrada sozinha todo mês.
+            </p>
+          )}
           {m.state === 'ending' && m.period && <p className="text-sm text-zinc-600">Você cancelou. O clube vale até {br(m.period.end)}.</p>}
 
           {c && (
@@ -130,7 +140,12 @@ export function ClubSection({ slug, accent }: { slug: string; accent: string }) 
                   {data.online && (
                     <>
                       {c.pix && <p className="text-center text-xs text-zinc-400">ou</p>}
-                      <OnlinePayButton slug={slug} chargeId={c.id} needsCpf={data.needsCpf} accent={accent} label="Pagar com cartão ou boleto" />
+                      <OnlinePayButton
+                        slug={slug}
+                        chargeId={c.id}
+                        label={m.card ? 'Usar outro cartão' : 'Pagar no cartão (automático)'}
+                        hint="Página segura da Cielo. Ela cobra sozinha todo mês; cancele quando quiser."
+                      />
                     </>
                   )}
                 </div>
@@ -196,7 +211,11 @@ export function ClubSection({ slug, accent }: { slug: string; accent: string }) 
               </li>
             </ul>
             <p className="text-zinc-500">
-              A primeira mensalidade é hoje, por PIX{data.online ? ' ou cartão' : ''}. Depois, a cobrança chega no seu WhatsApp todo mês, no mesmo dia. Cancele quando quiser: o mês pago continua valendo.
+              A primeira mensalidade é hoje.{' '}
+              {data.online
+                ? 'No cartão, a cobrança é automática todo mês; no PIX, ela chega no seu WhatsApp todo mês, no mesmo dia.'
+                : 'Depois, a cobrança chega no seu WhatsApp todo mês, no mesmo dia.'}{' '}
+              Cancele quando quiser: o mês pago continua valendo.
             </p>
             <Button
               className="w-full"

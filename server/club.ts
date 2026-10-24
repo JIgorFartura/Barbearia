@@ -1,7 +1,7 @@
 import { charge, chargePayload, confirmCharge, type ChargeView } from './charges.js';
 import { shopNow } from './clock.js';
+import { shopCardStatus } from './cardSettings.js';
 import { issueAccessLink } from './customerAuth.js';
-import { onlineStatus } from './onlinePayments.js';
 import { all, get, run, tx } from './db.js';
 import type { Method } from './finance.js';
 import { HttpError } from './http.js';
@@ -9,15 +9,18 @@ import { sendMessage, sendsTemplate, type ShopBot } from './messaging.js';
 import { addDays, daysBetween } from './time.js';
 
 /**
- * Clube de assinatura: o cliente paga um valor por mês (PIX direto para a barbearia) e usa os
- * serviços do plano sem pagar na hora, até o limite do mês. A mensalidade do mês seguinte sai
- * pelo WhatsApp alguns dias antes de vencer; sem pagamento, os benefícios ficam pausados.
+ * Clube de assinatura: o cliente paga um valor por mês e usa os serviços do plano sem pagar na hora,
+ * até o limite do mês. No PIX (direto para a barbearia), a mensalidade do mês seguinte sai pelo
+ * WhatsApp alguns dias antes de vencer. No cartão automático (Cielo), a Cielo cobra sozinha todo mês,
+ * no dia do primeiro pagamento. Sem pagamento, os benefícios ficam pausados.
  */
 
 /** A próxima mensalidade sai alguns dias antes de vencer. */
 const ADVANCE_DAYS = 3;
 /** Assinatura que nunca foi paga (o cliente desistiu no meio) é cancelada depois de alguns dias. */
 const PENDING_DAYS = 7;
+/** No cartão automático, a Cielo pode cobrar um pouco depois (e tenta de novo se o cartão recusar). */
+const CARD_GRACE_DAYS = 3;
 
 const money = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const br = (date: string) => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
@@ -143,16 +146,28 @@ export interface MemberView extends MemberRow {
   period: { start: string; end: string } | null;
   used: number;
   open_charge: ChargeView | null;
+  /** Cartão automático (Cielo): ligado, e o último problema (recusa ou falha ao cancelar). */
+  card: { active: boolean; error: string | null };
 }
 
-/** Mês coberto hoje: pago, ou com o PIX avisado pelo cliente (vale enquanto a barbearia confere). */
+/** O assinante paga no cartão automático (a Cielo cobra todo mês). */
+export const cardActive = (memberId: number) =>
+  Boolean(get("SELECT 1 AS ok FROM card_links WHERE club_member_id = ? AND recurrent = 1 AND status = 'active'", [memberId]));
+
+/**
+ * Mês coberto hoje: pago, ou com o PIX avisado pelo cliente (vale enquanto a barbearia confere). No
+ * cartão automático, o mês pago vale mais alguns dias, até a Cielo cobrar o seguinte.
+ */
 function coveringCharge(memberId: number, date: string) {
-  return get<{ period_start: string; period_end: string }>(
-    `SELECT period_start, period_end FROM charges
-      WHERE club_member_id = ? AND period_start <= ? AND period_end >= ? AND (status = 'paid' OR (status = 'open' AND claimed_at IS NOT NULL))
-      ORDER BY id DESC LIMIT 1`,
-    [memberId, date, date],
-  );
+  const covering = (until: string) =>
+    get<{ period_start: string; period_end: string }>(
+      `SELECT period_start, period_end FROM charges
+        WHERE club_member_id = ? AND period_start <= ? AND period_end >= ? AND (status = 'paid' OR (status = 'open' AND claimed_at IS NOT NULL))
+        ORDER BY id DESC LIMIT 1`,
+      [memberId, date, until],
+    );
+  const hit = covering(date);
+  return hit || !cardActive(memberId) ? hit : covering(addDays(date, -CARD_GRACE_DAYS));
 }
 
 const usedIn = (memberId: number, start: string, end: string) =>
@@ -181,6 +196,13 @@ export function memberView(memberId: number, now: Date = new Date()): MemberView
     period: cover ? { start: cover.period_start, end: cover.period_end } : null,
     used: cover ? usedIn(m.id, cover.period_start, cover.period_end) : 0,
     open_charge: open ? charge(open.id) : null,
+    card: (() => {
+      const l = get<{ status: string; error: string | null }>(
+        "SELECT status, error FROM card_links WHERE club_member_id = ? AND kind = 'clube' AND status IN ('open', 'active') ORDER BY id DESC LIMIT 1",
+        [m.id],
+      );
+      return { active: l?.status === 'active', error: l?.error ?? null };
+    })(),
   };
 }
 
@@ -214,6 +236,44 @@ function createClubCharge(memberId: number, periodStart: string, now: Date): num
      VALUES (?, ?, 'clube', ?, ?, ?, ?, ?, ?, ?)`,
     [m.barbershop_id, m.customer_id, `${planTitle(m.plan_name)} · ${br(periodStart)} a ${br(end)}`, m.price_cents, memberId, periodStart, end, periodStart, now.toISOString()],
   ).lastInsertRowid;
+}
+
+const setBillingDay = (memberId: number, date: string) => run('UPDATE club_members SET billing_day = ? WHERE id = ?', [Math.min(Number(date.slice(8, 10)), 28), memberId]);
+
+/**
+ * A Cielo cobrou o cartão do assinante: a mensalidade que esse pagamento paga (a em aberto ou a do
+ * mês seguinte). Sem o clube valendo hoje (1º pagamento ou atraso), o mês começa hoje, no dia em que o
+ * cartão passou: é nesse dia que a Cielo cobra os próximos. Vale o valor cobrado no cartão (quem
+ * assinou no cartão segue no preço da assinatura).
+ */
+export function chargeForCardPayment(memberId: number, amountCents: number, now: Date): number {
+  const m = get<MemberRow & { plan_name: string }>('SELECT m.*, p.name AS plan_name FROM club_members m JOIN club_plans p ON p.id = m.plan_id WHERE m.id = ?', [memberId])!;
+  const today = shopNow(m.barbershop_id, now).date;
+  const open = get<{ id: number; period_start: string }>("SELECT id, period_start FROM charges WHERE club_member_id = ? AND status = 'open' ORDER BY period_start LIMIT 1", [
+    memberId,
+  ]);
+  const covered = Boolean(get("SELECT 1 AS ok FROM charges WHERE club_member_id = ? AND status = 'paid' AND period_start <= ? AND period_end >= ?", [memberId, today, today]));
+  let chargeId: number;
+  if (open) {
+    chargeId = open.id;
+    if (!covered && open.period_start < today) {
+      setBillingDay(memberId, today);
+      const end = addDays(nextBilling(today, Math.min(Number(today.slice(8, 10)), 28)), -1);
+      run('UPDATE charges SET period_start = ?, period_end = ?, due_date = ?, description = ? WHERE id = ?', [
+        today,
+        end,
+        today,
+        `${planTitle(m.plan_name)} · ${br(today)} a ${br(end)}`,
+        chargeId,
+      ]);
+    }
+  } else {
+    const start = m.paid_until && m.paid_until >= today ? addDays(m.paid_until, 1) : today;
+    if (start === today) setBillingDay(memberId, today);
+    chargeId = createClubCharge(memberId, start, now);
+  }
+  run('UPDATE charges SET amount_cents = ? WHERE id = ?', [amountCents, chargeId]);
+  return chargeId;
 }
 
 /**
@@ -301,13 +361,13 @@ export function clubCoverage(shopId: number, customerId: number, date: string): 
 
 /**
  * Manda a mensalidade com o PIX copia e cola (em mensagem separada, fácil de copiar) e, se a barbearia
- * aceita cartão, o link da área do cliente para pagar online.
+ * aceita cartão, o link da área do cliente para pagar no cartão.
  */
-export async function sendClubCharge(shop: ShopBot, chargeId: number, opts: { late?: boolean } = {}): Promise<boolean> {
+export async function sendClubCharge(shop: ShopBot, chargeId: number, opts: { late?: boolean; cardFailed?: boolean } = {}): Promise<boolean> {
   const c = charge(chargeId, shop.id);
   if (!c.club_member_id || !c.due_date) return false;
   const payload = chargePayload(c);
-  const area = onlineStatus(shop.id).available ? issueAccessLink(c.customer_id, shop.slug) : null;
+  const area = shopCardStatus(shop.id).available ? issueAccessLink(c.customer_id, shop.slug) : null;
   // Sem chave PIX e sem cartão, a barbearia cobra no balcão.
   if (!payload && !area) return false;
   // Na API oficial fora da janela de 24h só vai o modelo aprovado, que leva o PIX.
@@ -319,9 +379,11 @@ export async function sendClubCharge(shop: ShopBot, chargeId: number, opts: { la
   const how = payload
     ? `O PIX copia e cola vai na próxima mensagem; depois de pagar, é só responder *paguei*.${area ? `\nPrefere cartão? Pague pela sua área: ${area}` : ''}`
     : `Pague com cartão pela sua área: ${area}`;
-  const text = opts.late
-    ? `Oi, ${first}! A mensalidade do ${label} (${money(c.amount_cents)}) venceu em ${br(c.due_date)} e o pagamento ainda não apareceu aqui. Enquanto isso, os benefícios do clube ficam pausados. ${how}`
-    : `Oi, ${first}! Aqui é o ${shop.bot_name}, da ${shop.name}. 💈 A mensalidade do ${label} (${money(c.amount_cents)}) vence em ${br(c.due_date)}. ${how}`;
+  const text = opts.cardFailed
+    ? `Oi, ${first}! A cobrança da mensalidade do ${label} (${money(c.amount_cents)}) no cartão não passou. Enquanto isso, os benefícios do clube ficam pausados. ${how}`
+    : opts.late
+      ? `Oi, ${first}! A mensalidade do ${label} (${money(c.amount_cents)}) venceu em ${br(c.due_date)} e o pagamento ainda não apareceu aqui. Enquanto isso, os benefícios do clube ficam pausados. ${how}`
+      : `Oi, ${first}! Aqui é o ${shop.bot_name}, da ${shop.name}. 💈 A mensalidade do ${label} (${money(c.amount_cents)}) vence em ${br(c.due_date)}. ${how}`;
   const sentText = await sendMessage({
     shop,
     customerId: c.customer_id,
@@ -341,16 +403,31 @@ export async function clubBilling(shop: ShopBot, now: Date): Promise<number> {
   const today = shopNow(shop.id, now).date;
   let sent = 0;
 
-  // Próxima mensalidade de quem está com o mês pago acabando (uma cobrança por vez).
+  // Próxima mensalidade de quem está com o mês pago acabando (uma cobrança por vez). No cartão
+  // automático quem cobra é a Cielo.
+  const withoutNext = `AND NOT EXISTS (SELECT 1 FROM charges c WHERE c.club_member_id = m.id AND (c.status = 'open' OR c.period_start > m.paid_until))`;
+  const onCard = `EXISTS (SELECT 1 FROM card_links l WHERE l.club_member_id = m.id AND l.recurrent = 1 AND l.status = 'active')`;
   const renewing = all<{ id: number; paid_until: string }>(
     `SELECT m.id, m.paid_until FROM club_members m
-      WHERE m.barbershop_id = ? AND m.status = 'active' AND m.paid_until IS NOT NULL AND m.paid_until <= ?
-        AND NOT EXISTS (SELECT 1 FROM charges c WHERE c.club_member_id = m.id AND (c.status = 'open' OR c.period_start > m.paid_until))`,
+      WHERE m.barbershop_id = ? AND m.status = 'active' AND m.paid_until IS NOT NULL AND m.paid_until <= ? AND NOT ${onCard} ${withoutNext}`,
     [shop.id, addDays(today, ADVANCE_DAYS)],
   );
   for (const m of renewing) {
     const chargeId = createClubCharge(m.id, addDays(m.paid_until, 1), now);
     if (await sendClubCharge(shop, chargeId)) sent++;
+  }
+
+  // Cartão que não passou (a Cielo tenta de novo por alguns dias): depois disso, a mensalidade vai
+  // pelo WhatsApp com o PIX (já como lembrete de atraso).
+  const cardLate = all<{ id: number; paid_until: string }>(
+    `SELECT m.id, m.paid_until FROM club_members m
+      WHERE m.barbershop_id = ? AND m.status = 'active' AND m.paid_until IS NOT NULL AND m.paid_until < ? AND ${onCard} ${withoutNext}`,
+    [shop.id, addDays(today, -CARD_GRACE_DAYS)],
+  );
+  for (const m of cardLate) {
+    const chargeId = createClubCharge(m.id, addDays(m.paid_until, 1), now);
+    run('UPDATE charges SET reminded_at = ? WHERE id = ?', [now.toISOString(), chargeId]);
+    if (await sendClubCharge(shop, chargeId, { late: true, cardFailed: true })) sent++;
   }
 
   // Venceu e o cliente não avisou que pagou: um lembrete só.

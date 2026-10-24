@@ -10,7 +10,7 @@ import { HttpError, idParam, normalizePhone, parseBody, rateLimit } from '../htt
 import { isRunning, type Campaign } from '../loyalty.js';
 import { llmEnabled } from '../bot/brain.js';
 import { customerByPhone, sendMessage, shopBot } from '../messaging.js';
-import { onlineStatus } from '../onlinePayments.js';
+import { shopCardStatus } from '../cardSettings.js';
 import { legalInfo } from '../privacy.js';
 
 /** Dados da landing page de cada barbearia (/b/:slug) e login da área do cliente — sem login. */
@@ -106,8 +106,8 @@ publicRouter.get('/shops/:slug/privacy', (req, res) => {
     legal: legalInfo(),
     ai: llmEnabled(),
     whatsapp: shopBot(id).wa_provider !== 'simulador',
-    // Aceita pagamento com cartão pelo Asaas (a política conta para onde vão o CPF e o cartão).
-    online: onlineStatus(id).available,
+    // Aceita cartão pela Cielo (a política conta que o cartão é digitado só na página da Cielo).
+    online: shopCardStatus(id).available,
   });
 });
 

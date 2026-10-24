@@ -7,6 +7,7 @@ import { addDays, localNow } from './time.js';
 /**
  * Lembrete da mensalidade do sistema pelo WhatsApp da plataforma: alguns dias antes de vencer e,
  * se passar do vencimento, um aviso com a data em que o acesso fica restrito. Um de cada, por fatura.
+ * No cartão automático (Cielo) não tem lembrete antes: só o aviso se a cobrança não passar.
  */
 
 const BEFORE_DAYS = 3;
@@ -20,8 +21,18 @@ export async function invoiceReminders(now: Date = new Date()): Promise<number> 
   if (n.time < '08:00' || n.time >= '21:00') return 0;
   const auto = asaasEnabled();
   const grace = platformSettings().grace_days;
-  const invoices = all<{ id: number; barbershop_id: number; shop: string; amount_cents: number; due_date: string; reminded_at: string | null; overdue_reminded_at: string | null }>(
-    `SELECT i.id, i.barbershop_id, b.name AS shop, i.amount_cents, i.due_date, i.reminded_at, i.overdue_reminded_at
+  const invoices = all<{
+    id: number;
+    barbershop_id: number;
+    shop: string;
+    amount_cents: number;
+    due_date: string;
+    reminded_at: string | null;
+    overdue_reminded_at: string | null;
+    card: number;
+  }>(
+    `SELECT i.id, i.barbershop_id, b.name AS shop, i.amount_cents, i.due_date, i.reminded_at, i.overdue_reminded_at,
+            EXISTS (SELECT 1 FROM card_links l WHERE l.receiver = 'platform' AND l.barbershop_id = i.barbershop_id AND l.kind = 'mensalidade' AND l.status = 'active') AS card
        FROM invoices i JOIN barbershops b ON b.id = i.barbershop_id
       WHERE i.status = 'open' AND b.active = 1
         AND ((i.reminded_at IS NULL AND i.due_date >= ? AND i.due_date <= ?) OR (i.overdue_reminded_at IS NULL AND i.due_date < ?))`,
@@ -31,12 +42,15 @@ export async function invoiceReminders(now: Date = new Date()): Promise<number> 
   for (const inv of invoices) {
     const late = inv.due_date < n.date;
     run(`UPDATE invoices SET ${late ? 'overdue_reminded_at' : 'reminded_at'} = ? WHERE id = ?`, [now.toISOString(), inv.id]);
+    if (inv.card && !late) continue;
     const owners = all<{ id: number; name: string; phone: string }>("SELECT id, name, phone FROM users WHERE barbershop_id = ? AND role = 'owner' AND phone IS NOT NULL", [
       inv.barbershop_id,
     ]);
     for (const o of owners) {
       const how = auto ? 'pelo PIX da tela Mensalidade, no painel (a baixa é automática)' : 'pelo painel, na tela Mensalidade';
-      const text = late
+      const text = inv.card
+        ? `Olá, ${firstName(o.name)}! A cobrança da mensalidade do sistema da ${inv.shop} (${money(inv.amount_cents)}) no cartão não passou. Para não ter o acesso restrito a partir de ${br(addDays(inv.due_date, grace + 1))}, pague pelo painel, na tela Mensalidade (PIX ou outro cartão).`
+        : late
         ? `Olá, ${firstName(o.name)}! A mensalidade do sistema da ${inv.shop} (${money(inv.amount_cents)}) venceu em ${br(inv.due_date)}. Para não ter o acesso restrito a partir de ${br(addDays(inv.due_date, grace + 1))}, pague ${how}.`
         : `Olá, ${firstName(o.name)}! A mensalidade do sistema da ${inv.shop} (${money(inv.amount_cents)}) vence em ${br(inv.due_date)}. Pague ${how}.`;
       const r = await sendPlatformMessage({

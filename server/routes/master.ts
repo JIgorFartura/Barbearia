@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import { platformPayments, type GatewayKind } from '../gatewayPayments.js';
+import { stopSubscriptionCard, subscriptionPriceChanged } from '../cards.js';
+import { cieloWebhookUrl, platformCardReady, platformCielo, savePlatformCielo, secretHint } from '../cardSettings.js';
+import { CieloError, testCielo } from '../cielo.js';
 import { PIX_KEY_TYPES, guessPixKeyType, normalizePixKey, pixKeyType } from '../pix.js';
 import { asaasEnabled, asaasSettings, cancelInvoiceEverywhere, issueNfse, rotateWebhookToken, saveAsaasSettings, syncManualPayment, testAsaas } from '../asaas.js';
 import { z } from 'zod';
@@ -179,13 +182,15 @@ masterRouter.post('/shops', (req, res) => {
   res.status(201).json({ id });
 });
 
-masterRouter.put('/shops/:id', (req, res) => {
+masterRouter.put('/shops/:id', async (req, res) => {
   const id = idParam(req);
   const body = parseBody(z.object({ name: z.string().trim().min(2), slug: zSlug, active: z.boolean() }), req.body);
   assertFreeSlug(body.slug, id);
   const { changes } = run('UPDATE barbershops SET name = ?, slug = ?, active = ? WHERE id = ?', [body.name, body.slug, body.active, id]);
   if (!changes) throw new HttpError(404, 'Barbearia não encontrada.');
-  res.json({ ok: true });
+  // Suspensa: para de cobrar a mensalidade no cartão.
+  const warning = body.active ? null : await stopSubscriptionCard(id);
+  res.json({ ok: true, warning });
 });
 
 /** Mais um login para a mesma barbearia (sócio, gerente). */
@@ -208,7 +213,7 @@ masterRouter.post('/shops/:id/owners', (req, res) => {
 });
 
 /** Plano, valor e vencimento da mensalidade de uma barbearia. */
-masterRouter.put('/shops/:id/billing', (req, res) => {
+masterRouter.put('/shops/:id/billing', async (req, res) => {
   const id = idParam(req);
   const body = parseBody(zBilling.extend({ trial_until: z.string().refine(isDate, 'Data inválida.').nullish().transform((v) => v ?? null) }), req.body);
   assertPlan(body.plan_id);
@@ -220,6 +225,8 @@ masterRouter.put('/shops/:id/billing', (req, res) => {
     id,
   ]);
   if (!changes) throw new HttpError(404, 'Barbearia não encontrada.');
+  // Mudou o valor: o cartão automático (no valor antigo) é desligado e a barbearia cadastra de novo.
+  await subscriptionPriceChanged(id);
   res.json({ ok: true });
 });
 
@@ -374,7 +381,6 @@ const asaasView = () => {
     webhookUrl: `${config.appUrl}/api/webhooks/asaas`,
     webhookToken: s.webhookToken || null,
     nfse: s.nfse,
-    online: s.online,
     webhookAt: s.webhookAt,
     shopsWithoutDocument: all<{ id: number; name: string }>(
       'SELECT id, name FROM barbershops WHERE active = 1 AND billing_document IS NULL ORDER BY name COLLATE NOCASE',
@@ -398,26 +404,64 @@ masterRouter.put('/asaas', (req, res) => {
         iss: z.number().min(0).max(10),
         observations: z.string().trim().max(500),
       }),
-      // Pagamentos online dos clientes das barbearias, com repasse e a taxa da plataforma (%).
-      online: z.object({ enabled: z.boolean(), feePct: z.number().min(0).max(30) }).optional(),
     }),
     req.body,
   );
   if (b.nfse.enabled && !b.nfse.serviceName) throw new HttpError(400, 'Para emitir a nota, informe o serviço (como está no cadastro da prefeitura).');
-  saveAsaasSettings({ env: b.env, apiKey: b.apiKey || null, nfse: b.nfse, online: b.online });
+  saveAsaasSettings({ env: b.env, apiKey: b.apiKey || null, nfse: b.nfse });
   res.json(asaasView());
 });
 
+// ---------- cartão pela Cielo (mensalidade das barbearias no cartão automático)
+
+const cieloView = () => {
+  const c = platformCielo();
+  return {
+    clientId: c.clientId || null,
+    secretHint: secretHint(c.clientSecret),
+    ready: platformCardReady(),
+    feePct: c.feePct,
+    webhookUrl: c.webhookToken ? cieloWebhookUrl(c.webhookToken) : null,
+    returnUrl: `${config.appUrl}/painel/mensalidade`,
+    webhookAt: c.webhookAt,
+  };
+};
+
+masterRouter.get('/cielo', (_req, res) => {
+  res.json(cieloView());
+});
+
+masterRouter.put('/cielo', (req, res) => {
+  const b = parseBody(
+    z.object({ clientId: z.string().trim().max(100), clientSecret: z.string().trim().max(200).nullish(), feePct: z.number().min(0).max(20) }),
+    req.body,
+  );
+  savePlatformCielo(b);
+  res.json(cieloView());
+});
+
+masterRouter.post('/cielo/test', async (_req, res) => {
+  const c = platformCielo();
+  if (!c.clientId || !c.clientSecret) throw new HttpError(409, 'Salve o ClientId e o Client Secret primeiro.');
+  try {
+    await testCielo({ clientId: c.clientId, clientSecret: c.clientSecret });
+  } catch (err) {
+    if (err instanceof CieloError) throw new HttpError(502, err.message);
+    throw err;
+  }
+  res.json({ ok: true });
+});
+
 /**
- * Pagamentos online que passaram pelo Asaas da plataforma: mensalidades das barbearias e pagamentos
- * dos clientes (clube e sinal). Mostra barbearia, tipo, forma, valores e repasse, nunca o cliente.
+ * Pagamentos online: mensalidades das barbearias (cartão pela Cielo; PIX ou boleto pelo Asaas) e o que
+ * os clientes delas pagaram no cartão (clube e sinal). Mostra barbearia, tipo, forma e valores, nunca o cliente.
  */
 masterRouter.get('/payments', (req, res) => {
   const today = localNow().date;
   const from = typeof req.query.from === 'string' && isDate(req.query.from) ? req.query.from : `${today.slice(0, 7)}-01`;
   const to = typeof req.query.to === 'string' && isDate(req.query.to) ? req.query.to : today;
   const kind = ['mensalidade', 'clube', 'sinal'].includes(String(req.query.kind)) ? (String(req.query.kind) as GatewayKind) : null;
-  res.json({ asaas: asaasEnabled(), from, to, ...platformPayments({ from, to, kind }) });
+  res.json({ asaas: asaasEnabled(), cielo: platformCardReady(), from, to, ...platformPayments({ from, to, kind }) });
 });
 
 masterRouter.post('/asaas/test', async (_req, res) => {
@@ -620,12 +664,9 @@ masterRouter.get('/readiness', (req, res) => {
     },
     {
       id: 'online',
-      label: 'Cartão para barbearias e clientes (Asaas em produção, recebendo os avisos)',
-      done: (() => {
-        const a = asaasSettings();
-        return Boolean(a.apiKey) && a.env === 'production' && Boolean(a.webhookAt);
-      })(),
-      hint: 'Aba Financeiro → Pagamentos online. Teste antes no ambiente de testes (sandbox).',
+      label: 'Mensalidade no cartão automático (Cielo configurada e recebendo os avisos)',
+      done: platformCardReady() && Boolean(platformCielo().webhookAt),
+      hint: 'Aba Financeiro → Cartão (Cielo). Teste antes com o modo de teste da loja na Cielo.',
       optional: true,
     },
     { id: 'ai', label: 'Inteligência artificial do robô (ANTHROPIC_API_KEY)', done: llmEnabled(), hint: 'Sem ela, o robô responde por menu.', optional: true },

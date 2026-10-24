@@ -7,8 +7,11 @@ import { shopNow } from '../clock.js';
 import { depositsOverview, refundDeposit, saveDepositSettings } from '../deposits.js';
 import { growthSettings, referralsOverview, saveGrowthSettings, upcomingBirthdays } from '../growth.js';
 import { shopOnlinePayments } from '../gatewayPayments.js';
-import { saveShopOnlineSettings, shopOnlineSettings } from '../onlinePayments.js';
-import { run } from '../db.js';
+import { cancelMemberCard } from '../cards.js';
+import { cieloWebhookUrl, saveShopCielo, secretHint, shopCardStatus, shopCielo } from '../cardSettings.js';
+import { CieloError, testCielo } from '../cielo.js';
+import { config } from '../config.js';
+import { get, run } from '../db.js';
 import { METHODS } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
 import { shopBot } from '../messaging.js';
@@ -86,8 +89,11 @@ export function registerClubRoutes(router: Router): void {
     res.status(201).json({ member: memberView(member.id), sent });
   });
 
-  router.post('/club/members/:id/cancel', (req, res) => {
-    res.json(cancelMembership(shopId(req), idParam(req)));
+  router.post('/club/members/:id/cancel', async (req, res) => {
+    const member = cancelMembership(shopId(req), idParam(req));
+    // No cartão automático, a Cielo para de cobrar; se falhar, o dono vê como cancelar na Cielo.
+    const warning = await cancelMemberCard(member.id);
+    res.json({ ...member, warning });
   });
 
   /** Reenvia pelo WhatsApp a mensalidade em aberto, com o PIX. */
@@ -146,18 +152,49 @@ export function registerClubRoutes(router: Router): void {
     res.json(refundDeposit(shopId(req), idParam(req), { userId: req.user!.id, method: body.method }));
   });
 
-  // ---------- pagamento online dos clientes (cartão), com repasse para a conta Asaas da barbearia
+  // ---------- cartão dos clientes pela Cielo da barbearia (clube no automático e sinal)
+
+  const cardView = (shop: number) => {
+    const s = shopCielo(shop);
+    const slug = get<{ slug: string }>('SELECT slug FROM barbershops WHERE id = ?', [shop])!.slug;
+    return {
+      clientId: s.clientId,
+      secretHint: secretHint(s.clientSecret),
+      enabled: s.enabled,
+      feePct: s.feePct,
+      webhookUrl: s.webhookToken ? cieloWebhookUrl(s.webhookToken) : null,
+      returnUrl: `${config.appUrl}/b/${slug}/conta`,
+      webhookAt: s.webhookAt,
+      status: shopCardStatus(shop),
+      payments: shopOnlinePayments(shop),
+    };
+  };
 
   router.get('/online', (req, res) => {
-    const shop = shopId(req);
-    res.json({ ...shopOnlineSettings(shop), payments: shopOnlinePayments(shop) });
+    res.json(cardView(shopId(req)));
   });
 
   router.put('/online', (req, res) => {
-    const body = parseBody(z.object({ enabled: z.boolean(), walletId: zText(60) }), req.body);
+    const body = parseBody(
+      z.object({ clientId: zText(100), clientSecret: zText(200), enabled: z.boolean(), feePct: z.number().min(0).max(20) }),
+      req.body,
+    );
     const shop = shopId(req);
-    saveShopOnlineSettings(shop, body);
-    res.json({ ...shopOnlineSettings(shop), payments: shopOnlinePayments(shop) });
+    saveShopCielo(shop, body);
+    res.json(cardView(shop));
+  });
+
+  /** Confere as credenciais na Cielo. */
+  router.post('/online/test', async (req, res) => {
+    const s = shopCielo(shopId(req));
+    if (!s.clientId || !s.clientSecret) throw new HttpError(409, 'Salve o ClientId e o Client Secret primeiro.');
+    try {
+      await testCielo({ clientId: s.clientId, clientSecret: s.clientSecret });
+    } catch (err) {
+      if (err instanceof CieloError) throw new HttpError(502, err.message);
+      throw err;
+    }
+    res.json({ ok: true });
   });
 
   // ---------- indique um amigo e aniversário

@@ -9,6 +9,7 @@ type Kind = 'mensalidade' | 'clube' | 'sinal';
 
 interface Item {
   id: number;
+  provider: 'asaas' | 'cielo';
   shop: string | null;
   kind: Kind;
   value_cents: number;
@@ -28,6 +29,8 @@ interface Item {
 interface Payments {
   /** O Asaas está configurado (chave de API). */
   asaas: boolean;
+  /** A Cielo da plataforma está configurada (mensalidade no cartão). */
+  cielo: boolean;
   from: string;
   to: string;
   items: Item[];
@@ -65,8 +68,8 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: str
 }
 
 /**
- * Pagamentos online que passaram pelo Asaas da plataforma: mensalidades das barbearias e pagamentos dos
- * clientes delas (clube e sinal), com a parte da plataforma e o repasse. Sem dados dos clientes.
+ * Pagamentos online: mensalidades das barbearias (cartão pela Cielo; PIX pelo Asaas) e o que os clientes
+ * delas pagaram no cartão (clube e sinal, direto na Cielo de cada barbearia). Sem dados dos clientes.
  */
 export function OnlinePaymentsCard() {
   const [range, setRange] = useState<'month' | 'last' | '30d' | 'custom'>('month');
@@ -96,8 +99,8 @@ export function OnlinePaymentsCard() {
           <CreditCard className="size-4" /> Pagamentos online
         </p>
         <p className="text-sm text-zinc-500">
-          Tudo o que passou pelo seu Asaas: mensalidades das barbearias e pagamentos dos clientes delas (clube e sinal), com a sua parte e o repasse. Sem dados
-          dos clientes.
+          Mensalidades das barbearias (cartão pela Cielo, PIX pelo Asaas) e o que os clientes delas pagaram no cartão (clube e sinal, direto na conta Cielo de cada
+          barbearia). Sem dados dos clientes.
         </p>
       </div>
 
@@ -141,8 +144,12 @@ export function OnlinePaymentsCard() {
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
             <Tile label="Pago no período" value={money(t.processed)} hint={`${t.count} pagamento(s)`} />
             <Tile label="Mensalidades (líquido)" value={money(t.monthly)} />
-            <Tile label="Sua parte (clientes)" value={money(t.platformShare)} hint={`de ${money(t.customers)} pagos pelos clientes`} />
-            <Tile label="Repassado às barbearias" value={money(t.toShops)} hint={`Taxas do Asaas: ${money(t.fees)}`} />
+            <Tile
+              label="Clientes → barbearias"
+              value={money(t.customers)}
+              hint={t.platformShare > 0 ? `sua parte: ${money(t.platformShare)}` : 'direto na conta de cada barbearia'}
+            />
+            <Tile label="Taxas (estimadas)" value={money(t.fees)} hint="cartão e PIX" />
           </div>
           {t.byMethod.length > 0 && (
             <p className="text-xs text-zinc-500">
@@ -158,7 +165,7 @@ export function OnlinePaymentsCard() {
 
       {data && data.items.length === 0 && (
         <p className="text-sm text-zinc-500">
-          {data.asaas ? 'Nenhum pagamento online nesse período.' : 'Configure o Asaas logo abaixo para receber as mensalidades e os pagamentos dos clientes com cartão.'}
+          {data.asaas || data.cielo ? 'Nenhum pagamento online nesse período.' : 'Ligue a Cielo logo abaixo para receber as mensalidades no cartão automático.'}
         </p>
       )}
       {data && data.items.length > 0 && (
@@ -174,10 +181,11 @@ export function OnlinePaymentsCard() {
                   <p className="text-xs text-zinc-500">
                     {date(i.paid_at ?? i.created_at)}
                     {i.method && i.method !== 'UNDEFINED' && ` · ${PAY_METHOD[i.method] ?? i.method}`}
+                    {` · ${i.provider === 'cielo' ? 'Cielo' : 'Asaas'}`}
                   </p>
                   {Boolean(i.duplicate) && (
                     <p className="text-xs text-amber-700">
-                      {i.kind === 'mensalidade' ? 'Pago em dobro: devolva à barbearia (estorno no Asaas).' : 'Pago em dobro: a barbearia devolve ao cliente.'}
+                      {i.kind === 'mensalidade' ? 'Pago em dobro: devolva à barbearia (estorno na Cielo ou no Asaas).' : 'Pago em dobro: a barbearia devolve ao cliente.'}
                     </p>
                   )}
                 </div>
@@ -188,9 +196,7 @@ export function OnlinePaymentsCard() {
                   </p>
                   {i.paid && i.net_cents != null && (
                     <p className="text-xs text-zinc-500 tabular-nums">
-                      {i.kind === 'mensalidade'
-                        ? `líquido ${money(i.net)}`
-                        : `você ${money(i.platform)} · barbearia ${money(i.toShop)}`}
+                      {i.kind === 'mensalidade' || !i.platform ? `líquido ${money(i.net)}` : `você ${money(i.platform)} · barbearia ${money(i.toShop)}`}
                     </p>
                   )}
                 </div>

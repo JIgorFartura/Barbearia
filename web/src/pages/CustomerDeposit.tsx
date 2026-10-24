@@ -18,9 +18,8 @@ export interface CustomerDeposit {
 interface DepositDetail extends CustomerDeposit {
   description: string;
   pix: { payload: string; qr: string } | null;
-  /** A barbearia aceita cartão (página segura do Asaas); na primeira vez o cliente informa o CPF. */
+  /** A barbearia aceita cartão (página segura da Cielo). */
   online: boolean;
-  needsCpf: boolean;
 }
 
 /** Pagar o sinal: PIX (QR Code e copia e cola) e "Já paguei", ou cartão. */
@@ -87,7 +86,7 @@ export function DepositPayModal({
               {d.online && (
                 <>
                   {d.pix && <p className="text-center text-xs text-zinc-400">ou</p>}
-                  <OnlinePayButton slug={slug} chargeId={d.id} needsCpf={d.needsCpf} accent={accent} />
+                  <OnlinePayButton slug={slug} chargeId={d.id} />
                 </>
               )}
               {!d.pix && !d.online && <p className="text-zinc-600">Fale com a barbearia para pagar o sinal.</p>}

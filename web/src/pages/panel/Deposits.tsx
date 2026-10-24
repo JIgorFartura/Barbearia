@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { OnlineSettingsCard } from '../../components/OnlinePay';
 import { PixSettingsCard } from '../../components/Pix';
 import { Badge, Button, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -26,7 +25,7 @@ interface DepositRow {
 interface Overview {
   settings: Settings;
   hasPix: boolean;
-  /** Aceita cartão (pagamento online pelo Asaas, com baixa automática). */
+  /** Aceita cartão (Cielo da barbearia, com baixa automática). */
   online: boolean;
   open: DepositRow[];
   credits: DepositRow[];
@@ -179,7 +178,11 @@ export function DepositModal({ onClose }: { onClose: () => void }) {
           </Button>
           {saved && <span className="text-emerald-700">Salvo!</span>}
         </div>
-        {!data.online && <OnlineSettingsCard compact onSaved={() => load()} />}
+        {!data.online && (
+          <p className="text-xs text-zinc-500">
+            Quer receber o sinal também no cartão? Ligue a sua conta Cielo em Clube de assinatura → Receber no cartão.
+          </p>
+        )}
 
         {data.open.length > 0 && (
           <div>

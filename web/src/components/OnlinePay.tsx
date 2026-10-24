@@ -2,9 +2,10 @@ import { CreditCard, Lock } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../lib/api';
 import { date, money } from '../lib/format';
+import { CopyField } from './CopyField';
 import { Badge, Button, Card, ErrorText, Field, Input } from './ui';
 
-/** Formas e situações dos pagamentos online (como o Asaas devolve). */
+/** Formas e situações dos pagamentos online (cartão pela Cielo; PIX e boleto pelo Asaas). */
 export const PAY_METHOD: Record<string, string> = {
   CREDIT_CARD: 'Cartão de crédito',
   DEBIT_CARD: 'Cartão de débito',
@@ -15,10 +16,14 @@ export const PAY_METHOD: Record<string, string> = {
 
 export const PAY_STATUS: Record<string, { label: string; tone: 'green' | 'gold' | 'red' | 'zinc' }> = {
   PENDING: { label: 'Aguardando', tone: 'gold' },
+  AUTHORIZED: { label: 'Autorizado', tone: 'gold' },
   CONFIRMED: { label: 'Aprovado', tone: 'green' },
   RECEIVED: { label: 'Recebido', tone: 'green' },
   RECEIVED_IN_CASH: { label: 'Baixado à mão', tone: 'zinc' },
   OVERDUE: { label: 'Vencido', tone: 'red' },
+  DENIED: { label: 'Recusado', tone: 'red' },
+  EXPIRED: { label: 'Não concluído', tone: 'zinc' },
+  CANCELLED: { label: 'Cancelado', tone: 'zinc' },
   DELETED: { label: 'Cancelado', tone: 'zinc' },
   REFUNDED: { label: 'Estornado', tone: 'zinc' },
   CHARGEBACK: { label: 'Contestado', tone: 'red' },
@@ -26,41 +31,39 @@ export const PAY_STATUS: Record<string, { label: string; tone: 'green' | 'gold' 
 
 export const payStatus = (s: string) => PAY_STATUS[s] ?? { label: s, tone: 'zinc' as const };
 
-const cpfMask = (v: string) =>
-  v
-    .replace(/\D/g, '')
-    .slice(0, 11)
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
-
-/**
- * Pagar com cartão (na área do cliente): abre a página segura do Asaas. Na primeira vez pede o CPF,
- * que vai só para o Asaas (o banco exige).
- */
-export function OnlinePayButton({ slug, chargeId, needsCpf, accent, label = 'Pagar com cartão' }: { slug: string; chargeId: number; needsCpf: boolean; accent: string; label?: string }) {
-  const [askCpf, setAskCpf] = useState(false);
-  const [cpf, setCpf] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Voltou da página do Asaas pelo "voltar" do navegador (página restaurada da memória): recarrega
-  // para mostrar a situação atualizada.
+/** Volta da página da Cielo pelo "voltar" do navegador (página restaurada da memória): recarrega. */
+export function useReloadOnBack() {
   useEffect(() => {
     const onShow = (e: PageTransitionEvent) => e.persisted && location.reload();
     window.addEventListener('pageshow', onShow);
     return () => window.removeEventListener('pageshow', onShow);
   }, []);
+}
 
-  async function pay(e?: FormEvent) {
-    e?.preventDefault();
-    if (needsCpf && !askCpf) {
-      setAskCpf(true);
-      return;
-    }
+/**
+ * Pagar no cartão (na área do cliente): abre a página segura da Cielo. No sinal, pagamento avulso; no
+ * clube, o cartão fica cadastrado e a Cielo cobra sozinha todo mês.
+ */
+export function OnlinePayButton({
+  slug,
+  chargeId,
+  label = 'Pagar com cartão',
+  hint = 'Página segura da Cielo. A confirmação é automática.',
+}: {
+  slug: string;
+  chargeId: number;
+  label?: string;
+  hint?: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useReloadOnBack();
+
+  async function pay() {
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ url: string }>('POST', `/api/customer/${slug}/charges/${chargeId}/pay-online`, needsCpf ? { cpf } : {});
+      const r = await api<{ url: string }>('POST', `/api/customer/${slug}/charges/${chargeId}/pay-online`, {});
       location.assign(r.url);
     } catch (err) {
       setError((err as Error).message);
@@ -69,28 +72,22 @@ export function OnlinePayButton({ slug, chargeId, needsCpf, accent, label = 'Pag
   }
 
   return (
-    <form onSubmit={pay} className="space-y-2">
-      {askCpf && (
-        <Field label="Seu CPF" hint="O banco pede o CPF para pagamentos com cartão. Ele vai só para o Asaas, que processa o pagamento; a barbearia não guarda.">
-          <Input autoFocus required inputMode="numeric" autoComplete="off" placeholder="000.000.000-00" value={cpf} onChange={(e) => setCpf(cpfMask(e.target.value))} />
-        </Field>
-      )}
+    <div className="space-y-2">
       <ErrorText error={error} />
-      <Button type="submit" className="w-full" variant="ghost" loading={busy} style={askCpf ? { background: accent, color: '#09090b' } : undefined}>
-        <CreditCard className="size-4" /> {askCpf ? 'Continuar para o pagamento' : label}
+      <Button type="button" className="w-full" variant="ghost" loading={busy} onClick={pay}>
+        <CreditCard className="size-4" /> {label}
       </Button>
       <p className="flex items-center justify-center gap-1 text-center text-xs text-zinc-500">
-        <Lock className="size-3" /> Página segura do Asaas. A confirmação é automática.
+        <Lock className="size-3 shrink-0" /> {hint}
       </p>
-    </form>
+    </div>
   );
 }
 
 // ---------- painel da barbearia
 
-interface OnlineStatus {
+interface CardStatus {
   available: boolean;
-  platform: boolean;
   feePct: number;
   reason: string | null;
 }
@@ -111,53 +108,64 @@ interface OnlineReceipt {
   paid_at: string | null;
 }
 
-interface OnlineSettings {
+interface CardSettings {
+  clientId: string | null;
+  secretHint: string | null;
   enabled: boolean;
-  walletId: string | null;
-  status: OnlineStatus;
+  feePct: number;
+  webhookUrl: string | null;
+  returnUrl: string;
+  webhookAt: string | null;
+  status: CardStatus;
   payments: OnlineReceipt[];
 }
 
+const pct = (n: number) => String(n).replace('.', ',');
+
 /**
- * Receber com cartão: a barbearia informa a carteira (Wallet ID) da conta Asaas dela, que recebe o
- * repasse de cada pagamento. Só aparece depois que a plataforma libera os pagamentos online.
+ * Receber no cartão pela Cielo da barbearia: o cliente assina o clube no cartão (a Cielo cobra sozinha
+ * todo mês) e paga o sinal. O dinheiro cai na conta Cielo da barbearia e a baixa aqui é automática.
  */
-export function OnlineSettingsCard({ compact, onSaved }: { compact?: boolean; onSaved?: (available: boolean) => void }) {
-  const [data, setData] = useState<OnlineSettings | null>(null);
-  const [enabled, setEnabled] = useState(false);
-  const [wallet, setWallet] = useState('');
+export function OnlineSettingsCard() {
+  const [data, setData] = useState<CardSettings | null>(null);
+  const [form, setForm] = useState({ clientId: '', clientSecret: '', enabled: false, feePct: '3,48' });
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [all, setAll] = useState(false);
-  const apply = (s: OnlineSettings) => {
+  const apply = (s: CardSettings) => {
     setData(s);
-    setEnabled(s.enabled);
-    setWallet(s.walletId ?? '');
+    setForm({ clientId: s.clientId ?? '', clientSecret: '', enabled: s.enabled, feePct: pct(s.feePct) });
   };
   useEffect(() => {
-    api<OnlineSettings>('GET', '/api/shop/online').then(apply, () => undefined);
+    api<CardSettings>('GET', '/api/shop/online').then(apply, () => undefined);
   }, []);
-  if (!data?.status.platform) return null;
+  if (!data) return null;
+  const set = (patch: Partial<typeof form>) => {
+    setMsg(null);
+    setForm({ ...form, ...patch });
+  };
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function run(fn: () => Promise<unknown>, done: string) {
     setBusy(true);
     setError(null);
-    setSaved(false);
+    setMsg(null);
     try {
-      const s = await api<OnlineSettings>('PUT', '/api/shop/online', { enabled, walletId: wallet });
-      apply(s);
-      setSaved(true);
-      onSaved?.(s.status.available);
+      await fn();
+      setMsg(done);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
     }
   }
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void run(async () => {
+      apply(await api<CardSettings>('PUT', '/api/shop/online', { ...form, feePct: Number(form.feePct.replace(',', '.')) || 0 }));
+    }, 'Salvo!');
+  };
 
-  const fee = data.status.feePct;
   const shown = all ? data.payments : data.payments.slice(0, 6);
   return (
     <Card className="space-y-3">
@@ -165,52 +173,71 @@ export function OnlineSettingsCard({ compact, onSaved }: { compact?: boolean; on
         <div>
           <div className="flex items-start justify-between gap-2">
             <p className="flex items-center gap-2 font-semibold">
-              <CreditCard className="size-4" /> Receber com cartão
+              <CreditCard className="size-4" /> Receber no cartão (Cielo)
             </p>
             <Badge tone={data.status.available ? 'green' : 'zinc'}>{data.status.available ? 'Ligado' : 'Desligado'}</Badge>
           </div>
           <p className="text-sm text-zinc-500">
-            Na área dele, o cliente paga a mensalidade do clube (cartão, boleto ou PIX) e o sinal (cartão) numa página segura do Asaas. O dinheiro vai para a sua
-            conta Asaas, descontada a taxa do Asaas{fee > 0 ? ` e a da plataforma (${String(fee).replace('.', ',')}%)` : ''}, e o pagamento é baixado aqui sozinho.
+            O cliente assina o clube no cartão (a Cielo cobra sozinha todo mês) e paga o sinal, numa página segura da Cielo. O dinheiro cai na sua conta Cielo em 1
+            dia útil (com o Recebimento Automático ligado na Cielo) e a baixa aqui é automática.
           </p>
         </div>
-        <Field label="Wallet ID da sua conta Asaas" hint="Abra sua conta no Asaas e, em Integrações, copie o Wallet ID (36 caracteres, com hífens).">
-          <Input
-            value={wallet}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="1a2b3c4d-0000-0000-0000-000000000000"
-            className="font-mono text-xs"
-            onChange={(e) => {
-              setSaved(false);
-              setWallet(e.target.value);
-            }}
-          />
-        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="ClientId">
+            <Input value={form.clientId} autoComplete="off" spellCheck={false} className="font-mono text-xs" onChange={(e) => set({ clientId: e.target.value })} />
+          </Field>
+          <Field label="Client Secret" hint={data.secretHint ? 'Deixe em branco para manter o atual.' : undefined}>
+            <Input
+              type="password"
+              value={form.clientSecret}
+              autoComplete="off"
+              placeholder={data.secretHint ?? ''}
+              className="font-mono text-xs"
+              onChange={(e) => set({ clientSecret: e.target.value })}
+            />
+          </Field>
+        </div>
+        <p className="text-xs text-zinc-500">
+          No site da Cielo, contrate o Link de Pagamento (sem mensalidade) e pegue as credenciais da API em Configurações. Lá mesmo, cole as URLs abaixo.
+        </p>
+        {data.webhookUrl && (
+          <div className="space-y-2 rounded-xl bg-zinc-50 p-3">
+            <CopyField label="URL de notificação e de mudança de status" value={data.webhookUrl} hint="Cole nos dois campos. É por ela que a Cielo avisa cada pagamento." />
+            <CopyField label="URL de retorno" value={data.returnUrl} hint="Para onde o cliente volta depois de pagar." />
+            <p className={`text-xs ${data.webhookAt ? 'text-emerald-700' : 'text-zinc-500'}`}>
+              {data.webhookAt
+                ? `Funcionando: último aviso da Cielo em ${new Date(data.webhookAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}.`
+                : 'Nenhum aviso da Cielo ainda. Faça um pagamento de teste para conferir.'}
+            </p>
+          </div>
+        )}
+        <div className="grid items-end gap-3 sm:grid-cols-[10rem_1fr]">
+          <Field label="Taxa do cartão (%)">
+            <Input inputMode="decimal" value={form.feePct} onChange={(e) => set({ feePct: e.target.value })} />
+          </Field>
+          <p className="pb-2 text-xs text-zinc-500">Lançada no caixa em cada pagamento, para o saldo bater com o que cai na conta. Confira a sua no app da Cielo.</p>
+        </div>
         <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="size-4"
-            checked={enabled}
-            onChange={(e) => {
-              setSaved(false);
-              setEnabled(e.target.checked);
-            }}
-          />{' '}
-          Oferecer pagamento com cartão aos clientes
+          <input type="checkbox" className="size-4" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> Oferecer pagamento no cartão aos
+          clientes
         </label>
         <ErrorText error={error} />
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <Button type="submit" loading={busy}>
             Salvar
           </Button>
-          {saved && <span className="text-sm text-emerald-700">Salvo!</span>}
+          {data.clientId && data.secretHint && (
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => run(() => api('POST', '/api/shop/online/test'), 'Conexão com a Cielo funcionando.')}>
+              Testar conexão
+            </Button>
+          )}
+          {msg && <span className="text-sm text-emerald-700">{msg}</span>}
         </div>
       </form>
 
-      {!compact && data.payments.length > 0 && (
+      {data.payments.length > 0 && (
         <div className="border-t border-zinc-100 pt-3">
-          <p className="mb-1 text-sm font-semibold">Recebidos online</p>
+          <p className="mb-1 text-sm font-semibold">Recebidos no cartão</p>
           <ul className="divide-y divide-zinc-100 text-sm">
             {shown.map((p) => {
               const st = payStatus(p.status);
@@ -229,10 +256,10 @@ export function OnlineSettingsCard({ compact, onSaved }: { compact?: boolean; on
                       <Badge tone={st.tone}>{st.label}</Badge>
                     </span>
                   </div>
-                  {p.paid && p.net_cents != null && <p className="text-xs text-zinc-500">Você recebe {money(p.toShop)} na conta Asaas.</p>}
+                  {p.paid && p.net_cents != null && <p className="text-xs text-zinc-500">Cai na sua conta cerca de {money(p.toShop)}, já sem a taxa.</p>}
                   {Boolean(p.duplicate) && (
                     <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-900">
-                      Pago duas vezes (online e de outro jeito): devolva {money(p.value_cents)} ao cliente por PIX.
+                      Pago duas vezes (ou depois de cancelar): devolva {money(p.value_cents)} ao cliente (estorno no site da Cielo ou PIX).
                     </p>
                   )}
                 </li>

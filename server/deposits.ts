@@ -1,3 +1,4 @@
+import { shopCardStatus } from './cardSettings.js';
 import { charge, chargePayload, pixSettings, type ChargeView } from './charges.js';
 import { clubCoverage } from './club.js';
 import { shopNow, shopTz } from './clock.js';
@@ -5,7 +6,6 @@ import { issueAccessLink } from './customerAuth.js';
 import { all, get, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { sendMessage, sendsTemplate, type ShopBot } from './messaging.js';
-import { onlineStatus } from './onlinePayments.js';
 import { addDays, addMinutes, dayLabel, hourLabel, isoToLocal } from './time.js';
 
 /**
@@ -50,7 +50,7 @@ export function needsDeposit(shopId: number, customerId: number, startsAt: strin
   const s = depositSettings(shopId);
   if (s.deposit_mode === 'off' || s.deposit_cents <= 0) return false;
   // Sem chave PIX e sem cartão não tem como cobrar.
-  if (!pixSettings(shopId).pix_key && !onlineStatus(shopId).available) return false;
+  if (!pixSettings(shopId).pix_key && !shopCardStatus(shopId).available) return false;
   const n = shopNow(shopId, now);
   // Horário em cima da hora (não daria tempo de pagar): sem sinal.
   if (startsAt < addMinutes(n.stamp, s.deposit_hold_min + 30)) return false;
@@ -145,7 +145,7 @@ export function depositMessage(shop: { id: number; name: string; slug: string },
   const payload = chargePayload(c);
   const until = c.expires_at ? hourLabel(isoToLocal(c.expires_at, shopTz(shop.id)).slice(11, 16)) : null;
   // Cartão pela área do cliente (página segura do Asaas), quando a barbearia aceita.
-  const area = onlineStatus(shop.id).available ? issueAccessLink(c.customer_id, shop.slug) : null;
+  const area = shopCardStatus(shop.id).available ? issueAccessLink(c.customer_id, shop.slug) : null;
   if (!payload) {
     return {
       text: `Para garantir o horário, falta o sinal de ${money(c.amount_cents)} no cartão${until ? ` até as ${until}` : ''}, pela sua área: ${area}. Sem o sinal, a vaga é liberada.`,
@@ -279,8 +279,8 @@ export function depositsOverview(shopId: number) {
   return {
     settings: depositSettings(shopId),
     hasPix: Boolean(pixSettings(shopId).pix_key),
-    /** Aceita cartão (pagamento online pelo Asaas, com baixa automática). */
-    online: onlineStatus(shopId).available,
+    /** Aceita cartão (Cielo da barbearia, com baixa automática). */
+    online: shopCardStatus(shopId).available,
     open: all(`${SELECT} AND ch.status = 'open' ORDER BY ch.id DESC`, [shopId]),
     credits: all(`${SELECT} AND ch.status = 'paid' AND ch.appointment_id IS NULL AND ch.sale_id IS NULL AND ch.forfeited_at IS NULL AND ch.refunded_at IS NULL ORDER BY ch.id DESC`, [
       shopId,
