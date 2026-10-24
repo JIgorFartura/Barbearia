@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Section } from '../components/CustomerSection';
 import { StampCard, type Progress } from '../components/StampCard';
 import { ClubSection } from './CustomerClub';
+import { DepositPayModal, type CustomerDeposit } from './CustomerDeposit';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import { WEEKDAYS, WEEKDAYS_SHORT, addDays, cap, dayLabel, hourLabel, money, phone as fmtPhone, stampLabel, todayStr, weekdayOf } from '../lib/format';
@@ -28,6 +29,8 @@ interface Appointment {
   starts_at: string;
   status: 'scheduled' | 'cancelled' | 'no_show';
   items?: { catalog_item_id: number; name: string; qty: number }[];
+  /** Sinal via PIX para segurar o horário (se a barbearia cobra). */
+  deposit?: CustomerDeposit | null;
 }
 
 interface Suggestion {
@@ -282,6 +285,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
   const [prefs, setPrefs] = useState(false);
   const [voucher, setVoucher] = useState<Voucher | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [paying, setPaying] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const accent = { background: brand.accent_color, color: '#09090b' };
   const habit = me.habit;
@@ -355,6 +359,17 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
                   {a.items && a.items.length > 0 && (
                     <p className="text-xs text-amber-800">🍺 Separado pra você: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
                   )}
+                  {a.deposit &&
+                    (a.deposit.paid ? (
+                      <p className="text-xs text-emerald-700">✅ Sinal pago ({money(a.deposit.amount_cents)})</p>
+                    ) : a.deposit.claimed ? (
+                      <p className="text-xs text-emerald-700">✅ Sinal avisado: a barbearia confere o PIX</p>
+                    ) : (
+                      <button className="mt-1 rounded-md px-2 py-0.5 text-xs font-semibold" style={accent} onClick={() => setPaying(a.deposit!.id)}>
+                        Pagar sinal de {money(a.deposit.amount_cents)}
+                        {a.deposit.expires_local ? ` até ${hourLabel(a.deposit.expires_local.slice(11))}` : ''}
+                      </button>
+                    ))}
                 </div>
                 <button onClick={() => cancelAppt(a)} className="flex items-center gap-1 text-sm text-red-600 hover:underline">
                   <CalendarX className="size-4" /> Cancelar
@@ -491,6 +506,17 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
       </Section>
 
       {deleting && <DeleteAccountModal slug={slug} shopName={brand.name} onClose={() => setDeleting(false)} />}
+      {paying && (
+        <DepositPayModal
+          slug={slug}
+          depositId={paying}
+          accent={brand.accent_color}
+          onClose={() => {
+            setPaying(null);
+            reload();
+          }}
+        />
+      )}
       {booking && (
         <BookingModal
           slug={slug}
@@ -599,27 +625,40 @@ function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me:
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [slots]);
 
-  const [booked, setBooked] = useState<{ id: number; suggestion: Suggestion | null } | null>(null);
+  const [booked, setBooked] = useState<{ id: number; suggestion: Suggestion | null; deposit: CustomerDeposit | null } | null>(null);
+  const [depositDone, setDepositDone] = useState(false);
 
   async function confirmBooking() {
     if (!choice) return;
     setBusy(true);
     setError(null);
     try {
-      const a = await api<{ id: number; suggestion: Suggestion | null }>('POST', `/api/customer/${slug}/appointments`, {
+      const a = await api<{ id: number; suggestion: Suggestion | null; deposit: CustomerDeposit | null }>('POST', `/api/customer/${slug}/appointments`, {
         barber_id: choice.barberId,
         service_id: serviceId,
         date,
         time: choice.time,
       });
-      // Se ele costuma tomar algo (ex.: uma cerveja), pergunta se pode avisar o barbeiro.
-      if (a.suggestion) setBooked(a);
+      // Sinal para segurar o horário e/ou a pergunta do consumo (ex.: "posso avisar o Paulo da sua cerveja?").
+      if ((a.deposit && !a.deposit.paid) || a.suggestion) setBooked(a);
       else onDone();
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
     }
+  }
+
+  if (booked?.deposit && !booked.deposit.paid && !depositDone) {
+    return (
+      <DepositPayModal
+        slug={slug}
+        depositId={booked.deposit.id}
+        accent={accent}
+        title="Horário reservado! Falta o sinal"
+        onClose={() => (booked.suggestion ? setDepositDone(true) : onDone())}
+      />
+    );
   }
 
   if (booked?.suggestion) {

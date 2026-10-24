@@ -4,6 +4,7 @@ import { shopId } from '../auth.js';
 import { chargesToConfirm, confirmCharge, pixSettings, rejectClaim, savePixSettings, undoConfirm } from '../charges.js';
 import { cancelMembership, clubCoverage, clubOverview, deletePlan, memberView, savePlan, sendClubCharge, subscribe } from '../club.js';
 import { shopNow } from '../clock.js';
+import { depositsOverview, refundDeposit, saveDepositSettings } from '../deposits.js';
 import { run } from '../db.js';
 import { METHODS } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
@@ -30,7 +31,7 @@ const pixView = (shop: number) => {
   return { ...s, pix_type: s.pix_key ? pixKeyType(s.pix_key) : null };
 };
 
-/** Clube de assinatura, chave PIX da barbearia e confirmação dos PIX avisados pelos clientes (painel do dono). */
+/** Clube de assinatura, sinal, chave PIX da barbearia e confirmação dos PIX avisados pelos clientes (painel do dono). */
 export function registerClubRoutes(router: Router): void {
   router.get('/pix', (req, res) => {
     res.json(pixView(shopId(req)));
@@ -114,6 +115,32 @@ export function registerClubRoutes(router: Router): void {
 
   router.post('/charges/:id/undo', (req, res) => {
     res.json(undoConfirm(shopId(req), idParam(req)));
+  });
+
+  // ---------- sinal para segurar o horário
+
+  router.get('/deposits', (req, res) => {
+    res.json(depositsOverview(shopId(req)));
+  });
+
+  router.put('/deposits/settings', (req, res) => {
+    const body = parseBody(
+      z.object({
+        deposit_mode: z.enum(['off', 'all', 'no_show']),
+        deposit_cents: z.number().int().min(100, 'O sinal mínimo é R$ 1,00.').max(100_000),
+        deposit_hold_min: z.number().int().min(15).max(24 * 60),
+        deposit_credit_hours: z.number().int().min(0).max(7 * 24),
+      }),
+      req.body,
+    );
+    if (body.deposit_mode !== 'off' && !pixSettings(shopId(req)).pix_key) throw new HttpError(409, 'Cadastre a chave PIX da barbearia antes de ligar o sinal.');
+    saveDepositSettings(shopId(req), body);
+    res.json(depositsOverview(shopId(req)));
+  });
+
+  router.post('/charges/:id/refund', (req, res) => {
+    const body = parseBody(z.object({ method: z.enum(METHODS).default('pix') }), req.body ?? {});
+    res.json(refundDeposit(shopId(req), idParam(req), { userId: req.user!.id, method: body.method }));
   });
 
   /** Na hora de fechar a comanda: o que o clube cobre para este cliente hoje. */

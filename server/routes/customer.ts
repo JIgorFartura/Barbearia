@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { chargePix, claimCharge } from '../charges.js';
+import { charge, chargePix, claimCharge } from '../charges.js';
+import { appointmentDeposit, depositPublic, requireDeposit } from '../deposits.js';
 import { cancelMembership, customerMembership, listPlans, subscribe } from '../club.js';
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
 import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
@@ -47,7 +48,7 @@ customerRouter.get('/me', (req, res) => {
     privacyAccepted: Boolean(customer.privacy_accepted_at),
     habit: customerHabit(customerId),
     lastVisit: lastVisitDate(customerId),
-    upcoming: upcomingFor(customerId).map((a) => ({ ...a, items: reservedItems(a.id) })),
+    upcoming: upcomingFor(customerId).map((a) => ({ ...a, items: reservedItems(a.id), deposit: depositPublic(shopId, appointmentDeposit(a.id)) })),
     history: historyFor(customerId).slice(0, 10),
     // O que ele comprou (é dele por direito): data, itens e total — sem nada interno (comissão, barbeiro do produto...).
     purchases: all<{ id: number; date: string; total_cents: number }>(
@@ -76,7 +77,7 @@ customerRouter.get('/availability', (req, res) => {
   res.json(freeTimes(shopId, date, { barberId: num(req.query.barber_id), serviceId: num(req.query.service_id) }));
 });
 
-customerRouter.post('/appointments', (req, res) => {
+customerRouter.post('/appointments', async (req, res) => {
   const { shopId, customerId } = ctx(req);
   const body = parseBody(
     z.object({
@@ -88,8 +89,32 @@ customerRouter.post('/appointments', (req, res) => {
     req.body,
   );
   const appointment = book({ shopId, customerId, barberId: body.barber_id, serviceId: body.service_id, date: body.date, time: body.time, source: 'cliente' });
-  // Mesma pergunta do robô: "posso avisar o Paulo da sua cerveja?"
-  res.status(201).json({ ...appointment, suggestion: suggestionFor(shopId, appointment.id) });
+  // Sinal via PIX para segurar o horário (se a barbearia cobra).
+  const deposit = requireDeposit(shopId, appointment.id);
+  res.status(201).json({
+    ...appointment,
+    // Mesma pergunta do robô: "posso avisar o Paulo da sua cerveja?"
+    suggestion: suggestionFor(shopId, appointment.id),
+    deposit: deposit && { ...depositPublic(shopId, deposit), pix: await chargePix(deposit) },
+  });
+});
+
+/** Sinal de um horário: PIX para pagar e "Já paguei". */
+function myDeposit(req: Request) {
+  const { shopId, customerId } = ctx(req);
+  const c = get<{ id: number }>("SELECT id FROM charges WHERE id = ? AND barbershop_id = ? AND customer_id = ? AND kind = 'sinal'", [idParam(req), shopId, customerId]);
+  if (!c) throw new HttpError(404, 'Sinal não encontrado.');
+  return { shopId, customerId, charge: charge(c.id) };
+}
+
+customerRouter.get('/deposits/:id', async (req, res) => {
+  const { shopId, charge: c } = myDeposit(req);
+  res.json({ ...depositPublic(shopId, c), description: c.description, pix: await chargePix(c) });
+});
+
+customerRouter.post('/deposits/:id/claim', (req, res) => {
+  const { shopId, customerId, charge: c } = myDeposit(req);
+  res.json(depositPublic(shopId, claimCharge(shopId, customerId, c.id)));
 });
 
 customerRouter.post('/appointments/:id/items', async (req, res) => {

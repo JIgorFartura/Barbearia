@@ -1,6 +1,7 @@
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, Search, Users } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, HandCoins, Plus, Search, Users } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { CheckoutModal } from '../../components/Checkout';
+import { DepositBadge, DepositModal, type DepositState } from './Deposits';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { methodLabel } from '../../lib/finance';
 import { api } from '../../lib/api';
@@ -24,6 +25,8 @@ interface Appointment {
   items: { catalog_item_id: number; name: string; qty: number }[];
   /** Venda que fechou o atendimento. */
   sale: { id: number; total_cents: number; method: string } | null;
+  /** Sinal via PIX do horário. */
+  deposit: DepositState | null;
 }
 
 interface BarberRow {
@@ -47,6 +50,7 @@ export function Agenda() {
   const [data, setData] = useState<AgendaData | null>(null);
   const [creating, setCreating] = useState(false);
   const [closing, setClosing] = useState<number | null>(null);
+  const [deposits, setDeposits] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -76,9 +80,14 @@ export function Agenda() {
           <h1 className="text-2xl font-bold">Agenda</h1>
           <p className="text-sm text-zinc-500">Horários marcados no balcão, no site e pelo robô do WhatsApp.</p>
         </div>
-        <Button onClick={() => setCreating(true)}>
-          <Plus className="size-4" /> Novo horário
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => setDeposits(true)}>
+            <HandCoins className="size-4" /> Sinal
+          </Button>
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="size-4" /> Novo horário
+          </Button>
+        </div>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -143,6 +152,11 @@ export function Agenda() {
                           {item.appt.status === 'cancelled' ? 'Cancelado' : item.appt.status === 'no_show' ? 'Faltou' : SOURCE[item.appt.source]}
                         </Badge>
                       </div>
+                      {item.appt.status === 'scheduled' && !item.appt.sale && item.appt.deposit && (
+                        <p className="mt-1">
+                          <DepositBadge deposit={item.appt.deposit} />
+                        </p>
+                      )}
                       {item.appt.items.length > 0 && (
                         <p className="mt-1 text-xs font-medium text-amber-800">🍺 Separar: {item.appt.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
                       )}
@@ -190,6 +204,14 @@ export function Agenda() {
         })}
       </div>
 
+      {deposits && (
+        <DepositModal
+          onClose={() => {
+            setDeposits(false);
+            load();
+          }}
+        />
+      )}
       {closing && (
         <CheckoutModal
           appointmentId={closing}

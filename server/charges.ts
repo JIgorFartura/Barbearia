@@ -143,6 +143,7 @@ export function undoConfirm(shopId: number, chargeId: number): ChargeView {
     const c = charge(chargeId, shopId);
     if (c.status !== 'paid') throw new HttpError(409, 'Esse pagamento não está confirmado.');
     if (c.sale_id) throw new HttpError(409, 'Esse sinal já foi abatido numa venda. Cancele a venda antes.');
+    if (c.refunded_at) throw new HttpError(409, 'Esse sinal já foi devolvido ao cliente.');
     run("UPDATE charges SET status = 'open', paid_at = NULL, method = NULL, forfeited_at = NULL WHERE id = ?", [chargeId]);
     run('DELETE FROM cash_entries WHERE charge_id = ?', [chargeId]);
     if (c.club_member_id) {

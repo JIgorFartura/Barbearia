@@ -3,12 +3,14 @@ import { config } from '../config.js';
 import { describeItems, usualConsumption } from '../consumption.js';
 import { availableQty } from '../stock.js';
 import { customerMembership, listPlans } from '../club.js';
+import { pixSettings } from '../charges.js';
+import { depositSettings } from '../deposits.js';
 import { all, get } from '../db.js';
 import { customerHabit } from '../habits.js';
 import type { HistoryItem } from '../messaging.js';
 import { activeBarbers, services, upcomingFor } from '../scheduling.js';
-import { shopNow } from '../clock.js';
-import { addDays, dayLabel, hourLabel, WEEKDAYS } from '../time.js';
+import { shopNow, shopTz } from '../clock.js';
+import { addDays, dayLabel, hourLabel, isoToLocal, WEEKDAYS } from '../time.js';
 import { runTool, toolDefinitions, type BotContext } from './tools.js';
 
 /** Instruções iguais para todas as barbearias (ficam em cache junto com as ferramentas). */
@@ -32,6 +34,8 @@ Regras:
 - Você só vê e altera dados do cliente desta conversa. Nunca diga quem marcou um horário nem passe dados de outros clientes; para "a agenda do Paulo" mostre apenas os horários livres dele.
 - Quando o cliente contar o dia e a hora em que costuma vir, salve com definir_horario_costume.
 - Se pedir para não receber mais mensagens automáticas, use lembretes com receber=false.
+- Depois de marcar, se o resultado de agendar trouxer sinal, inclua esse texto na confirmação (o código PIX é enviado sozinho, logo depois da sua resposta; não escreva o código).
+- Depois de cancelar, se o resultado trouxer sinal, conte ao cliente o que aconteceu com o sinal.
 - Depois de marcar, se o resultado de agendar trouxer pergunta_consumo, termine a confirmação com essa pergunta.
 - Se o cliente pedir para deixar algo separado para o horário dele (ex.: "separa uma cerveja"), use reservar_consumo.
 - Clube de assinatura: quando o cliente perguntar (ou fizer sentido, sem insistir), explique os planos do CONTEXTO. Para assinar ou pagar a mensalidade, mande o link da área do cliente (enviar_link_area). Nunca diga que um pagamento foi confirmado: quem confere o PIX é a barbearia.
@@ -81,9 +85,27 @@ export function buildContext(ctx: BotContext): string {
     );
   }
 
+  const dep = depositSettings(shop.id);
+  if (dep.deposit_mode !== 'off' && pixSettings(shop.id).pix_key) {
+    lines.push(
+      `Sinal: a barbearia cobra ${money(dep.deposit_cents)} de sinal por PIX para segurar horários marcados pelo WhatsApp ou pelo site (${dep.deposit_mode === 'all' ? 'de todos os clientes' : 'só de quem já faltou'}); sem o pagamento em ${dep.deposit_hold_min} minutos, a vaga é liberada. O sinal é descontado no dia. Cancelando com pelo menos ${dep.deposit_credit_hours}h de antecedência, vira crédito para o próximo horário; em cima da hora ou faltando, fica com a barbearia.`,
+    );
+  }
+
   if (ctx.customer) {
     const c = ctx.customer;
     lines.push(`Quem está falando: ${c.name}, cliente cadastrado.`);
+    const pending = get<{ description: string; amount_cents: number; expires_at: string | null; claimed_at: string | null }>(
+      "SELECT description, amount_cents, expires_at, claimed_at FROM charges WHERE customer_id = ? AND kind = 'sinal' AND status = 'open' ORDER BY id DESC LIMIT 1",
+      [c.id],
+    );
+    if (pending) {
+      lines.push(
+        pending.claimed_at
+          ? `SINAL: o cliente avisou que pagou o sinal (${pending.description}); a barbearia está conferindo. O horário está garantido.`
+          : `SINAL PENDENTE: ${pending.description}, ${money(pending.amount_cents)}${pending.expires_at ? `, até as ${hourLabel(isoToLocal(pending.expires_at, shopTz(shop.id)).slice(11, 16))}` : ''}. Se o cliente pedir o PIX de novo, use reenviar_pix_sinal.`,
+      );
+    }
     const club = customerMembership(shop.id, c.id, ctx.now);
     if (club) {
       const until = (d: string | null | undefined) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : '');

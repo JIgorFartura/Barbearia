@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
 import { CheckoutModal, type CheckoutEndpoints } from '../components/Checkout';
+import { DepositBadge, type DepositState } from './panel/Deposits';
 import { Badge, Button, Card, ErrorText } from '../components/ui';
 import { api } from '../lib/api';
 import { methodLabel } from '../lib/finance';
@@ -29,6 +30,7 @@ interface Appointment {
   status: 'scheduled' | 'cancelled' | 'no_show';
   items: { catalog_item_id: number; name: string; qty: number }[];
   sale: { id: number; total_cents: number; method: string } | null;
+  deposit: DepositState | null;
 }
 
 interface Earnings {
@@ -171,6 +173,11 @@ function BarberAgenda({ info }: { info: BarberMe }) {
                   <Badge tone="green">Pago</Badge>
                 ) : null}
               </div>
+              {a.status === 'scheduled' && !a.sale && a.deposit && (
+                <p className="mt-1">
+                  <DepositBadge deposit={a.deposit} />
+                </p>
+              )}
               {a.items.length > 0 && (
                 <p className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900">
                   🍺 Separar: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}

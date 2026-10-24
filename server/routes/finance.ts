@@ -1,4 +1,5 @@
 import type { Request, Router } from 'express';
+import { depositState } from '../deposits.js';
 import { z } from 'zod';
 import { shopId } from '../auth.js';
 import { accessStatus, informPayment, invoice, invoicePix, listInvoices, shopBilling, monthlyPrice } from '../billing.js';
@@ -158,6 +159,8 @@ export function registerFinanceRoutes(router: Router): void {
     res.json({
       appointment,
       reserved: appointmentId ? reservedItems(appointmentId) : [],
+      // Sinal pago antes (abatido no fechamento) ou ainda pendente.
+      deposit: appointmentId ? depositState(shop, appointmentId) : null,
       // Produtos com controle de estoque trazem quanto ainda tem (descontado o que está separado).
       catalog: all<{ id: number; kind: string; name: string; price_cents: number; track_stock: number }>(
         'SELECT id, kind, name, price_cents, track_stock FROM catalog_items WHERE barbershop_id = ? AND active = 1 ORDER BY kind DESC, name COLLATE NOCASE',

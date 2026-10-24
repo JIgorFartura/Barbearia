@@ -1,4 +1,5 @@
 import { Router, type Request } from 'express';
+import { depositState } from '../deposits.js';
 import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import { accessStatus } from '../billing.js';
@@ -63,6 +64,7 @@ barberRouter.get('/agenda', (req, res) => {
         ...a,
         items: reservedItems(a.id),
         sale: get<{ id: number; total_cents: number; method: string }>("SELECT id, total_cents, method FROM sales WHERE appointment_id = ? AND status = 'closed'", [a.id]) ?? null,
+        deposit: depositState(shop, a.id),
       })),
     blocks: all('SELECT id, starts_at, ends_at, reason FROM barber_blocks WHERE barber_id = ? AND starts_at < ? AND ends_at > ?', [
       barber,
@@ -114,6 +116,8 @@ barberRouter.get('/checkout', (req, res) => {
   res.json({
     appointment,
     reserved: appointmentId ? reservedItems(appointmentId) : [],
+      // Sinal pago antes (abatido no fechamento) ou ainda pendente.
+      deposit: appointmentId ? depositState(shop, appointmentId) : null,
     catalog: all<{ id: number; kind: string; name: string; price_cents: number; track_stock: number }>(
       'SELECT id, kind, name, price_cents, track_stock FROM catalog_items WHERE barbershop_id = ? AND active = 1 ORDER BY kind DESC, name COLLATE NOCASE',
       [shop],
