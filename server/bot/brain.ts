@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.js';
-import { get } from '../db.js';
+import { describeItems, usualConsumption } from '../consumption.js';
+import { all, get } from '../db.js';
 import { customerHabit } from '../habits.js';
 import type { HistoryItem } from '../messaging.js';
 import { activeBarbers, services, upcomingFor } from '../scheduling.js';
@@ -28,7 +29,10 @@ Regras:
 - Você só vê e altera dados do cliente desta conversa. Nunca diga quem marcou um horário nem passe dados de outros clientes; para "a agenda do Paulo" mostre apenas os horários livres dele.
 - Quando o cliente contar o dia e a hora em que costuma vir, salve com definir_horario_costume.
 - Se pedir para não receber mais mensagens automáticas, use lembretes com receber=false.
+- Depois de marcar, se o resultado de agendar trouxer pergunta_consumo, termine a confirmação com essa pergunta.
+- Se o cliente pedir para deixar algo separado para o horário dele (ex.: "separa uma cerveja"), use reservar_consumo.
 - Se pedir para falar com uma pessoa, diga que vai avisar a equipe e passe o WhatsApp ou o endereço da barbearia.
+- O cliente só tem acesso ao que é dele e ao que é público: horários, cartão, vouchers, benefícios, preços e endereço. Nunca fale de faturamento, caixa, comissões, quanto os barbeiros ganham ou dados de outros clientes.
 - Assuntos fora da barbearia: responda em uma frase que você cuida do atendimento da barbearia.`;
 
 function money(cents: number) {
@@ -55,6 +59,11 @@ export function buildContext(ctx: BotContext): string {
   lines.push(`Barbeiros: ${barbers.length ? barbers.map((b) => `${b.name} (id ${b.id})`).join(', ') : 'nenhum cadastrado (não é possível agendar)'}.`);
   const svc = services(shop.id);
   if (svc.length) lines.push(`Serviços: ${svc.map((s) => `${s.name} (id ${s.id}, ${money(s.price_cents)}${s.duration_min ? `, ${s.duration_min} min` : ''})`).join('; ')}.`);
+  const products = all<{ id: number; name: string; price_cents: number }>(
+    "SELECT id, name, price_cents FROM catalog_items WHERE barbershop_id = ? AND kind = 'product' AND active = 1 ORDER BY name COLLATE NOCASE",
+    [shop.id],
+  );
+  if (products.length) lines.push(`Produtos: ${products.map((p) => `${p.name} (produto_id ${p.id}, ${money(p.price_cents)})`).join('; ')}.`);
 
   if (ctx.customer) {
     const c = ctx.customer;
@@ -71,6 +80,17 @@ export function buildContext(ctx: BotContext): string {
       `Próximos horários: ${upcoming.length ? upcoming.map((a) => `${dayLabel(a.starts_at.slice(0, 10))} às ${hourLabel(a.starts_at.slice(11))} com ${a.barber_name} (${a.service_name}, id ${a.id})`).join('; ') : 'nenhum'}.`,
     );
     if (c.reminders_opt_out) lines.push('Ele pediu para não receber lembretes automáticos.');
+    const usual = usualConsumption(c.id);
+    if (usual.length) lines.push(`Consumo de costume quando vem: ${usual.map((u) => `${u.qty} ${u.name} (produto_id ${u.productId})`).join('; ')}.`);
+    const question = get<{ appointment_id: number; payload: string }>(
+      "SELECT appointment_id, payload FROM bot_questions WHERE customer_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
+      [c.id],
+    );
+    if (question) {
+      lines.push(
+        `PERGUNTA PENDENTE (você perguntou): posso avisar o barbeiro para separar ${describeItems(JSON.parse(question.payload))} (agendamento_id ${question.appointment_id})? Se o cliente aceitar ou ajustar, use reservar_consumo.`,
+      );
+    }
     const offer = get<{ starts_at: string; barber: string; barber_id: number; service_id: number | null }>(
       `SELECT o.starts_at, b.name AS barber, o.barber_id, o.service_id FROM bot_offers o JOIN barbers b ON b.id = o.barber_id
         WHERE o.customer_id = ? AND o.status = 'pending' AND o.starts_at > ? ORDER BY o.id DESC LIMIT 1`,
@@ -147,12 +167,10 @@ export async function think(ctx: BotContext, history: HistoryItem[], create: Cre
       if (response.stop_reason === 'tool_use' && toolUses.length) {
         // Devolve o conteúdo inteiro (inclusive blocos de raciocínio) sem alterar, e todos os resultados numa mensagem só.
         messages.push({ role: 'assistant', content: response.content });
+        const results = await Promise.all(toolUses.map((t) => runTool(ctx, t.name, t.input)));
         messages.push({
           role: 'user',
-          content: toolUses.map((t) => {
-            const result = runTool(ctx, t.name, t.input);
-            return { type: 'tool_result' as const, tool_use_id: t.id, content: result.content, is_error: !result.ok };
-          }),
+          content: toolUses.map((t, i) => ({ type: 'tool_result' as const, tool_use_id: t.id, content: results[i].content, is_error: !results[i].ok })),
         });
         continue;
       }

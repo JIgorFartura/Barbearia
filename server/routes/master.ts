@@ -1,11 +1,27 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import fs from 'node:fs';
+import path from 'node:path';
 import { hashPassword, requireRole, setActingShop } from '../auth.js';
+import { automationStatus } from '../automations.js';
+import {
+  accessStatus,
+  cancelInvoice,
+  createInvoice,
+  ensureInvoices,
+  listInvoices,
+  markInvoicePaid,
+  monthlyPrice,
+  platformRevenue,
+  platformSettings,
+  savePlatformSettings,
+  shopBilling,
+} from '../billing.js';
 import { llmEnabled } from '../bot/brain.js';
 import { config } from '../config.js';
 import { all, get, nowIso, run, tx } from '../db.js';
-import { HttpError, idParam, parseBody } from '../http.js';
-import { addDays, localNow } from '../time.js';
+import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
+import { addDays, isDate, localNow } from '../time.js';
 import { zPassword } from './auth.js';
 
 /**
@@ -57,7 +73,24 @@ masterRouter.get('/shops', (_req, res) => {
              (SELECT COALESCE(SUM(tokens_out), 0) FROM messages m WHERE m.barbershop_id = b.id AND m.created_at >= :since30) AS tokens_out_30d
         FROM barbershops b ORDER BY b.name`,
       { now: now.stamp, week, since7, since30 },
-    ),
+    ).map((row) => {
+      const id = (row as { id: number }).id;
+      const billing = shopBilling(id);
+      const access = accessStatus(id);
+      return {
+        ...row,
+        plan_id: billing.plan_id,
+        plan_name: billing.plan_name,
+        monthly_price_cents: billing.monthly_price_cents,
+        price_cents: monthlyPrice(billing),
+        billing_day: billing.billing_day,
+        trial_until: billing.trial_until,
+        released_until: billing.released_until,
+        blocked: access.blocked,
+        open_invoices: access.open.length,
+        overdue_invoices: access.open.filter((i) => i.overdue).length,
+      };
+    }),
   );
 });
 
@@ -97,12 +130,40 @@ masterRouter.post('/exit', (req, res) => {
   res.json({ ok: true });
 });
 
+const zBilling = z.object({
+  plan_id: zId.nullish().transform((v) => v ?? null),
+  /** Valor combinado (vazio = preço do plano). */
+  monthly_price_cents: z.number().int().min(0).max(100_000_000).nullish().transform((v) => v ?? null),
+  billing_day: z.number().int().min(1).max(31),
+});
+
+function assertPlan(planId: number | null) {
+  if (planId && !get('SELECT 1 AS ok FROM plans WHERE id = ?', [planId])) throw new HttpError(400, 'Plano não encontrado.');
+}
+
 masterRouter.post('/shops', (req, res) => {
-  const body = parseBody(z.object({ name: z.string().trim().min(2, 'Informe o nome da barbearia.'), slug: zSlug }).extend(zOwner.shape), req.body);
+  const body = parseBody(
+    z
+      .object({ name: z.string().trim().min(2, 'Informe o nome da barbearia.'), slug: zSlug, trial_days: z.number().int().min(0).max(365).nullish() })
+      .extend(zOwner.shape)
+      .extend(zBilling.partial().shape),
+    req.body,
+  );
+  assertPlan(body.plan_id ?? null);
+  const trialDays = body.trial_days ?? platformSettings().trial_days;
+  const trialUntil = trialDays > 0 ? addDays(localNow().date, trialDays) : null;
   const id = tx(() => {
     assertFreeSlug(body.slug);
     assertFreeEmail(body.ownerEmail);
-    const shop = run('INSERT INTO barbershops (slug, name, created_at) VALUES (?, ?, ?)', [body.slug, body.name, nowIso()]).lastInsertRowid;
+    const shop = run('INSERT INTO barbershops (slug, name, plan_id, monthly_price_cents, billing_day, trial_until, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+      body.slug,
+      body.name,
+      body.plan_id ?? null,
+      body.monthly_price_cents ?? null,
+      body.billing_day ?? 10,
+      trialUntil,
+      nowIso(),
+    ]).lastInsertRowid;
     run("INSERT INTO users (barbershop_id, role, name, email, password_hash, created_at) VALUES (?, 'owner', ?, ?, ?, ?)", [
       shop,
       body.ownerName,
@@ -138,4 +199,197 @@ masterRouter.post('/shops/:id/owners', (req, res) => {
     nowIso(),
   ]);
   res.status(201).json({ ok: true });
+});
+
+/** Plano, valor e vencimento da mensalidade de uma barbearia. */
+masterRouter.put('/shops/:id/billing', (req, res) => {
+  const id = idParam(req);
+  const body = parseBody(zBilling.extend({ trial_until: z.string().refine(isDate, 'Data inválida.').nullish().transform((v) => v ?? null) }), req.body);
+  assertPlan(body.plan_id);
+  const { changes } = run('UPDATE barbershops SET plan_id = ?, monthly_price_cents = ?, billing_day = ?, trial_until = ? WHERE id = ?', [
+    body.plan_id,
+    body.monthly_price_cents,
+    body.billing_day,
+    body.trial_until,
+    id,
+  ]);
+  if (!changes) throw new HttpError(404, 'Barbearia não encontrada.');
+  res.json({ ok: true });
+});
+
+/** Libera o acesso até uma data, mesmo com mensalidade em atraso (null tira a liberação). */
+masterRouter.post('/shops/:id/release', (req, res) => {
+  const { until } = parseBody(z.object({ until: z.string().refine(isDate, 'Data inválida.').nullable() }), req.body);
+  const { changes } = run('UPDATE barbershops SET released_until = ? WHERE id = ?', [until, idParam(req)]);
+  if (!changes) throw new HttpError(404, 'Barbearia não encontrada.');
+  res.json(accessStatus(idParam(req)));
+});
+
+masterRouter.get('/shops/:id/owners', (req, res) => {
+  res.json(all("SELECT id, name, email, created_at FROM users WHERE barbershop_id = ? AND role = 'owner' ORDER BY id", [idParam(req)]));
+});
+
+/** Nova senha para um login de dono (ele troca depois). */
+masterRouter.put('/owners/:id/password', (req, res) => {
+  const { password } = parseBody(z.object({ password: zPassword }), req.body);
+  const { changes } = run("UPDATE users SET password_hash = ? WHERE id = ? AND role = 'owner'", [hashPassword(password), idParam(req)]);
+  if (!changes) throw new HttpError(404, 'Login não encontrado.');
+  run('DELETE FROM sessions WHERE user_id = ?', [idParam(req)]);
+  res.json({ ok: true });
+});
+
+// ---------- financeiro da plataforma (mensalidades)
+
+const zPlan = z.object({
+  name: z.string().trim().min(2).max(60),
+  price_cents: z.number().int().min(0).max(100_000_000),
+  description: zText(300),
+  active: z.boolean(),
+});
+
+masterRouter.get('/plans', (_req, res) => {
+  res.json(all('SELECT p.*, (SELECT COUNT(*) FROM barbershops b WHERE b.plan_id = p.id) AS shops FROM plans p ORDER BY p.active DESC, p.price_cents'));
+});
+
+masterRouter.post('/plans', (req, res) => {
+  const b = parseBody(zPlan, req.body);
+  const id = run('INSERT INTO plans (name, price_cents, description, active, created_at) VALUES (?, ?, ?, ?, ?)', [b.name, b.price_cents, b.description, b.active, nowIso()]).lastInsertRowid;
+  res.status(201).json(get('SELECT * FROM plans WHERE id = ?', [id]));
+});
+
+masterRouter.put('/plans/:id', (req, res) => {
+  const b = parseBody(zPlan, req.body);
+  const { changes } = run('UPDATE plans SET name = ?, price_cents = ?, description = ?, active = ? WHERE id = ?', [b.name, b.price_cents, b.description, b.active, idParam(req)]);
+  if (!changes) throw new HttpError(404, 'Plano não encontrado.');
+  res.json(get('SELECT * FROM plans WHERE id = ?', [idParam(req)]));
+});
+
+masterRouter.get('/settings', (_req, res) => {
+  res.json(platformSettings());
+});
+
+masterRouter.put('/settings', (req, res) => {
+  const b = parseBody(
+    z.object({
+      grace_days: z.number().int().min(0).max(60),
+      trial_days: z.number().int().min(0).max(365),
+      pix_key: z.string().trim().max(77),
+      pix_name: z.string().trim().max(60),
+      pix_city: z.string().trim().max(40),
+    }),
+    req.body,
+  );
+  savePlatformSettings(b);
+  res.json(platformSettings());
+});
+
+masterRouter.get('/billing', (req, res) => {
+  const status = typeof req.query.status === 'string' && ['open', 'paid', 'cancelled'].includes(req.query.status) ? req.query.status : undefined;
+  res.json({ revenue: platformRevenue(), invoices: listInvoices({ status }) });
+});
+
+/** Gera agora as faturas do mês (normalmente acontece sozinho). */
+masterRouter.post('/billing/generate', (_req, res) => {
+  res.json({ created: ensureInvoices() });
+});
+
+masterRouter.post('/invoices', (req, res) => {
+  const b = parseBody(
+    z.object({
+      barbershop_id: zId,
+      description: z.string().trim().min(2).max(120),
+      amount_cents: z.number().int().min(1).max(100_000_000),
+      due_date: z.string().refine(isDate, 'Data inválida.'),
+    }),
+    req.body,
+  );
+  res.status(201).json(createInvoice(b.barbershop_id, b));
+});
+
+masterRouter.post('/invoices/:id/pay', (req, res) => {
+  const b = parseBody(
+    z.object({
+      paid_at: z.string().refine(isDate, 'Data inválida.'),
+      method: z.enum(['pix', 'boleto', 'cartao', 'dinheiro', 'transferencia', 'outro']).nullish().transform((v) => v ?? null),
+      notes: zText(200),
+    }),
+    req.body,
+  );
+  res.json(markInvoicePaid(idParam(req), b));
+});
+
+masterRouter.post('/invoices/:id/cancel', (req, res) => {
+  res.json(cancelInvoice(idParam(req)));
+});
+
+// ---------- avisos e atualizações para as barbearias
+
+const zAnnouncement = z.object({
+  title: z.string().trim().min(2).max(80),
+  body: z.string().trim().min(2).max(1000),
+  level: z.enum(['novidade', 'aviso', 'manutencao']),
+  active: z.boolean(),
+});
+
+masterRouter.get('/announcements', (_req, res) => {
+  res.json(all('SELECT * FROM announcements ORDER BY id DESC'));
+});
+
+masterRouter.post('/announcements', (req, res) => {
+  const b = parseBody(zAnnouncement, req.body);
+  const id = run('INSERT INTO announcements (title, body, level, active, created_at) VALUES (?, ?, ?, ?, ?)', [b.title, b.body, b.level, b.active, nowIso()]).lastInsertRowid;
+  res.status(201).json(get('SELECT * FROM announcements WHERE id = ?', [id]));
+});
+
+masterRouter.put('/announcements/:id', (req, res) => {
+  const b = parseBody(zAnnouncement, req.body);
+  const { changes } = run('UPDATE announcements SET title = ?, body = ?, level = ?, active = ? WHERE id = ?', [b.title, b.body, b.level, b.active, idParam(req)]);
+  if (!changes) throw new HttpError(404, 'Aviso não encontrado.');
+  res.json(get('SELECT * FROM announcements WHERE id = ?', [idParam(req)]));
+});
+
+masterRouter.delete('/announcements/:id', (req, res) => {
+  const { changes } = run('DELETE FROM announcements WHERE id = ?', [idParam(req)]);
+  if (!changes) throw new HttpError(404, 'Aviso não encontrado.');
+  res.json({ ok: true });
+});
+
+// ---------- saúde do sistema
+
+const startedAt = new Date().toISOString();
+const appVersion = (() => {
+  try {
+    return (JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as { version?: string }).version ?? '—';
+  } catch {
+    return '—';
+  }
+})();
+
+masterRouter.get('/system', (_req, res) => {
+  const fileSize = (file: string) => {
+    try {
+      return fs.statSync(file).size;
+    } catch {
+      return 0;
+    }
+  };
+  const since = new Date(Date.now() - 86400000).toISOString();
+  res.json({
+    version: appVersion,
+    node: process.version,
+    startedAt,
+    database: { file: config.dbFile, bytes: fileSize(config.dbFile) + fileSize(`${config.dbFile}-wal`) },
+    automations: { enabled: config.automations, ...automationStatus },
+    llm: { enabled: llmEnabled(), model: llmEnabled() ? config.botModel : null, effort: config.botEffort },
+    publicUrl: config.publicUrl || null,
+    failures24h: all(
+      `SELECT b.name AS shop, COUNT(*) AS failed, MAX(m.error) AS last_error FROM messages m JOIN barbershops b ON b.id = m.barbershop_id
+        WHERE m.status = 'failed' AND m.created_at >= ? GROUP BY b.id ORDER BY failed DESC`,
+      [since],
+    ),
+    counts: get(
+      `SELECT (SELECT COUNT(*) FROM barbershops) AS shops, (SELECT COUNT(*) FROM customers) AS customers,
+              (SELECT COUNT(*) FROM appointments) AS appointments, (SELECT COUNT(*) FROM sales) AS sales, (SELECT COUNT(*) FROM messages) AS messages`,
+    ),
+  });
 });

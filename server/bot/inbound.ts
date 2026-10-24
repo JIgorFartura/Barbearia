@@ -7,6 +7,8 @@ import { customerByPhone, recentHistory, recordInbound, sendMessage, shopBot, ty
 import { book, cancel, freeTimes, upcomingFor } from '../scheduling.js';
 import { addDays, dayLabel, hourLabel, localNow } from '../time.js';
 import { localPhone } from '../whatsapp.js';
+import { accessStatus } from '../billing.js';
+import { askConsumption, describeItems, reserveItems, type Usual } from '../consumption.js';
 import { llmEnabled, think, type CreateMessage } from './brain.js';
 
 export interface InboundInput {
@@ -44,8 +46,11 @@ const CANCEL = new Set(['cancelar', 'cancela', 'desmarcar']);
 
 const firstName = (name: string) => name.split(/\s+/)[0];
 
-/** Respostas certeiras que não precisam de IA: SIM/NÃO para a oferta, PARAR/VOLTAR, CANCELAR. */
-function quickReply(shop: ShopBot, customer: CustomerRow | null, text: string, now: Date): string | null {
+/**
+ * Respostas certeiras que não precisam de IA: SIM/NÃO para o horário oferecido ou para a pergunta
+ * do consumo ("posso avisar o Paulo da sua cerveja?"), PARAR/VOLTAR, CANCELAR.
+ */
+async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: string, now: Date, dryRun: boolean): Promise<string | null> {
   if (!customer) return null;
   const t = normalize(text);
   const nowStamp = localNow(now).stamp;
@@ -64,23 +69,47 @@ function quickReply(shop: ShopBot, customer: CustomerRow | null, text: string, n
     cancel(shop.id, next.id, { customerId: customer.id, now });
     return `Cancelado: ${dayLabel(next.starts_at.slice(0, 10))} às ${hourLabel(next.starts_at.slice(11))} com ${next.barber_name}. Quando quiser remarcar, é só chamar.`;
   }
+  if (!YES.has(t) && !NO.has(t)) return null;
 
-  const offer = get<{ id: number; barber_id: number; service_id: number | null; starts_at: string }>(
-    "SELECT id, barber_id, service_id, starts_at FROM bot_offers WHERE customer_id = ? AND status = 'pending' AND starts_at > ? ORDER BY id DESC LIMIT 1",
+  // Vale a pergunta mais recente: a do consumo (feita depois de marcar) ou a oferta de horário.
+  const question = get<{ id: number; appointment_id: number; payload: string; created_at: string }>(
+    `SELECT q.id, q.appointment_id, q.payload, q.created_at FROM bot_questions q JOIN appointments a ON a.id = q.appointment_id
+      WHERE q.customer_id = ? AND q.status = 'pending' AND a.status = 'scheduled' AND a.starts_at > ? ORDER BY q.id DESC LIMIT 1`,
     [customer.id, nowStamp],
   );
+  const offer = get<{ id: number; barber_id: number; service_id: number | null; starts_at: string; created_at: string }>(
+    "SELECT id, barber_id, service_id, starts_at, created_at FROM bot_offers WHERE customer_id = ? AND status = 'pending' AND starts_at > ? ORDER BY id DESC LIMIT 1",
+    [customer.id, nowStamp],
+  );
+
+  if (question && (!offer || question.created_at >= offer.created_at)) {
+    if (NO.has(t)) {
+      run("UPDATE bot_questions SET status = 'no' WHERE id = ?", [question.id]);
+      return 'Beleza! Até lá. 👊';
+    }
+    try {
+      const items = (JSON.parse(question.payload) as Usual[]).map((u) => ({ productId: u.productId, qty: u.qty }));
+      const r = await reserveItems(shop.id, question.appointment_id, items, 'whatsapp', { customerId: customer.id, dryRun, now });
+      return `Fechado! ${r.barberNotified ? `Avisei o ${r.barber}` : `Anotei pro ${r.barber}`}: ${describeItems(r.items)} separado pra você. 🍺`;
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      run("UPDATE bot_questions SET status = 'expired' WHERE id = ?", [question.id]);
+      return null;
+    }
+  }
+
   if (!offer) return null;
   if (NO.has(t)) {
     run("UPDATE bot_offers SET status = 'declined' WHERE id = ?", [offer.id]);
     return 'Tranquilo! Quando quiser marcar, é só me chamar. 👊';
   }
-  if (!YES.has(t)) return null;
   const date = offer.starts_at.slice(0, 10);
   const time = offer.starts_at.slice(11);
   try {
     const a = book({ shopId: shop.id, customerId: customer.id, barberId: offer.barber_id, serviceId: offer.service_id, date, time, source: 'whatsapp', now });
     run("UPDATE bot_offers SET status = 'accepted', appointment_id = ? WHERE id = ?", [a.id, offer.id]);
-    return `Fechado, ${firstName(customer.name)}! ✅ ${dayLabel(date)} às ${hourLabel(time)} com ${a.barber_name} (${a.service_name}). Te espero!`;
+    const ask = askConsumption(shop.id, a.id, now);
+    return `Fechado, ${firstName(customer.name)}! ✅ ${dayLabel(date)} às ${hourLabel(time)} com ${a.barber_name} (${a.service_name}). Te espero!${ask ? `\n${ask}` : ''}`;
   } catch (err) {
     if (!(err instanceof HttpError)) throw err;
     run("UPDATE bot_offers SET status = 'expired' WHERE id = ?", [offer.id]);
@@ -153,10 +182,12 @@ export async function handleInbound(input: InboundInput): Promise<string | null>
     if (!input.text.trim()) {
       reply = 'Por enquanto eu só entendo mensagens de texto. Pode escrever pra mim? 🙂';
     } else {
-      const quick = quickReply(shop, customer, input.text, now);
+      const quick = await quickReply(shop, customer, input.text, now, Boolean(input.dryRun));
+      // Barbearia com mensalidade em atraso: o robô segue atendendo, mas só pelo menu (sem IA).
+      const blocked = accessStatus(shop.id, now).blocked;
       if (quick) reply = quick;
-      else if (llmEnabled() || input.create) {
-        const ctx = { shop, phone, waId, customer, profileName: input.name ?? null, now };
+      else if (!blocked && (llmEnabled() || input.create)) {
+        const ctx = { shop, phone, waId, customer, profileName: input.name ?? null, now, dryRun: Boolean(input.dryRun) };
         const history = recentHistory(shop.id, phone).filter((h) => h.kind !== 'codigo');
         const r = await think(ctx, history, input.create);
         reply = r.text;

@@ -1,3 +1,5 @@
+import { accessStatus, ensureInvoices } from './billing.js';
+import { askConsumption } from './consumption.js';
 import { all, get, nowIso, run } from './db.js';
 import { customerHabit, lastVisitDate, type Habit } from './habits.js';
 import { sendMessage, shopBot, type MessageKind, type ShopBot } from './messaging.js';
@@ -108,11 +110,13 @@ export async function appointmentReminders(shop: ShopBot, now: Date): Promise<nu
     if (logged(shop.id, r.id, 'lembrete', String(r.appt_id))) continue;
     log(shop.id, r.id, 'lembrete', String(r.appt_id));
     const date = r.starts_at.slice(0, 10);
+    // Se ele costuma consumir algo e ainda não pediu, o lembrete já pergunta (o SIM separa e avisa o barbeiro).
+    const ask = askConsumption(shop.id, r.appt_id, now);
     await send(
       shop,
       r,
       'lembrete',
-      `Oi, ${firstName(r.name)}! Lembrete do ${shop.bot_name} 💈: seu horário na ${shop.name} é ${relativeDay(date, n.date)}${relativeDay(date, n.date) === dayLabel(date) ? '' : ` (${dayLabel(date)})`} às ${hourLabel(r.starts_at.slice(11))} com ${r.barber_name} (${r.service_name}). Se não puder vir, responda CANCELAR.`,
+      `Oi, ${firstName(r.name)}! Lembrete do ${shop.bot_name} 💈: seu horário na ${shop.name} é ${relativeDay(date, n.date)}${relativeDay(date, n.date) === dayLabel(date) ? '' : ` (${dayLabel(date)})`} às ${hourLabel(r.starts_at.slice(11))} com ${r.barber_name} (${r.service_name}). Se não puder vir, responda CANCELAR.${ask ? `\n${ask}` : ''}`,
     );
     sent++;
   }
@@ -237,6 +241,14 @@ export interface RunSummary {
 }
 
 let running = false;
+let lastInvoiceCheck = 0;
+
+/** Última rodada (aparece na tela Sistema do master). */
+export const automationStatus: { lastRun: string | null; lastSummary: RunSummary | null; lastInvoices: number } = {
+  lastRun: null,
+  lastSummary: null,
+  lastInvoices: 0,
+};
 
 /** Roda tudo uma vez. Chamado a cada minuto; cada envio é registrado para não repetir. */
 export async function runAutomations(now: Date = new Date()): Promise<RunSummary> {
@@ -246,9 +258,16 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
   try {
     const n = localNow(now);
     run("UPDATE bot_offers SET status = 'expired' WHERE status = 'pending' AND starts_at <= ?", [n.stamp]);
+    // Faturas do mês da plataforma: confere de hora em hora (qualquer horário).
+    if (Math.abs(now.getTime() - lastInvoiceCheck) >= 3600000) {
+      lastInvoiceCheck = now.getTime();
+      automationStatus.lastInvoices = ensureInvoices(now);
+    }
     if (n.time < SEND_FROM || n.time >= SEND_UNTIL) return summary;
     for (const { id } of all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1')) {
       const shop = shopBot(id);
+      // Mensalidade em atraso além da carência: sem disparos até regularizar.
+      if (accessStatus(id, now).blocked) continue;
       try {
         summary.reminders += await appointmentReminders(shop, now);
         summary.habits += await habitOffers(shop, now);
@@ -259,6 +278,8 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
     }
     return summary;
   } finally {
+    automationStatus.lastRun = new Date().toISOString();
+    automationStatus.lastSummary = summary;
     running = false;
   }
 }

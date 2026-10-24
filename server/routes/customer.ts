@@ -1,7 +1,8 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
-import { get, run } from '../db.js';
+import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
+import { all, get, run } from '../db.js';
 import { customerHabit, lastVisitDate } from '../habits.js';
 import { HttpError, idParam, parseBody, zId } from '../http.js';
 import { customerCard } from '../loyalty.js';
@@ -42,8 +43,13 @@ customerRouter.get('/me', (req, res) => {
     customer,
     habit: customerHabit(customerId),
     lastVisit: lastVisitDate(customerId),
-    upcoming: upcomingFor(customerId),
+    upcoming: upcomingFor(customerId).map((a) => ({ ...a, items: reservedItems(a.id) })),
     history: historyFor(customerId).slice(0, 10),
+    // O que ele comprou (é dele por direito): data, itens e total — sem nada interno (comissão, barbeiro do produto...).
+    purchases: all<{ id: number; date: string; total_cents: number }>(
+      "SELECT id, date, total_cents FROM sales WHERE customer_id = ? AND status = 'closed' ORDER BY date DESC, id DESC LIMIT 10",
+      [customerId],
+    ).map((p) => ({ ...p, items: all('SELECT name, qty, total_cents FROM sale_items WHERE sale_id = ? ORDER BY id', [p.id]) })),
     card: customerCard(shopId, customerId).map(({ campaign, running, progress }) => ({
       id: campaign.id,
       name: campaign.name,
@@ -77,9 +83,15 @@ customerRouter.post('/appointments', (req, res) => {
     }),
     req.body,
   );
-  res.status(201).json(
-    book({ shopId, customerId, barberId: body.barber_id, serviceId: body.service_id, date: body.date, time: body.time, source: 'cliente' }),
-  );
+  const appointment = book({ shopId, customerId, barberId: body.barber_id, serviceId: body.service_id, date: body.date, time: body.time, source: 'cliente' });
+  // Mesma pergunta do robô: "posso avisar o Paulo da sua cerveja?"
+  res.status(201).json({ ...appointment, suggestion: suggestionFor(shopId, appointment.id) });
+});
+
+customerRouter.post('/appointments/:id/items', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const body = parseBody(z.object({ items: z.array(z.object({ product_id: zId, qty: z.number().int().min(1).max(10) })).min(1).max(5) }), req.body);
+  res.json(await reserveItems(shopId, idParam(req), body.items.map((i) => ({ productId: i.product_id, qty: i.qty })), 'cliente', { customerId }));
 });
 
 customerRouter.post('/appointments/:id/cancel', (req, res) => {

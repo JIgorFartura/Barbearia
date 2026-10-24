@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { askConsumption, describeItems, reserveItems } from '../consumption.js';
 import { issueAccessLink } from '../customerAuth.js';
 import { all, get, nowIso, run } from '../db.js';
 import { HttpError, normalizePhone } from '../http.js';
@@ -18,6 +19,8 @@ export interface BotContext {
   /** Nome do perfil no WhatsApp (ajuda no cadastro). */
   profileName: string | null;
   now: Date;
+  /** Simulador do painel: nada sai pelo WhatsApp (nem o aviso ao barbeiro). */
+  dryRun: boolean;
 }
 
 interface ToolDef<S extends z.ZodObject> {
@@ -25,7 +28,7 @@ interface ToolDef<S extends z.ZodObject> {
   schema: S;
   /** Precisa do cliente cadastrado. */
   needsCustomer?: boolean;
-  run: (ctx: BotContext, input: z.infer<S>) => unknown;
+  run: (ctx: BotContext, input: z.infer<S>) => unknown | Promise<unknown>;
 }
 
 const tool = <S extends z.ZodObject>(def: ToolDef<S>) => def;
@@ -78,7 +81,29 @@ export const TOOLS = {
         source: 'whatsapp',
         now: ctx.now,
       });
-      return { ok: true, agendamento: describeAppointment(a) };
+      // Se o cliente costuma consumir algo (ex.: 1 cerveja), já deixa a pergunta pronta para o SIM/NÃO.
+      const pergunta = askConsumption(ctx.shop.id, a.id, ctx.now);
+      return { ok: true, agendamento: describeAppointment(a), pergunta_consumo: pergunta ?? undefined };
+    },
+  }),
+
+  reservar_consumo: tool({
+    description:
+      'Pede para o barbeiro deixar algo separado para o horário do cliente (ex.: uma cerveja) e avisa o barbeiro. Use quando o cliente aceitar ou pedir.',
+    needsCustomer: true,
+    schema: z.object({
+      agendamento_id: zId,
+      itens: z.array(z.object({ produto_id: zId, quantidade: z.number().int().min(1).max(10) })).min(1).max(5),
+    }),
+    run: async (ctx, input) => {
+      const r = await reserveItems(
+        ctx.shop.id,
+        input.agendamento_id,
+        input.itens.map((i) => ({ productId: i.produto_id, qty: i.quantidade })),
+        'whatsapp',
+        { customerId: ctx.customer!.id, dryRun: ctx.dryRun, now: ctx.now },
+      );
+      return { ok: true, separado: describeItems(r.items), barbeiro: r.barber, barbeiro_avisado: r.barberNotified };
     },
   }),
 
@@ -225,7 +250,7 @@ export function toolDefinitions() {
 }
 
 /** Executa uma ferramenta com a entrada validada. Erros voltam como texto para o modelo explicar ao cliente. */
-export function runTool(ctx: BotContext, name: string, input: unknown): { ok: boolean; content: string } {
+export async function runTool(ctx: BotContext, name: string, input: unknown): Promise<{ ok: boolean; content: string }> {
   const def = TOOLS[name as ToolName] as ToolDef<z.ZodObject> | undefined;
   if (!def) return { ok: false, content: `Ferramenta desconhecida: ${name}` };
   const parsed = def.schema.safeParse(input ?? {});
@@ -234,7 +259,7 @@ export function runTool(ctx: BotContext, name: string, input: unknown): { ok: bo
     return { ok: false, content: 'Este número ainda não é cliente. Pergunte o nome e use cadastrar_cliente antes.' };
   }
   try {
-    return { ok: true, content: JSON.stringify(def.run(ctx, parsed.data)) };
+    return { ok: true, content: JSON.stringify(await def.run(ctx, parsed.data)) };
   } catch (err) {
     if (err instanceof HttpError) return { ok: false, content: err.message };
     console.error('[bot] erro na ferramenta', name, err);

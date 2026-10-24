@@ -65,17 +65,18 @@ export function progress(campaign: Campaign, customerId: number): Progress {
 }
 
 /** Registra consumo (ex.: 2 cervejas) e devolve o cartão atualizado. */
-export function addStamps(shopId: number, campaignId: number, customerId: number, qty: number, userId: number | null): Progress {
+export function addStamps(shopId: number, campaignId: number, customerId: number, qty: number, userId: number | null, saleId: number | null = null): Progress {
   return tx(() => {
     const c = campaignOf(shopId, campaignId);
     assertCustomer(shopId, customerId);
     if (!isRunning(c)) throw new HttpError(400, 'Esta campanha não está valendo hoje.');
-    run('INSERT INTO loyalty_events (campaign_id, customer_id, kind, qty, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
+    run('INSERT INTO loyalty_events (campaign_id, customer_id, kind, qty, user_id, sale_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [
       c.id,
       customerId,
       'earn',
       qty,
       userId,
+      saleId,
       nowIso(),
     ]);
     return progress(c, customerId);

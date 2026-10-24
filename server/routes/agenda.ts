@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { shopId } from '../auth.js';
 import { customerHabit } from '../habits.js';
 import { all, get, nowIso, run, tx } from '../db.js';
-import { HttpError, idParam, parseBody, zBool, zId, zText, zUrl } from '../http.js';
+import { reservedItems } from '../consumption.js';
+import { HttpError, idParam, normalizePhone, parseBody, zBool, zId, zText, zUrl } from '../http.js';
 import { book, cancel, dayAgenda, freeTimes, upcomingFor } from '../scheduling.js';
 import { addDays, isDate, isTime, localNow, toMinutes } from '../time.js';
 
@@ -25,7 +26,24 @@ const zHours = z
     }
   });
 
-const zBarber = z.object({ name: z.string().trim().min(2).max(60), photo_url: zUrl, active: zBool, hours: zHours });
+const zRates = z
+  .array(z.object({ service_id: zId, mode: z.enum(['percent', 'fixed']), value: z.number().min(0).max(10_000_000) }))
+  .max(50)
+  .superRefine((rates, ctx) => {
+    if (rates.some((r) => r.mode === 'percent' && r.value > 100)) ctx.addIssue({ code: 'custom', message: 'Comissão em % vai de 0 a 100.' });
+  });
+
+const zBarber = z.object({
+  name: z.string().trim().min(2).max(60),
+  photo_url: zUrl,
+  active: zBool,
+  hours: zHours,
+  /** Celular para o robô avisar o barbeiro (ex.: cerveja separada para o cliente). */
+  phone: zText(20),
+  service_commission: z.number().min(0).max(100),
+  product_commission: z.number().min(0).max(100),
+  rates: zRates,
+});
 
 function barberOf(shop: number, id: number) {
   const barber = get<{ id: number }>('SELECT id FROM barbers WHERE id = ? AND barbershop_id = ?', [id, shop]);
@@ -38,9 +56,20 @@ function saveHours(barberId: number, hours: z.infer<typeof zHours>) {
   for (const h of hours) run('INSERT INTO barber_hours (barber_id, weekday, start_time, end_time) VALUES (?, ?, ?, ?)', [barberId, h.weekday, h.start_time, h.end_time]);
 }
 
+/** Exceções de comissão por serviço (ex.: corte R$ 25,00 fixo, barba 60%). */
+function saveRates(shop: number, barberId: number, rates: z.infer<typeof zRates>) {
+  run('DELETE FROM barber_service_rates WHERE barber_id = ?', [barberId]);
+  for (const r of rates) {
+    if (!get("SELECT 1 AS ok FROM catalog_items WHERE id = ? AND barbershop_id = ? AND kind = 'service'", [r.service_id, shop])) throw new HttpError(400, 'Serviço não encontrado.');
+    run('INSERT OR REPLACE INTO barber_service_rates (barber_id, service_id, mode, value) VALUES (?, ?, ?, ?)', [barberId, r.service_id, r.mode, r.value]);
+  }
+}
+
+const cleanPhone = (phone: string | null) => (phone ? normalizePhone(phone) : null);
+
 function barbersWithHours(shop: number) {
-  const barbers = all<{ id: number; name: string; photo_url: string | null; active: number }>(
-    'SELECT id, name, photo_url, active FROM barbers WHERE barbershop_id = ? ORDER BY active DESC, name COLLATE NOCASE',
+  const barbers = all<{ id: number; name: string; photo_url: string | null; active: number; phone: string | null; service_commission: number; product_commission: number }>(
+    'SELECT id, name, photo_url, active, phone, service_commission, product_commission FROM barbers WHERE barbershop_id = ? ORDER BY active DESC, name COLLATE NOCASE',
     [shop],
   );
   const now = localNow().stamp;
@@ -48,6 +77,7 @@ function barbersWithHours(shop: number) {
     ...b,
     hours: all('SELECT weekday, start_time, end_time FROM barber_hours WHERE barber_id = ? ORDER BY weekday, start_time', [b.id]),
     blocks: all('SELECT id, starts_at, ends_at, reason FROM barber_blocks WHERE barber_id = ? AND ends_at >= ? ORDER BY starts_at', [b.id, now]),
+    rates: all('SELECT service_id, mode, value FROM barber_service_rates WHERE barber_id = ?', [b.id]),
   }));
 }
 
@@ -61,14 +91,12 @@ export function registerAgendaRoutes(router: Router): void {
     const body = parseBody(zBarber, req.body);
     const shop = shopId(req);
     tx(() => {
-      const { lastInsertRowid } = run('INSERT INTO barbers (barbershop_id, name, photo_url, active, created_at) VALUES (?, ?, ?, ?, ?)', [
-        shop,
-        body.name,
-        body.photo_url,
-        body.active,
-        nowIso(),
-      ]);
+      const { lastInsertRowid } = run(
+        'INSERT INTO barbers (barbershop_id, name, photo_url, active, phone, service_commission, product_commission, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [shop, body.name, body.photo_url, body.active, cleanPhone(body.phone), body.service_commission, body.product_commission, nowIso()],
+      );
       saveHours(lastInsertRowid, body.hours);
+      saveRates(shop, lastInsertRowid, body.rates);
     });
     res.status(201).json(barbersWithHours(shop));
   });
@@ -78,8 +106,17 @@ export function registerAgendaRoutes(router: Router): void {
     const id = barberOf(shop, idParam(req)).id;
     const body = parseBody(zBarber, req.body);
     tx(() => {
-      run('UPDATE barbers SET name = ?, photo_url = ?, active = ? WHERE id = ?', [body.name, body.photo_url, body.active, id]);
+      run('UPDATE barbers SET name = ?, photo_url = ?, active = ?, phone = ?, service_commission = ?, product_commission = ? WHERE id = ?', [
+        body.name,
+        body.photo_url,
+        body.active,
+        cleanPhone(body.phone),
+        body.service_commission,
+        body.product_commission,
+        id,
+      ]);
       saveHours(id, body.hours);
+      saveRates(shop, id, body.rates);
     });
     res.json(barbersWithHours(shop));
   });
@@ -87,7 +124,7 @@ export function registerAgendaRoutes(router: Router): void {
   router.delete('/barbers/:id', (req, res) => {
     const shop = shopId(req);
     const id = barberOf(shop, idParam(req)).id;
-    if (get('SELECT 1 AS ok FROM appointments WHERE barber_id = ? LIMIT 1', [id])) {
+    if (get('SELECT 1 AS ok FROM appointments WHERE barber_id = ? LIMIT 1', [id]) || get('SELECT 1 AS ok FROM sale_items WHERE barber_id = ? LIMIT 1', [id])) {
       throw new HttpError(409, 'Esse barbeiro tem horários no histórico. Desative em vez de excluir.');
     }
     run('DELETE FROM barbers WHERE id = ?', [id]);
@@ -122,7 +159,12 @@ export function registerAgendaRoutes(router: Router): void {
         WHERE b.barbershop_id = ? AND k.starts_at < ? AND k.ends_at > ?`,
       [shop, `${addDays(date, 1)} 00:00`, `${date} 00:00`],
     );
-    res.json({ date, barbers: barbersWithHours(shop).filter((b) => b.active), appointments: dayAgenda(shop, date), blocks });
+    const appointments = dayAgenda(shop, date).map((a) => ({
+      ...a,
+      items: reservedItems(a.id),
+      sale: get<{ id: number; total_cents: number; method: string }>("SELECT id, total_cents, method FROM sales WHERE appointment_id = ? AND status = 'closed'", [a.id]) ?? null,
+    }));
+    res.json({ date, barbers: barbersWithHours(shop).filter((b) => b.active), appointments, blocks });
   });
 
   router.get('/availability', (req, res) => {

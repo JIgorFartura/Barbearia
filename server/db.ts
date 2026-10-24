@@ -381,6 +381,169 @@ const MIGRATIONS: string[] = [
   -- Master dentro do painel de uma barbearia.
   ALTER TABLE sessions ADD COLUMN acting_shop_id INTEGER REFERENCES barbershops(id) ON DELETE SET NULL;
   `,
+  // 3) Financeiro da barbearia, mensalidades da plataforma e consumo do cliente.
+  `
+  -- Plataforma (master): planos, faturas das barbearias, configurações e avisos.
+  CREATE TABLE plans (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
+    description TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE platform_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  INSERT INTO platform_settings (key, value) VALUES ('grace_days', '5'), ('trial_days', '14');
+
+  ALTER TABLE barbershops ADD COLUMN plan_id INTEGER REFERENCES plans(id) ON DELETE SET NULL;
+  -- Valor combinado com a barbearia (vazio = preço do plano).
+  ALTER TABLE barbershops ADD COLUMN monthly_price_cents INTEGER;
+  ALTER TABLE barbershops ADD COLUMN billing_day INTEGER NOT NULL DEFAULT 10;
+  ALTER TABLE barbershops ADD COLUMN trial_until TEXT;
+  -- Master liberou o acesso até esta data, mesmo com mensalidade vencida.
+  ALTER TABLE barbershops ADD COLUMN released_until TEXT;
+
+  CREATE TABLE invoices (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    reference TEXT NOT NULL,
+    description TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    due_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'paid', 'cancelled')),
+    paid_at TEXT,
+    method TEXT,
+    notes TEXT,
+    informed_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (barbershop_id, reference)
+  );
+
+  CREATE TABLE announcements (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    level TEXT NOT NULL DEFAULT 'novidade' CHECK (level IN ('novidade', 'aviso', 'manutencao')),
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  );
+
+  -- Comissão de cada barbeiro: % sobre serviços e produtos, com exceções por serviço.
+  ALTER TABLE barbers ADD COLUMN phone TEXT;
+  ALTER TABLE barbers ADD COLUMN service_commission REAL NOT NULL DEFAULT 0;
+  ALTER TABLE barbers ADD COLUMN product_commission REAL NOT NULL DEFAULT 0;
+
+  CREATE TABLE barber_service_rates (
+    barber_id INTEGER NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+    service_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+    mode TEXT NOT NULL CHECK (mode IN ('percent', 'fixed')),
+    -- percent: % do valor; fixed: centavos por serviço.
+    value REAL NOT NULL CHECK (value >= 0),
+    PRIMARY KEY (barber_id, service_id)
+  );
+
+  -- Venda (comanda): atendimento da agenda ou venda de balcão.
+  CREATE TABLE sales (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+    appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+    date TEXT NOT NULL,
+    subtotal_cents INTEGER NOT NULL,
+    discount_cents INTEGER NOT NULL DEFAULT 0,
+    total_cents INTEGER NOT NULL,
+    method TEXT NOT NULL CHECK (method IN ('dinheiro', 'pix', 'debito', 'credito', 'outro')),
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'closed' CHECK (status IN ('closed', 'cancelled')),
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    cancelled_at TEXT
+  );
+  CREATE UNIQUE INDEX sales_appointment ON sales (appointment_id) WHERE appointment_id IS NOT NULL AND status = 'closed';
+  CREATE INDEX sales_shop_date ON sales (barbershop_id, date);
+  CREATE INDEX sales_customer ON sales (customer_id, date);
+
+  -- Pagamento de comissões a um barbeiro (sai do caixa).
+  CREATE TABLE barber_payouts (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    barber_id INTEGER NOT NULL REFERENCES barbers(id),
+    amount_cents INTEGER NOT NULL,
+    items INTEGER NOT NULL,
+    until_date TEXT NOT NULL,
+    date TEXT NOT NULL,
+    method TEXT,
+    notes TEXT,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE sale_items (
+    id INTEGER PRIMARY KEY,
+    sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+    catalog_item_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('service', 'product')),
+    name TEXT NOT NULL,
+    qty INTEGER NOT NULL CHECK (qty > 0),
+    unit_price_cents INTEGER NOT NULL,
+    total_cents INTEGER NOT NULL,
+    barber_id INTEGER REFERENCES barbers(id),
+    commission_cents INTEGER NOT NULL DEFAULT 0,
+    payout_id INTEGER REFERENCES barber_payouts(id) ON DELETE SET NULL
+  );
+  CREATE INDEX sale_items_sale ON sale_items (sale_id);
+  CREATE INDEX sale_items_barber ON sale_items (barber_id, payout_id);
+
+  -- Fluxo de caixa: entradas e saídas (pagas ou a pagar).
+  CREATE TABLE cash_entries (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK (type IN ('in', 'out')),
+    category TEXT NOT NULL,
+    description TEXT,
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    method TEXT,
+    date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'paid' CHECK (status IN ('paid', 'pending')),
+    sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE,
+    payout_id INTEGER REFERENCES barber_payouts(id) ON DELETE CASCADE,
+    invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX cash_entries_shop_date ON cash_entries (barbershop_id, date);
+
+  -- Carimbo lançado automaticamente por uma venda (sai junto se a venda for cancelada).
+  ALTER TABLE loyalty_events ADD COLUMN sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE;
+
+  -- O que o cliente pediu para deixar separado (ex.: 1 cerveja) no horário marcado.
+  CREATE TABLE appointment_items (
+    id INTEGER PRIMARY KEY,
+    appointment_id INTEGER NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+    catalog_item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+    qty INTEGER NOT NULL CHECK (qty > 0),
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX appointment_items_appointment ON appointment_items (appointment_id);
+
+  -- Pergunta do robô esperando SIM/NÃO (ex.: "posso avisar o Paulo da sua cerveja?").
+  CREATE TABLE bot_questions (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    appointment_id INTEGER NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'yes', 'no', 'expired')),
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX bot_questions_customer ON bot_questions (customer_id, status);
+  `,
 ];
 
 function migrate(): void {

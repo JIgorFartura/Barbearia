@@ -3,7 +3,7 @@ import { HttpError } from './http.js';
 import { localPhone, sendText, type Provider } from './whatsapp.js';
 
 /** Tipos de mensagem no histórico do robô. */
-export type MessageKind = 'chat' | 'lembrete' | 'costume' | 'sumido' | 'codigo' | 'teste' | 'manual';
+export type MessageKind = 'chat' | 'lembrete' | 'costume' | 'sumido' | 'codigo' | 'teste' | 'manual' | 'barbeiro';
 
 export interface ShopBot {
   id: number;

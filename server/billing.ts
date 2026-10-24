@@ -1,0 +1,240 @@
+import QRCode from 'qrcode';
+import { all, get, nowIso, run, tx } from './db.js';
+import { HttpError } from './http.js';
+import { pixPayload } from './pix.js';
+import { addDays, isoToLocal, localNow } from './time.js';
+
+/**
+ * Mensalidades da plataforma: cada barbearia tem um plano (ou valor combinado) e um dia de
+ * vencimento. A fatura do mês é gerada sozinha; vencida além da carência, o painel da barbearia
+ * fica restrito à tela de pagamento até o master confirmar o pagamento (ou liberar o acesso).
+ */
+
+export interface PlatformSettings {
+  grace_days: number;
+  trial_days: number;
+  pix_key: string;
+  pix_name: string;
+  pix_city: string;
+}
+
+export function platformSettings(): PlatformSettings {
+  const rows = all<{ key: string; value: string }>('SELECT key, value FROM platform_settings');
+  const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return {
+    grace_days: Number(map.grace_days ?? 5),
+    trial_days: Number(map.trial_days ?? 14),
+    pix_key: map.pix_key ?? '',
+    pix_name: map.pix_name ?? '',
+    pix_city: map.pix_city ?? '',
+  };
+}
+
+export function savePlatformSettings(s: PlatformSettings): void {
+  tx(() => {
+    for (const [key, value] of Object.entries(s)) {
+      run('INSERT INTO platform_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, String(value)]);
+    }
+  });
+}
+
+interface ShopBilling {
+  id: number;
+  name: string;
+  active: number;
+  created_at: string;
+  plan_id: number | null;
+  plan_name: string | null;
+  plan_price: number | null;
+  monthly_price_cents: number | null;
+  billing_day: number;
+  trial_until: string | null;
+  released_until: string | null;
+}
+
+export function shopBilling(shopId: number): ShopBilling {
+  const s = get<ShopBilling>(
+    `SELECT b.id, b.name, b.active, b.created_at, b.plan_id, p.name AS plan_name, p.price_cents AS plan_price, b.monthly_price_cents,
+            b.billing_day, b.trial_until, b.released_until
+       FROM barbershops b LEFT JOIN plans p ON p.id = b.plan_id WHERE b.id = ?`,
+    [shopId],
+  );
+  if (!s) throw new HttpError(404, 'Barbearia não encontrada.');
+  return s;
+}
+
+/** Valor da mensalidade: o combinado com a barbearia ou o preço do plano. */
+export const monthlyPrice = (s: Pick<ShopBilling, 'monthly_price_cents' | 'plan_price'>) => s.monthly_price_cents ?? s.plan_price ?? 0;
+
+/** Vencimento do mês "AAAA-MM" no dia escolhido (dia 31 vira o último dia do mês). */
+export function dueDate(reference: string, day: number): string {
+  const [y, m] = reference.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${reference}-${String(Math.min(day, last)).padStart(2, '0')}`;
+}
+
+const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const monthName = (reference: string) => `${MONTHS[Number(reference.slice(5, 7)) - 1]}/${reference.slice(0, 4)}`;
+
+/**
+ * Gera a fatura do mês corrente de cada barbearia ativa com mensalidade (uma vez por mês).
+ * Não cobra meses cujo vencimento cai antes do cadastro ou dentro do período grátis.
+ */
+export function ensureInvoices(now: Date = new Date()): number {
+  const today = localNow(now).date;
+  const reference = today.slice(0, 7);
+  let created = 0;
+  for (const { id } of all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1')) {
+    const s = shopBilling(id);
+    const amount = monthlyPrice(s);
+    if (amount <= 0) continue;
+    const due = dueDate(reference, s.billing_day);
+    if (due < isoToLocal(s.created_at).slice(0, 10)) continue;
+    if (s.trial_until && due <= s.trial_until) continue;
+    const { changes } = run(
+      `INSERT INTO invoices (barbershop_id, reference, description, amount_cents, due_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(barbershop_id, reference) DO NOTHING`,
+      [id, reference, `Mensalidade ${monthName(reference)}${s.plan_name ? ` · ${s.plan_name}` : ''}`, amount, due, nowIso()],
+    );
+    created += changes;
+  }
+  return created;
+}
+
+export interface InvoiceView {
+  id: number;
+  barbershop_id: number;
+  shop_name: string;
+  reference: string;
+  description: string;
+  amount_cents: number;
+  due_date: string;
+  status: 'open' | 'paid' | 'cancelled';
+  paid_at: string | null;
+  method: string | null;
+  notes: string | null;
+  informed_at: string | null;
+  overdue: boolean;
+}
+
+const INVOICE_SELECT = `
+  SELECT i.id, i.barbershop_id, b.name AS shop_name, i.reference, i.description, i.amount_cents, i.due_date, i.status,
+         i.paid_at, i.method, i.notes, i.informed_at
+    FROM invoices i JOIN barbershops b ON b.id = i.barbershop_id`;
+
+const withOverdue = (i: Omit<InvoiceView, 'overdue'>, today: string): InvoiceView => ({ ...i, overdue: i.status === 'open' && i.due_date < today });
+
+export function listInvoices(filter: { shopId?: number; status?: string } = {}, now?: Date): InvoiceView[] {
+  const today = localNow(now).date;
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (filter.shopId) {
+    where.push('i.barbershop_id = ?');
+    params.push(filter.shopId);
+  }
+  if (filter.status) {
+    where.push('i.status = ?');
+    params.push(filter.status);
+  }
+  return all<Omit<InvoiceView, 'overdue'>>(`${INVOICE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY i.due_date DESC, i.id DESC LIMIT 500`, params).map((i) =>
+    withOverdue(i, today),
+  );
+}
+
+export function invoice(id: number, now?: Date): InvoiceView {
+  const i = get<Omit<InvoiceView, 'overdue'>>(`${INVOICE_SELECT} WHERE i.id = ?`, [id]);
+  if (!i) throw new HttpError(404, 'Fatura não encontrada.');
+  return withOverdue(i, localNow(now).date);
+}
+
+/** Situação de acesso: bloqueada se há fatura vencida além da carência e o master não liberou. */
+export function accessStatus(shopId: number, now?: Date) {
+  const today = localNow(now).date;
+  const s = shopBilling(shopId);
+  const { grace_days } = platformSettings();
+  const open = listInvoices({ shopId, status: 'open' }, now).sort((a, b) => a.due_date.localeCompare(b.due_date));
+  const late = open.filter((i) => addDays(i.due_date, grace_days) < today);
+  const released = Boolean(s.released_until && s.released_until >= today);
+  return {
+    blocked: Boolean(s.active) && late.length > 0 && !released,
+    graceDays: grace_days,
+    releasedUntil: s.released_until,
+    trialUntil: s.trial_until,
+    open,
+    /** Data em que o acesso é bloqueado se a fatura mais antiga não for paga. */
+    blockOn: open[0] ? addDays(open[0].due_date, grace_days + 1) : null,
+  };
+}
+
+/** Master confirma o pagamento: libera o acesso e lança a saída no caixa da barbearia. */
+export function markInvoicePaid(id: number, data: { paid_at: string; method: string | null; notes: string | null }): InvoiceView {
+  return tx(() => {
+    const inv = invoice(id);
+    if (inv.status === 'paid') throw new HttpError(409, 'Essa fatura já está paga.');
+    if (inv.status === 'cancelled') throw new HttpError(409, 'Essa fatura foi cancelada.');
+    run("UPDATE invoices SET status = 'paid', paid_at = ?, method = ?, notes = ? WHERE id = ?", [data.paid_at, data.method, data.notes, id]);
+    run(
+      `INSERT INTO cash_entries (barbershop_id, type, category, description, amount_cents, method, date, status, invoice_id, created_at)
+       VALUES (?, 'out', 'Mensalidade do sistema', ?, ?, ?, ?, 'paid', ?, ?)`,
+      [inv.barbershop_id, inv.description, inv.amount_cents, data.method, data.paid_at, id, nowIso()],
+    );
+    return invoice(id);
+  });
+}
+
+export function cancelInvoice(id: number): InvoiceView {
+  const inv = invoice(id);
+  if (inv.status !== 'open') throw new HttpError(409, 'Só faturas em aberto podem ser canceladas.');
+  run("UPDATE invoices SET status = 'cancelled' WHERE id = ?", [id]);
+  return invoice(id);
+}
+
+/** Cobrança avulsa (ex.: implantação, ajuste). */
+export function createInvoice(shopId: number, data: { description: string; amount_cents: number; due_date: string }): InvoiceView {
+  shopBilling(shopId);
+  const id = run('INSERT INTO invoices (barbershop_id, reference, description, amount_cents, due_date, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
+    shopId,
+    `avulsa-${Date.now()}`,
+    data.description,
+    data.amount_cents,
+    data.due_date,
+    nowIso(),
+  ]).lastInsertRowid;
+  return invoice(id);
+}
+
+/** Barbearia avisa que pagou (o master confere e confirma). */
+export function informPayment(shopId: number, invoiceId: number): InvoiceView {
+  const { changes } = run("UPDATE invoices SET informed_at = ? WHERE id = ? AND barbershop_id = ? AND status = 'open'", [nowIso(), invoiceId, shopId]);
+  if (!changes) throw new HttpError(404, 'Fatura em aberto não encontrada.');
+  return invoice(invoiceId);
+}
+
+/** PIX copia e cola + QR Code da fatura (quando o master cadastrou a chave PIX). */
+export async function invoicePix(inv: InvoiceView): Promise<{ payload: string; qr: string } | null> {
+  const s = platformSettings();
+  if (!s.pix_key || inv.status !== 'open') return null;
+  const payload = pixPayload({ key: s.pix_key, name: s.pix_name || 'Sistema Barbearia', city: s.pix_city || 'Brasil', amountCents: inv.amount_cents, txid: `FAT${inv.id}` });
+  return { payload, qr: await QRCode.toDataURL(payload, { margin: 1, width: 260 }) };
+}
+
+/** Receita da plataforma para o painel master. */
+export function platformRevenue(now?: Date) {
+  const today = localNow(now).date;
+  const month = today.slice(0, 7);
+  const shops = all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1').map((s) => shopBilling(s.id));
+  const paying = shops.filter((s) => monthlyPrice(s) > 0 && !(s.trial_until && s.trial_until >= today));
+  const sum = (sql: string, params: unknown[] = []) => get<{ v: number }>(sql, params)?.v ?? 0;
+  return {
+    mrr: paying.reduce((t, s) => t + monthlyPrice(s), 0),
+    payingShops: paying.length,
+    trialShops: shops.filter((s) => s.trial_until && s.trial_until >= today).length,
+    receivedThisMonth: sum("SELECT COALESCE(SUM(amount_cents), 0) AS v FROM invoices WHERE status = 'paid' AND substr(paid_at, 1, 7) = ?", [month]),
+    open: sum("SELECT COALESCE(SUM(amount_cents), 0) AS v FROM invoices WHERE status = 'open' AND due_date >= ?", [today]),
+    overdue: sum("SELECT COALESCE(SUM(amount_cents), 0) AS v FROM invoices WHERE status = 'open' AND due_date < ?", [today]),
+    informed: sum("SELECT COUNT(*) AS v FROM invoices WHERE status = 'open' AND informed_at IS NOT NULL"),
+    byMonth: all<{ month: string; total: number }>(
+      "SELECT substr(paid_at, 1, 7) AS month, SUM(amount_cents) AS total FROM invoices WHERE status = 'paid' GROUP BY month ORDER BY month DESC LIMIT 6",
+    ).reverse(),
+  };
+}

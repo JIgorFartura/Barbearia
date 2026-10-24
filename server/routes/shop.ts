@@ -10,15 +10,26 @@ import { customerByPhone } from '../messaging.js';
 import { findVoucher, redeemVoucher, shopVouchers } from '../offers.js';
 import { dayAgenda } from '../scheduling.js';
 import { addDays } from '../time.js';
+import { accessStatus } from '../billing.js';
 import { registerAgendaRoutes } from './agenda.js';
 import { registerBotRoutes } from './bot.js';
 import { crudRoutes } from './crud.js';
+import { registerFinanceRoutes } from './finance.js';
 
 /** Painel do dono da barbearia. Tudo aqui é filtrado pela barbearia do usuário logado. */
 export const shopRouter = Router();
 shopRouter.use(requireRole('owner'));
+// Barbearia suspensa ou com mensalidade em atraso: só a situação e a mensalidade (o master entra sempre).
+shopRouter.use((req, _res, next) => {
+  if (req.user?.acting || req.path === '/status' || req.path.startsWith('/subscription')) return next();
+  const shop = get<{ active: number }>('SELECT active FROM barbershops WHERE id = ?', [shopId(req)]);
+  if (!shop?.active) throw new HttpError(403, 'Barbearia suspensa pelo administrador da plataforma.');
+  if (accessStatus(shopId(req)).blocked) throw new HttpError(402, 'Acesso suspenso: há mensalidade em atraso. Regularize na tela Mensalidade.');
+  next();
+});
 registerAgendaRoutes(shopRouter);
 registerBotRoutes(shopRouter);
+registerFinanceRoutes(shopRouter);
 
 // ---------- marca (o que aparece na landing page)
 
