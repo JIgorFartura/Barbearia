@@ -19,7 +19,6 @@ export interface Me {
     barbershopId: number | null;
     barberId: number | null;
     termsAccepted: boolean;
-    acting?: boolean;
   } | null;
   shop: { id: number; slug: string; name: string } | null;
   setupNeeded: boolean;
@@ -43,8 +42,6 @@ export function App() {
   if (path === '/privacidade') return <PrivacyPage />;
 
   if (!me) return null;
-  // Master "dentro" de uma barbearia usa o mesmo painel do dono.
-  if (me.user?.role === 'master' && me.user.acting) return <Panel me={me} onLogout={refresh} />;
   if (me.user?.role === 'master') return <Master me={me} onLogout={refresh} />;
   if (me.user?.role === 'owner') return <Panel me={me} onLogout={refresh} />;
   if (me.user?.role === 'barber') return <BarberApp me={me} onLogout={refresh} />;

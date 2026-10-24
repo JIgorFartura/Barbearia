@@ -805,6 +805,10 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE invoices ADD COLUMN reminded_at TEXT;
   ALTER TABLE invoices ADD COLUMN overdue_reminded_at TEXT;
   `,
+  // 9) O master cuida só da plataforma: não entra mais no painel das barbearias (sessions.acting_shop_id fica sem uso).
+  `
+  UPDATE sessions SET acting_shop_id = NULL;
+  `,
 ];
 
 function migrate(): void {

@@ -23,8 +23,6 @@ export interface AuthUser {
   barberId: number | null;
   /** Já aceitou os termos de uso da plataforma (dono). */
   termsAccepted: boolean;
-  /** Master operando o painel de uma barbearia. */
-  acting?: boolean;
 }
 
 declare global {
@@ -94,26 +92,22 @@ export function loadUser(req: Request, _res: Response, next: NextFunction): void
       barbershop_id: number | null;
       barber_id: number | null;
       terms_accepted_at: string | null;
-      acting_shop_id: number | null;
     }>(
-      `SELECT u.id, u.name, u.email, u.phone, u.role, u.barbershop_id, u.barber_id, u.terms_accepted_at, s.acting_shop_id
+      `SELECT u.id, u.name, u.email, u.phone, u.role, u.barbershop_id, u.barber_id, u.terms_accepted_at
          FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.id = ? AND s.expires_at > ?`,
       [sha256(token), nowIso()],
     );
     if (row) {
-      // Master "dentro" do painel de uma barbearia enxerga e opera como o dono dela.
-      const acting = row.role === 'master' && row.acting_shop_id ? row.acting_shop_id : null;
       req.user = {
         id: row.id,
         name: row.name,
         email: row.email,
         phone: row.phone,
         role: row.role,
-        barbershopId: acting ?? row.barbershop_id,
+        barbershopId: row.barbershop_id,
         barberId: row.barber_id,
         termsAccepted: Boolean(row.terms_accepted_at),
-        acting: Boolean(acting),
       };
       req.sessionId = sha256(token);
     }
@@ -121,17 +115,11 @@ export function loadUser(req: Request, _res: Response, next: NextFunction): void
   next();
 }
 
-/** Master entra no painel de uma barbearia (ou sai, com null). */
-export function setActingShop(req: Request, shopId: number | null): void {
-  if (!req.sessionId) throw new HttpError(401, 'Faça login para continuar.');
-  run('UPDATE sessions SET acting_shop_id = ? WHERE id = ?', [shopId, req.sessionId]);
-}
-
 export function requireRole(role: Role) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) throw new HttpError(401, 'Faça login para continuar.');
-    const masterActing = role === 'owner' && req.user.role === 'master' && req.user.acting;
-    if (req.user.role !== role && !masterActing) throw new HttpError(403, 'Acesso não permitido para este perfil.');
+    // Cada perfil só no que é dele: o master cuida da plataforma e nunca entra no painel de uma barbearia.
+    if (req.user.role !== role) throw new HttpError(403, 'Acesso não permitido para este perfil.');
     if (role === 'owner' && !req.user.barbershopId) throw new HttpError(403, 'Usuário sem barbearia vinculada.');
     if (role === 'barber') {
       const barber = req.user.barberId ? get<{ active: number }>('SELECT active FROM barbers WHERE id = ?', [req.user.barberId]) : undefined;

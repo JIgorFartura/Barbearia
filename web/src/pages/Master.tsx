@@ -8,20 +8,16 @@ import {
   DatabaseBackup,
   ExternalLink,
   KeyRound,
-  LogIn,
   LogOut,
   Megaphone,
-  MessageSquare,
   Plus,
   Scissors,
   Server,
   ShieldCheck,
   Store,
-  Ticket,
   Smartphone,
   Unlock,
   UserCog,
-  Users,
   Wallet,
   WifiOff,
 } from 'lucide-react';
@@ -33,7 +29,6 @@ import { AsaasCard } from './master/AsaasCard';
 import { api } from '../lib/api';
 import { centsToInput, parseMoney } from '../lib/finance';
 import { addDays, date, money, phone as fmtPhone, todayStr } from '../lib/format';
-import { navigate } from '../lib/router';
 
 interface ShopRow {
   id: number;
@@ -45,13 +40,7 @@ interface ShopRow {
   wa_provider: 'simulador' | 'meta' | 'evolution';
   wa_status: 'ok' | 'down' | null;
   wa_status_at: string | null;
-  wa_error: string | null;
   owners: string | null;
-  customers: number;
-  campaigns: number;
-  barbers: number;
-  appointments_week: number;
-  messages_week: number;
   failed_week: number;
   tokens_in_30d: number;
   tokens_out_30d: number;
@@ -67,15 +56,16 @@ interface ShopRow {
   overdue_invoices: number;
 }
 
+/** Visão geral da plataforma (sem dados de dentro das barbearias). */
 interface Overview {
   shops: number;
-  customers: number;
-  appointmentsToday: number;
-  messagesWeek: number;
-  vouchersWeek: number;
+  trial: number;
+  overdue: number;
+  blocked: number;
+  whatsappDown: number;
+  tokens30d: { in: number; out: number };
   llm: boolean;
   model: string | null;
-  recentMessages: { id: number; shop: string; direction: 'in' | 'out'; kind: string; status: string; body: string; created_at: string }[];
 }
 
 interface Plan {
@@ -150,7 +140,7 @@ export function Master({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </nav>
       </header>
       <main className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6">
-        {tab === 'barbearias' && <ShopsTab onEnter={onLogout} />}
+        {tab === 'barbearias' && <ShopsTab />}
         {tab === 'financeiro' && <BillingTab />}
         {tab === 'sistema' && <SystemTab />}
       </main>
@@ -172,7 +162,7 @@ function billingLine(s: ShopRow): { text: string; tone: 'green' | 'gold' | 'red'
   return { text: 'Em dia', tone: 'green' };
 }
 
-function ShopsTab({ onEnter }: { onEnter: () => void }) {
+function ShopsTab() {
   const [shops, setShops] = useState<ShopRow[] | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -193,22 +183,26 @@ function ShopsTab({ onEnter }: { onEnter: () => void }) {
     load();
   }
 
-  async function enter(shop: ShopRow) {
-    await api('POST', `/api/master/shops/${shop.id}/enter`);
-    navigate('/painel');
-    onEnter();
-  }
-
   return (
     <>
       {overview && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <Stat icon={<Store className="size-5" />} label="Barbearias ativas" value={overview.shops} />
-            <Stat icon={<Users className="size-5" />} label="Clientes" value={overview.customers} />
-            <Stat icon={<CalendarDays className="size-5" />} label="Horários hoje" value={overview.appointmentsToday} />
-            <Stat icon={<MessageSquare className="size-5" />} label="Mensagens (7 dias)" value={overview.messagesWeek} />
-            <Stat icon={<Ticket className="size-5" />} label="Vouchers (7 dias)" value={overview.vouchersWeek} />
+            <Stat icon={<CalendarDays className="size-5" />} label="Em teste grátis" value={overview.trial} />
+            <Stat
+              icon={<CreditCard className="size-5" />}
+              label="Com mensalidade vencida"
+              value={overview.overdue}
+              hint={overview.blocked ? <span className="text-red-600">{overview.blocked} com acesso suspenso</span> : undefined}
+            />
+            <Stat icon={<WifiOff className="size-5" />} label="WhatsApp desconectado" value={overview.whatsappDown} />
+            <Stat
+              icon={<Bot className="size-5" />}
+              label="IA nos últimos 30 dias"
+              value={`${compact(overview.tokens30d.in + overview.tokens30d.out)}`}
+              hint="tokens (entrada + saída)"
+            />
           </div>
           <p className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm ${overview.llm ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`}>
             <Bot className="size-4" />
@@ -223,7 +217,9 @@ function ShopsTab({ onEnter }: { onEnter: () => void }) {
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">Barbearias</h1>
-            <p className="text-sm text-zinc-500">Crie a barbearia, entregue o acesso ao dono e acompanhe a mensalidade de cada uma.</p>
+            <p className="text-sm text-zinc-500">
+              Crie a barbearia, entregue o acesso ao dono e acompanhe a mensalidade. Agenda, barbeiros e clientes são da barbearia: só o dono vê.
+            </p>
           </div>
           <Button onClick={() => setCreating(true)}>
             <Plus className="size-4" /> Nova barbearia
@@ -245,27 +241,14 @@ function ShopsTab({ onEnter }: { onEnter: () => void }) {
                   </div>
                   <Badge tone={b.tone}>{b.text}</Badge>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
-                  <div className="rounded-lg bg-zinc-50 py-2">
-                    <p className="font-bold tabular-nums">{s.customers}</p>
-                    <p className="text-xs text-zinc-500">clientes</p>
-                  </div>
-                  <div className="rounded-lg bg-zinc-50 py-2">
-                    <p className="font-bold tabular-nums">{s.appointments_week}</p>
-                    <p className="text-xs text-zinc-500">horários 7 dias</p>
-                  </div>
-                  <div className="rounded-lg bg-zinc-50 py-2">
-                    <p className="font-bold tabular-nums">{s.messages_week}</p>
-                    <p className="text-xs text-zinc-500">mensagens 7 dias</p>
-                  </div>
-                </div>
                 <p className="mt-3 text-xs text-zinc-500">
                   {s.price_cents ? `${s.plan_name ? `Plano ${s.plan_name} · ` : ''}${money(s.price_cents)}/mês · vence dia ${s.billing_day}` : 'Sem mensalidade definida'}
                 </p>
                 <p className="text-xs text-zinc-500">
-                  Robô {s.bot_name} · {PROVIDER[s.wa_provider]} · {s.barbers} barbeiro(s)
-                  {s.failed_week > 0 && <span className="text-red-600"> · {s.failed_week} mensagem(ns) com falha</span>}
+                  Robô {s.bot_name} · {PROVIDER[s.wa_provider]}
+                  {s.failed_week > 0 && <span className="text-red-600"> · {s.failed_week} envio(s) com falha em 7 dias</span>}
                 </p>
+                {s.owners && <p className="text-xs text-zinc-500">Dono: {s.owners}</p>}
                 {s.wa_status === 'down' && (
                   <p className="mt-1 flex items-center gap-1 text-xs font-medium text-red-700">
                     <WifiOff className="size-3.5" /> WhatsApp desconectado
@@ -276,10 +259,7 @@ function ShopsTab({ onEnter }: { onEnter: () => void }) {
                   IA (30 dias): {compact(s.tokens_in_30d)} tokens de entrada, {compact(s.tokens_out_30d)} de saída · desde {date(s.created_at)}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button className="!py-1.5" onClick={() => enter(s)}>
-                    <LogIn className="size-4" /> Abrir painel
-                  </Button>
-                  <Button variant="ghost" className="!py-1.5" onClick={() => setBilling(s)}>
+                  <Button className="!py-1.5" onClick={() => setBilling(s)}>
                     <CreditCard className="size-4" /> Mensalidade
                   </Button>
                   {(s.blocked || s.overdue_invoices > 0) && (
@@ -1098,7 +1078,7 @@ interface SystemInfo {
   llm: { enabled: boolean; model: string | null; effort: string };
   publicUrl: string | null;
   failures24h: { shop: string; failed: number; last_error: string | null }[];
-  counts: { shops: number; customers: number; appointments: number; sales: number; messages: number };
+  counts: { shops: number };
 }
 
 interface BackupInfo {
@@ -1401,12 +1381,10 @@ interface Announcement {
 function SystemTab() {
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [list, setList] = useState<Announcement[]>([]);
-  const [overview, setOverview] = useState<Overview | null>(null);
   const [editing, setEditing] = useState<Partial<Announcement> | null>(null);
   const load = useCallback(() => {
     api<SystemInfo>('GET', '/api/master/system').then(setInfo);
     api<Announcement[]>('GET', '/api/master/announcements').then(setList);
-    api<Overview>('GET', '/api/master/overview').then(setOverview);
   }, []);
   useEffect(load, [load]);
   const mb = (b: number) => `${(b / 1024 / 1024).toFixed(1)} MB`;
@@ -1424,8 +1402,7 @@ function SystemTab() {
             </p>
             <p>No ar desde {new Date(info.startedAt).toLocaleString('pt-BR')}</p>
             <p>
-              Banco de dados: <b>{mb(info.database.bytes)}</b> · {info.counts.customers} clientes · {info.counts.appointments} horários · {info.counts.sales} vendas ·{' '}
-              {info.counts.messages} mensagens
+              Banco de dados: <b>{mb(info.database.bytes)}</b> · {info.counts.shops} barbearia(s)
             </p>
             <p>Endereço público: {info.publicUrl ?? <span className="text-amber-700">não definido (PUBLIC_URL)</span>}</p>
           </Card>
@@ -1498,33 +1475,6 @@ function SystemTab() {
           ))}
         </div>
       </div>
-
-      {overview && overview.recentMessages.length > 0 && (
-        <div>
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
-            <Activity className="size-5" /> Atividade recente dos robôs
-          </h2>
-          <Card className="!p-0">
-            <ul className="divide-y divide-zinc-100 text-sm">
-              {overview.recentMessages.map((m) => (
-                <li key={m.id} className="px-4 py-2.5 sm:flex sm:gap-3">
-                  {/* No celular: barbearia e hora em cima, mensagem embaixo. */}
-                  <div className="flex items-center justify-between gap-3 sm:contents">
-                    <span className="truncate font-medium sm:w-28 sm:shrink-0">{m.shop}</span>
-                    <span className="shrink-0 text-xs text-zinc-400 sm:order-last">
-                      {m.status === 'failed' ? <span className="text-red-600">falhou</span> : new Date(m.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-                    </span>
-                  </div>
-                  <p className="line-clamp-2 text-zinc-600 sm:min-w-0 sm:flex-1 sm:truncate">
-                    {m.direction === 'in' ? '← ' : '→ '}
-                    {m.body}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </div>
-      )}
 
       {editing && (
         <AnnouncementModal

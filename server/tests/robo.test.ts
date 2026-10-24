@@ -460,25 +460,21 @@ describe('área do cliente e vouchers', () => {
 });
 
 describe('master', () => {
-  test('vê a plataforma toda e entra no painel de uma barbearia', async () => {
+  test('cuida só da plataforma: não vê barbeiros, agenda, clientes nem conversas', async () => {
     run("INSERT INTO users (role, name, email, password_hash, created_at) VALUES ('master', 'Igor', 'igor@exemplo.com', ?, ?)", [hashPassword('senha-forte-1'), nowIso()]);
     const master = client();
     assert.equal((await master('POST', '/api/auth/login', { email: 'igor@exemplo.com', password: 'senha-forte-1' })).status, 200);
-    const overview = await master('GET', '/api/master/overview');
-    assert.equal(overview.data.shops, 1);
-    assert.ok(overview.data.recentMessages.length > 0);
-    assert.ok(overview.data.recentMessages.every((m: any) => m.kind !== 'codigo'), 'códigos de acesso não aparecem para o master');
-    const shops = await master('GET', '/api/master/shops');
-    assert.ok(shops.data[0].messages_week > 0);
+    const overview = (await master('GET', '/api/master/overview')).data;
+    assert.equal(overview.shops, 1);
+    for (const field of ['customers', 'appointmentsToday', 'recentMessages']) assert.equal(overview[field], undefined, `visão geral sem ${field}`);
+    const shop = (await master('GET', '/api/master/shops')).data[0];
+    assert.equal(shop.name, 'Navalha de Ouro');
+    for (const field of ['customers', 'barbers', 'appointments_week', 'messages_week']) assert.equal(shop[field], undefined, `barbearia sem ${field}`);
 
-    assert.equal((await master('GET', '/api/shop/barbers')).status, 403);
-    assert.equal((await master('POST', `/api/master/shops/${shopId}/enter`)).status, 200);
-    const me = await master('GET', '/api/auth/me');
-    assert.equal(me.data.user.acting, true);
-    assert.equal(me.data.shop.slug, 'navalha');
-    assert.equal((await master('GET', '/api/shop/barbers')).data.length, 2);
-    assert.equal((await master('POST', '/api/master/exit')).status, 200);
-    assert.equal((await master('GET', '/api/shop/barbers')).status, 403);
-    assert.equal(all('SELECT 1 FROM sessions WHERE acting_shop_id IS NOT NULL').length, 0);
+    for (const path of ['/api/shop/barbers', '/api/shop/agenda', '/api/shop/customers', '/api/shop/bot/conversations']) {
+      assert.equal((await master('GET', path)).status, 403, path);
+    }
+    assert.equal((await master('POST', `/api/master/shops/${shopId}/enter`)).status, 404, 'não existe mais "entrar no painel"');
+    assert.equal((await master('GET', '/api/auth/me')).data.shop, null);
   });
 });

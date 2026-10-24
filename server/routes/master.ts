@@ -4,7 +4,7 @@ import { asaasSettings, cancelInvoiceEverywhere, issueNfse, rotateWebhookToken, 
 import { z } from 'zod';
 import fs from 'node:fs';
 import path from 'node:path';
-import { hashPassword, requireRole, setActingShop } from '../auth.js';
+import { hashPassword, requireRole } from '../auth.js';
 import { automationStatus } from '../automations.js';
 import { backupPath, backupStatus, createBackup, listBackups, remoteConfig } from '../backup.js';
 import {
@@ -69,26 +69,23 @@ function assertFreeEmail(email: string): void {
   if (get('SELECT 1 AS ok FROM users WHERE email = ?', [email])) throw new HttpError(409, 'Já existe um usuário com esse e-mail.');
 }
 
+/**
+ * Barbearias para o controle geral: cadastro, logins dos donos, mensalidade, conexão do WhatsApp e
+ * consumo da IA. O master não enxerga barbeiros, agenda, clientes nem conversas (são da barbearia).
+ */
 masterRouter.get('/shops', (_req, res) => {
-  const now = localNow();
-  const week = `${addDays(now.date, 7)} 00:00`;
   const since7 = new Date(Date.now() - 7 * 86400000).toISOString();
   const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
   res.json(
     all(
       `
-      SELECT b.id, b.slug, b.name, b.active, b.created_at, b.bot_name, b.wa_provider, b.wa_status, b.wa_status_at, b.wa_error,
-             (SELECT group_concat(email, ', ') FROM users u WHERE u.barbershop_id = b.id) AS owners,
-             (SELECT COUNT(*) FROM customers c WHERE c.barbershop_id = b.id) AS customers,
-             (SELECT COUNT(*) FROM campaigns c WHERE c.barbershop_id = b.id AND c.active = 1) AS campaigns,
-             (SELECT COUNT(*) FROM barbers x WHERE x.barbershop_id = b.id AND x.active = 1) AS barbers,
-             (SELECT COUNT(*) FROM appointments a WHERE a.barbershop_id = b.id AND a.status = 'scheduled' AND a.starts_at >= :now AND a.starts_at < :week) AS appointments_week,
-             (SELECT COUNT(*) FROM messages m WHERE m.barbershop_id = b.id AND m.created_at >= :since7) AS messages_week,
+      SELECT b.id, b.slug, b.name, b.active, b.created_at, b.bot_name, b.wa_provider, b.wa_status, b.wa_status_at,
+             (SELECT group_concat(email, ', ') FROM users u WHERE u.barbershop_id = b.id AND u.role = 'owner') AS owners,
              (SELECT COUNT(*) FROM messages m WHERE m.barbershop_id = b.id AND m.status = 'failed' AND m.created_at >= :since7) AS failed_week,
              (SELECT COALESCE(SUM(tokens_in), 0) FROM messages m WHERE m.barbershop_id = b.id AND m.created_at >= :since30) AS tokens_in_30d,
              (SELECT COALESCE(SUM(tokens_out), 0) FROM messages m WHERE m.barbershop_id = b.id AND m.created_at >= :since30) AS tokens_out_30d
         FROM barbershops b ORDER BY b.name`,
-      { now: now.stamp, week, since7, since30 },
+      { since7, since30 },
     ).map((row) => {
       const id = (row as { id: number }).id;
       const billing = shopBilling(id);
@@ -110,40 +107,25 @@ masterRouter.get('/shops', (_req, res) => {
   );
 });
 
-/** Visão geral da plataforma (todas as barbearias). */
+/** Visão geral da plataforma: barbearias, situação das mensalidades, WhatsApp e IA. */
 masterRouter.get('/overview', (_req, res) => {
-  const now = localNow();
-  const since7 = new Date(Date.now() - 7 * 86400000).toISOString();
-  const count = (sql: string, params: unknown[] = []) => get<{ n: number }>(sql, params)?.n ?? 0;
+  const today = localNow().date;
+  const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
+  const shops = all<{ id: number; trial_until: string | null; wa_status: string | null }>('SELECT id, trial_until, wa_status FROM barbershops WHERE active = 1');
+  const access = shops.map((s) => accessStatus(s.id));
+  const tokens = get<{ tin: number; tout: number }>('SELECT COALESCE(SUM(tokens_in), 0) AS tin, COALESCE(SUM(tokens_out), 0) AS tout FROM messages WHERE created_at >= ?', [
+    since30,
+  ])!;
   res.json({
-    shops: count('SELECT COUNT(*) AS n FROM barbershops WHERE active = 1'),
-    customers: count('SELECT COUNT(*) AS n FROM customers'),
-    appointmentsToday: count("SELECT COUNT(*) AS n FROM appointments WHERE status = 'scheduled' AND starts_at >= ? AND starts_at < ?", [
-      `${now.date} 00:00`,
-      `${addDays(now.date, 1)} 00:00`,
-    ]),
-    messagesWeek: count('SELECT COUNT(*) AS n FROM messages WHERE created_at >= ?', [since7]),
-    vouchersWeek: count('SELECT COUNT(*) AS n FROM vouchers WHERE created_at >= ?', [since7]),
+    shops: shops.length,
+    trial: shops.filter((s) => s.trial_until && s.trial_until >= today).length,
+    overdue: access.filter((a) => a.open.some((i) => i.overdue)).length,
+    blocked: access.filter((a) => a.blocked).length,
+    whatsappDown: shops.filter((s) => s.wa_status === 'down').length,
+    tokens30d: { in: tokens.tin, out: tokens.tout },
     llm: llmEnabled(),
     model: llmEnabled() ? config.botModel : null,
-    recentMessages: all(
-      `SELECT m.id, b.name AS shop, m.direction, m.kind, m.status, m.body, m.created_at FROM messages m JOIN barbershops b ON b.id = m.barbershop_id
-        WHERE m.kind <> 'codigo' ORDER BY m.id DESC LIMIT 15`,
-    ),
   });
-});
-
-/** Master entra no painel de uma barbearia (vê e opera como o dono). */
-masterRouter.post('/shops/:id/enter', (req, res) => {
-  const id = idParam(req);
-  if (!get('SELECT 1 AS ok FROM barbershops WHERE id = ?', [id])) throw new HttpError(404, 'Barbearia não encontrada.');
-  setActingShop(req, id);
-  res.json({ ok: true });
-});
-
-masterRouter.post('/exit', (req, res) => {
-  setActingShop(req, null);
-  res.json({ ok: true });
 });
 
 const zBilling = z.object({
@@ -574,14 +556,12 @@ masterRouter.get('/system', (_req, res) => {
     automations: { enabled: config.automations, ...automationStatus },
     llm: { enabled: llmEnabled(), model: llmEnabled() ? config.botModel : null, effort: config.botEffort },
     publicUrl: config.publicUrl || null,
-    failures24h: all(
+    // Falhas de envio por barbearia: só a contagem e o motivo (números de celular mascarados).
+    failures24h: all<{ shop: string; failed: number; last_error: string | null }>(
       `SELECT b.name AS shop, COUNT(*) AS failed, MAX(m.error) AS last_error FROM messages m JOIN barbershops b ON b.id = m.barbershop_id
         WHERE m.status = 'failed' AND m.created_at >= ? GROUP BY b.id ORDER BY failed DESC`,
       [since],
-    ),
-    counts: get(
-      `SELECT (SELECT COUNT(*) FROM barbershops) AS shops, (SELECT COUNT(*) FROM customers) AS customers,
-              (SELECT COUNT(*) FROM appointments) AS appointments, (SELECT COUNT(*) FROM sales) AS sales, (SELECT COUNT(*) FROM messages) AS messages`,
-    ),
+    ).map((f) => ({ ...f, last_error: f.last_error?.replace(/\d{8,}/g, '•••') ?? null })),
+    counts: get('SELECT (SELECT COUNT(*) FROM barbershops) AS shops'),
   });
 });

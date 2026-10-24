@@ -24,9 +24,9 @@ import { reviewsOverview, shopRating } from '../reviews.js';
 /** Painel do dono da barbearia. Tudo aqui é filtrado pela barbearia do usuário logado. */
 export const shopRouter = Router();
 shopRouter.use(requireRole('owner'));
-// Barbearia suspensa ou com mensalidade em atraso: só a situação e a mensalidade (o master entra sempre).
+// Barbearia suspensa ou com mensalidade em atraso: só a situação e a mensalidade.
 shopRouter.use((req, _res, next) => {
-  if (req.user?.acting || req.path === '/status' || req.path.startsWith('/subscription')) return next();
+  if (req.path === '/status' || req.path.startsWith('/subscription')) return next();
   const shop = get<{ active: number }>('SELECT active FROM barbershops WHERE id = ?', [shopId(req)]);
   if (!shop?.active) throw new HttpError(403, 'Barbearia suspensa pelo administrador da plataforma.');
   if (accessStatus(shopId(req)).blocked) throw new HttpError(402, 'Acesso suspenso: há mensalidade em atraso. Regularize na tela Mensalidade.');

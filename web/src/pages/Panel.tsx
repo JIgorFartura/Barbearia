@@ -111,7 +111,6 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [pixOpen, setPixOpen] = useState(false);
   const [pixRefresh, setPixRefresh] = useState(0);
   const [hidden, setHidden] = useState<number[]>(dismissed);
-  const acting = Boolean(me.user?.acting);
 
   const loadRefs = useCallback(() => {
     api<Row[]>('GET', '/api/shop/partners').then(setPartners, () => undefined);
@@ -137,11 +136,11 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
     }
   }
 
-  const locked = Boolean(status?.blocked && !acting);
+  const locked = Boolean(status?.blocked);
   // Bloqueado por mensalidade, qualquer endereço do painel abre a tela da mensalidade.
   const current = locked ? 'mensalidade' : section;
   // Cadastros de apoio só com o painel liberado (bloqueado, só a mensalidade funciona).
-  const ready = Boolean(status && (status.active || acting) && !locked);
+  const ready = Boolean(status && status.active && !locked);
   useEffect(() => {
     if (ready) loadRefs();
   }, [ready, loadRefs]);
@@ -383,8 +382,8 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
   // Espera saber se o acesso está liberado antes de abrir qualquer tela.
   if (!status) return null;
   // Primeiro acesso do dono: aceite dos termos de uso e da política de privacidade.
-  if (!acting && !me.user?.termsAccepted) return <TermsGate onAccepted={onLogout} onLogout={() => api('POST', '/api/auth/logout').then(onLogout)} />;
-  if (!status.active && !acting) {
+  if (!me.user?.termsAccepted) return <TermsGate onAccepted={onLogout} onLogout={() => api('POST', '/api/auth/logout').then(onLogout)} />;
+  if (!status.active) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-6">
         <div className="max-w-md space-y-3 rounded-2xl bg-white p-6 text-center shadow-sm ring-1 ring-zinc-200">
@@ -435,11 +434,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <ExternalLink className="size-4" /> Ver meu site
             </a>
           )}
-          {!me.user?.acting && (
-            <button onClick={() => setAccount(true)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-white/5 hover:text-white">
-              <UserCog className="size-4" /> Minha conta
-            </button>
-          )}
+          <button onClick={() => setAccount(true)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-white/5 hover:text-white">
+            <UserCog className="size-4" /> Minha conta
+          </button>
           <button
             onClick={() => api('POST', '/api/auth/logout').then(onLogout)}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-white/5 hover:text-white"
@@ -461,24 +458,6 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       {menuOpen && <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={() => setMenuOpen(false)} />}
 
       <div className="min-w-0 flex-1">
-        {me.user?.acting && (
-          <div className="flex flex-wrap items-center justify-between gap-2 bg-amber-300 px-4 py-2 text-sm text-amber-950">
-            <span>
-              Você está no painel da <b>{me.shop?.name}</b> como master.
-            </span>
-            <button
-              className="rounded-md bg-amber-950 px-3 py-1 text-xs font-semibold text-amber-50"
-              onClick={() =>
-                api('POST', '/api/master/exit').then(() => {
-                  history.replaceState(null, '', '/');
-                  onLogout();
-                })
-              }
-            >
-              Voltar ao painel master
-            </button>
-          </div>
-        )}
         <header className="flex items-center gap-3 border-b border-zinc-200 bg-white px-4 py-3 lg:hidden">
           <button onClick={() => setMenuOpen(true)} aria-label="Abrir menu">
             <Menu className="size-5" />

@@ -91,6 +91,10 @@ export function TermsPage() {
           instruções da barbearia e a Lei nº 13.709/2018 (LGPD).
         </li>
         <li>
+          A administração da plataforma não tem acesso pelo sistema à agenda, aos barbeiros, aos clientes nem às conversas da barbearia: cuida só do cadastro, do
+          acesso do dono e da mensalidade.
+        </li>
+        <li>
           {l.company} usa fornecedores necessários ao serviço (hospedagem, armazenamento das cópias de segurança, envio de mensagens de WhatsApp e, quando ligada,
           a inteligência artificial que interpreta as mensagens recebidas pelo robô).
         </li>

@@ -323,9 +323,7 @@ describe('mensalidades da plataforma', () => {
     assert.equal(called, false, 'sem IA enquanto estiver bloqueada');
     assert.match(reply!, /Clube da Cerveja/);
 
-    assert.equal((await master('POST', `/api/master/shops/${shopId}/enter`)).status, 200);
-    assert.equal((await master('GET', '/api/shop/barbers')).status, 200, 'master entra mesmo bloqueada');
-    await master('POST', '/api/master/exit');
+    assert.equal((await master('GET', '/api/shop/barbers')).status, 403, 'o master não entra no painel da barbearia');
 
     await master('POST', `/api/master/shops/${shopId}/release`, { until: addDays(localNow().date, 3) });
     assert.equal((await dono('GET', '/api/shop/barbers')).status, 200, 'liberada pelo master');
@@ -349,7 +347,8 @@ describe('mensalidades da plataforma', () => {
     run('UPDATE barbershops SET active = 1 WHERE id = ?', [shopId]);
     const system = await master('GET', '/api/master/system');
     assert.equal(system.data.version, '0.1.0');
-    assert.ok(system.data.counts.sales >= 4);
+    assert.equal(system.data.counts.shops, 1);
+    assert.equal(system.data.counts.sales, undefined, 'o master não vê o movimento das barbearias');
     const billing = await master('GET', '/api/master/billing');
     assert.ok(billing.data.revenue.mrr >= 14990);
   });
