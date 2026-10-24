@@ -92,7 +92,7 @@ export function Summary({ shopName }: { shopName: string }) {
                   <span className="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-zinc-100 text-xs font-bold">{i + 1}</span>
                   {c.name}
                 </span>
-                <span className="font-semibold tabular-nums">{c.stamps} carimbos</span>
+                <span className="font-semibold tabular-nums">{c.stamps} {c.stamps === 1 ? 'carimbo' : 'carimbos'}</span>
               </li>
             ))}
           </ol>

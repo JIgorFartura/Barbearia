@@ -1,4 +1,5 @@
-import { CalendarCheck, Gift, Link2, Minus, Plus, Repeat, Search, Ticket, Undo2, UserPlus, Users } from 'lucide-react';
+import { CalendarCheck, Gift, Link2, Minus, Plus, Receipt, Repeat, Search, Ticket, Undo2, UserPlus, Users } from 'lucide-react';
+import { CheckoutModal } from '../../components/Checkout';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -78,7 +79,7 @@ export function Counter() {
                     <span className="block font-medium">{c.name}</span>
                     <span className="text-sm text-zinc-500">{phone(c.phone)}</span>
                   </span>
-                  {!!c.stamps_total && <Badge tone="gold">{c.stamps_total} carimbos</Badge>}
+                  {!!c.stamps_total && <Badge tone="gold">{c.stamps_total} {c.stamps_total === 1 ? 'carimbo' : 'carimbos'}</Badge>}
                 </button>
               </li>
             ))}
@@ -130,7 +131,7 @@ function CustomerDetail({ id, onChange }: { id: number; onChange: () => void }) 
       });
       if (path === 'redeem') setFlash(`Prêmio entregue: ${entry.campaign.reward}.`);
       else if (p.available > entry.progress.available) setFlash(`${data?.customer.name.split(' ')[0]} ganhou: ${entry.campaign.reward}! 🎉`);
-      else setFlash(`+${n} ${entry.campaign.unit_label}. Faltam ${p.goal - p.stamps} para o prêmio.`);
+      else setFlash(`+${n} ${entry.campaign.unit_label}. ${p.goal - p.stamps === 1 ? 'Falta só 1' : `Faltam ${p.goal - p.stamps}`} para o prêmio.`);
       setQty({ ...qty, [entry.campaign.id]: 1 });
       load();
       onChange();
@@ -152,7 +153,16 @@ function CustomerDetail({ id, onChange }: { id: number; onChange: () => void }) 
       <Card>
         <p className="text-lg font-semibold">{data.customer.name}</p>
         <p className="text-sm text-zinc-500">{phone(data.customer.phone)}</p>
-        <CustomerAgenda customerId={id} name={data.customer.name} customerPhone={data.customer.phone} />
+        <CustomerAgenda
+          customerId={id}
+          name={data.customer.name}
+          customerPhone={data.customer.phone}
+          onSale={() => {
+            // A venda pode ter dado carimbos: atualiza o cartão e a lista.
+            load();
+            onChange();
+          }}
+        />
       </Card>
       {flash && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">{flash}</p>}
       <ErrorText error={error} />
@@ -263,9 +273,10 @@ interface Habit {
 }
 
 /** Costume, próximos horários e link de acesso à área do cliente. */
-function CustomerAgenda({ customerId, name, customerPhone }: { customerId: number; name: string; customerPhone: string }) {
+function CustomerAgenda({ customerId, name, customerPhone, onSale }: { customerId: number; name: string; customerPhone: string; onSale: () => void }) {
   const [info, setInfo] = useState<{ habit: Habit | null; upcoming: { id: number; starts_at: string; barber_name: string; service_name: string }[] } | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const [selling, setSelling] = useState(false);
   useEffect(() => {
     setLink(null);
     api<typeof info>('GET', `/api/shop/customers/${customerId}/agenda`).then(setInfo);
@@ -283,6 +294,19 @@ function CustomerAgenda({ customerId, name, customerPhone }: { customerId: numbe
         <CalendarCheck className="size-4 text-zinc-400" />
         {info.upcoming.length ? info.upcoming.map((a) => `${stampLabel(a.starts_at)} com ${a.barber_name}`).join(' · ') : 'Nenhum horário marcado'}
       </p>
+      <button className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 hover:text-zinc-900" onClick={() => setSelling(true)}>
+        <Receipt className="size-3.5" /> Registrar venda para {name.split(' ')[0]}
+      </button>
+      {selling && (
+        <CheckoutModal
+          customer={{ id: customerId, name }}
+          onClose={() => setSelling(false)}
+          onDone={() => {
+            setSelling(false);
+            onSale();
+          }}
+        />
+      )}
       {link ? (
         <div className="space-y-1">
           <input readOnly value={link} className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-xs" onFocus={(e) => e.target.select()} />

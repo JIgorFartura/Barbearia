@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarCheck, CalendarX, Clock, Gift, History, LogOut, Repeat, Scissors, Ticket } from 'lucide-react';
+import { ArrowLeft, CalendarCheck, CalendarX, Clock, Gift, History, LogOut, Receipt, Repeat, Scissors, Ticket } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { StampCard, type Progress } from '../components/StampCard';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
@@ -25,6 +25,13 @@ interface Appointment {
   price_cents: number;
   starts_at: string;
   status: 'scheduled' | 'cancelled' | 'no_show';
+  items?: { catalog_item_id: number; name: string; qty: number }[];
+}
+
+interface Suggestion {
+  items: { productId: number; name: string; qty: number }[];
+  barber: string;
+  question: string;
 }
 
 interface Habit {
@@ -73,6 +80,7 @@ interface MeData {
   card: { id: number; name: string; unit_label: string; reward: string; progress: Progress }[];
   offers: Offer[];
   vouchers: Voucher[];
+  purchases: { id: number; date: string; total_cents: number; items: { name: string; qty: number; total_cents: number }[] }[];
   barbers: { id: number; name: string }[];
   services: { id: number; name: string; price_cents: number; duration_min: number | null }[];
 }
@@ -314,6 +322,9 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
                   <p className="text-sm text-zinc-500">
                     {a.service_name} com {a.barber_name} · {money(a.price_cents)}
                   </p>
+                  {a.items && a.items.length > 0 && (
+                    <p className="text-xs text-amber-800">🍺 Separado pra você: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
+                  )}
                 </div>
                 <button onClick={() => cancelAppt(a)} className="flex items-center gap-1 text-sm text-red-600 hover:underline">
                   <CalendarX className="size-4" /> Cancelar
@@ -389,6 +400,21 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
                 ) : (
                   <span className="text-xs whitespace-nowrap text-zinc-400">{o.reason}</span>
                 )}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {me.purchases.length > 0 && (
+        <Section icon={<Receipt />} title="Minhas compras">
+          <ul className="divide-y divide-zinc-100 text-sm">
+            {me.purchases.map((p) => (
+              <li key={p.id} className="flex justify-between gap-3 py-2">
+                <span>
+                  <span className="text-zinc-500">{p.date.split('-').reverse().join('/')}</span> · {p.items.map((i) => `${i.qty > 1 ? `${i.qty}× ` : ''}${i.name}`).join(', ')}
+                </span>
+                <span className="font-medium whitespace-nowrap tabular-nums">{money(p.total_cents)}</span>
               </li>
             ))}
           </ul>
@@ -480,18 +506,65 @@ function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me:
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [slots]);
 
+  const [booked, setBooked] = useState<{ id: number; suggestion: Suggestion | null } | null>(null);
+
   async function confirmBooking() {
     if (!choice) return;
     setBusy(true);
     setError(null);
     try {
-      await api('POST', `/api/customer/${slug}/appointments`, { barber_id: choice.barberId, service_id: serviceId, date, time: choice.time });
-      onDone();
+      const a = await api<{ id: number; suggestion: Suggestion | null }>('POST', `/api/customer/${slug}/appointments`, {
+        barber_id: choice.barberId,
+        service_id: serviceId,
+        date,
+        time: choice.time,
+      });
+      // Se ele costuma tomar algo (ex.: uma cerveja), pergunta se pode avisar o barbeiro.
+      if (a.suggestion) setBooked(a);
+      else onDone();
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
     }
+  }
+
+  if (booked?.suggestion) {
+    const s = booked.suggestion;
+    return (
+      <Modal title="Horário marcado! ✅" onClose={onDone}>
+        <div className="space-y-4">
+          <p className="text-sm text-zinc-600">
+            {dayLabel(date)} às {hourLabel(choice!.time)} com {choice!.barberName}.
+          </p>
+          <p className="rounded-xl bg-amber-50 px-4 py-3 text-amber-950">
+            🍺 Quer que o {s.barber} deixe {s.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(' e ')} separado pra você?
+          </p>
+          <ErrorText error={error} />
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="ghost" onClick={onDone}>
+              Não, obrigado
+            </Button>
+            <Button
+              loading={busy}
+              style={{ background: accent, color: '#09090b' }}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await api('POST', `/api/customer/${slug}/appointments/${booked.id}/items`, { items: s.items.map((i) => ({ product_id: i.productId, qty: i.qty })) });
+                  onDone();
+                } catch (err) {
+                  setError((err as Error).message);
+                  setBusy(false);
+                }
+              }}
+            >
+              Sim, pode avisar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    );
   }
 
   return (

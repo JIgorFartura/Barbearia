@@ -132,7 +132,7 @@ function fallbackReply(shop: ShopBot, customer: CustomerRow | null, text: string
       .map(({ campaign: c, progress: p }) =>
         p.available > 0
           ? `*${c.name}*: você tem ${p.available} prêmio(s) para retirar: ${c.reward}! 🎉`
-          : `*${c.name}*: ${p.stamps} de ${c.goal} ${c.unit_label}. Faltam ${c.goal - p.stamps} para ganhar ${c.reward}.`,
+          : `*${c.name}*: ${p.stamps} de ${c.goal} ${c.unit_label}. ${c.goal - p.stamps === 1 ? 'Falta só 1' : `Faltam ${c.goal - p.stamps}`} para ganhar ${c.reward}.`,
       )
       .join('\n');
   }

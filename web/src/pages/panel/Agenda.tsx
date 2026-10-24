@@ -1,6 +1,8 @@
 import { CalendarDays, ChevronLeft, ChevronRight, Plus, Search, Users } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { CheckoutModal } from '../../components/Checkout';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
+import { methodLabel } from '../../lib/finance';
 import { api } from '../../lib/api';
 import { addDays, cap, dayLabel, hourLabel, money, phone, todayStr, weekdayOf } from '../../lib/format';
 import { navigate } from '../../lib/router';
@@ -18,6 +20,10 @@ interface Appointment {
   ends_at: string;
   status: 'scheduled' | 'cancelled' | 'no_show';
   source: 'painel' | 'cliente' | 'whatsapp';
+  /** O que o cliente pediu para deixar separado (ex.: 1 cerveja). */
+  items: { catalog_item_id: number; name: string; qty: number }[];
+  /** Venda que fechou o atendimento. */
+  sale: { id: number; total_cents: number; method: string } | null;
 }
 
 interface BarberRow {
@@ -40,6 +46,7 @@ export function Agenda() {
   const [date, setDate] = useState(todayStr());
   const [data, setData] = useState<AgendaData | null>(null);
   const [creating, setCreating] = useState(false);
+  const [closing, setClosing] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -136,10 +143,21 @@ export function Agenda() {
                           {item.appt.status === 'cancelled' ? 'Cancelado' : item.appt.status === 'no_show' ? 'Faltou' : SOURCE[item.appt.source]}
                         </Badge>
                       </div>
-                      {item.appt.status !== 'cancelled' && (
-                        <div className="mt-1 flex gap-3 text-xs">
+                      {item.appt.items.length > 0 && (
+                        <p className="mt-1 text-xs font-medium text-amber-800">🍺 Separar: {item.appt.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
+                      )}
+                      {item.appt.sale && (
+                        <p className="mt-1 text-xs font-medium text-emerald-700">
+                          ✓ Pago {money(item.appt.sale.total_cents)} · {methodLabel(item.appt.sale.method)}
+                        </p>
+                      )}
+                      {item.appt.status !== 'cancelled' && !item.appt.sale && (
+                        <div className="mt-1 flex items-center gap-3 text-xs">
                           {item.appt.status === 'scheduled' ? (
                             <>
+                              <button className="rounded-md bg-zinc-900 px-2 py-0.5 font-semibold text-white hover:bg-zinc-700" onClick={() => setClosing(item.appt!.id)}>
+                                Fechar
+                              </button>
                               <button className="text-zinc-500 hover:text-zinc-900" onClick={() => act(item.appt!, 'no_show')}>
                                 Faltou
                               </button>
@@ -171,6 +189,17 @@ export function Agenda() {
           );
         })}
       </div>
+
+      {closing && (
+        <CheckoutModal
+          appointmentId={closing}
+          onClose={() => setClosing(null)}
+          onDone={() => {
+            setClosing(null);
+            load();
+          }}
+        />
+      )}
 
       {creating && data && (
         <NewAppointmentModal

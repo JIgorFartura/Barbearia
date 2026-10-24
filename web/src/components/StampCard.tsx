@@ -38,7 +38,9 @@ export function StampCard({ name, unit, reward, progress, accent = '#d4a017' }: 
       <p className="mt-2 text-sm text-zinc-500">
         {missing === progress.goal && progress.available === 0
           ? `Junte ${progress.goal} ${unit} e ganhe: ${reward}.`
-          : `Faltam ${missing} ${unit} para ganhar: ${reward}.`}
+          : missing === 1
+            ? `Falta só 1 para ganhar: ${reward}!`
+            : `Faltam ${missing} ${unit} para ganhar: ${reward}.`}
       </p>
     </div>
   );

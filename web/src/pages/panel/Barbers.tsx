@@ -2,7 +2,8 @@ import { Ban, Pencil, Plus, Trash2, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, ImageInput, Input, Modal } from '../../components/ui';
 import { api } from '../../lib/api';
-import { WEEKDAYS, WEEKDAYS_SHORT, cap, hourLabel, stampLabel, todayStr } from '../../lib/format';
+import { centsToInput, parseMoney } from '../../lib/finance';
+import { WEEKDAYS, WEEKDAYS_SHORT, cap, hourLabel, phone, stampLabel, todayStr } from '../../lib/format';
 
 interface Hours {
   weekday: number;
@@ -10,11 +11,22 @@ interface Hours {
   end_time: string;
 }
 
+interface Rate {
+  service_id: number;
+  mode: 'percent' | 'fixed';
+  /** percent: %; fixed: centavos por serviço. */
+  value: number;
+}
+
 interface Barber {
   id: number;
   name: string;
   photo_url: string | null;
   active: number;
+  phone: string | null;
+  service_commission: number;
+  product_commission: number;
+  rates: Rate[];
   hours: Hours[];
   blocks: { id: number; starts_at: string; ends_at: string; reason: string | null }[];
 }
@@ -120,6 +132,11 @@ export function Barbers() {
                   {b.name} {!b.active && <Badge tone="red">Inativo</Badge>}
                 </p>
                 <p className="text-sm text-zinc-500">{summary(b.hours)}</p>
+                <p className="text-xs text-zinc-500">
+                  Comissão: {b.service_commission}% nos serviços
+                  {b.rates.length ? ` (+${b.rates.length} regra${b.rates.length > 1 ? 's' : ''} por serviço)` : ''} · {b.product_commission}% nos produtos
+                  {b.phone ? ` · ${phone(b.phone)}` : ''}
+                </p>
               </div>
             </div>
             {b.blocks.length > 0 && (
@@ -179,6 +196,16 @@ function BarberModal({ barber, onClose, onDone }: { barber: Partial<Barber>; onC
   const [name, setName] = useState(barber.name ?? '');
   const [photo, setPhoto] = useState<string | null>(barber.photo_url ?? null);
   const [active, setActive] = useState(barber.active !== 0);
+  const [barberPhone, setBarberPhone] = useState(barber.phone ?? '');
+  const [serviceCommission, setServiceCommission] = useState(String(barber.service_commission ?? 0));
+  const [productCommission, setProductCommission] = useState(String(barber.product_commission ?? 0));
+  const [rates, setRates] = useState<{ service_id: number; mode: 'percent' | 'fixed'; value: string }[]>(
+    (barber.rates ?? []).map((r) => ({ service_id: r.service_id, mode: r.mode, value: r.mode === 'fixed' ? centsToInput(r.value) : String(r.value) })),
+  );
+  const [services, setServices] = useState<{ id: number; name: string; price_cents: number }[]>([]);
+  useEffect(() => {
+    api<{ id: number; name: string; price_cents: number; kind: string }[]>('GET', '/api/shop/catalog').then((l) => setServices(l.filter((i) => i.kind === 'service')));
+  }, []);
   const [days, setDays] = useState<DayForm[]>(() => {
     const form = toForm(barber.hours ?? []);
     // Barbeiro novo: já vem de segunda a sábado, 9h às 19h.
@@ -194,7 +221,17 @@ function BarberModal({ barber, onClose, onDone }: { barber: Partial<Barber>; onC
     setBusy(true);
     setError(null);
     try {
-      const body = { name, photo_url: photo, active, hours: fromForm(days) };
+      const num = (v: string) => Number(v.replace(',', '.')) || 0;
+      const body = {
+        name,
+        photo_url: photo,
+        active,
+        hours: fromForm(days),
+        phone: barberPhone || null,
+        service_commission: num(serviceCommission),
+        product_commission: num(productCommission),
+        rates: rates.map((r) => ({ service_id: r.service_id, mode: r.mode, value: r.mode === 'fixed' ? parseMoney(r.value) : num(r.value) })),
+      };
       onDone(await api<Barber[]>(barber.id ? 'PUT' : 'POST', barber.id ? `/api/shop/barbers/${barber.id}` : '/api/shop/barbers', body));
     } catch (err) {
       setError((err as Error).message);
@@ -256,6 +293,64 @@ function BarberModal({ barber, onClose, onDone }: { barber: Partial<Barber>; onC
             ))}
           </div>
         </div>
+        <div className="space-y-3 rounded-xl bg-zinc-50 p-3">
+          <p className="text-sm font-semibold">Pagamento do barbeiro (comissão)</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="% nos serviços">
+              <Input inputMode="decimal" value={serviceCommission} onChange={(e) => setServiceCommission(e.target.value)} />
+            </Field>
+            <Field label="% na venda de produtos">
+              <Input inputMode="decimal" value={productCommission} onChange={(e) => setProductCommission(e.target.value)} />
+            </Field>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs text-zinc-500">Regras por serviço (ex.: corte R$ 25,00 fixo; barba 60%):</p>
+            {rates.map((r, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <select
+                  className="min-w-0 flex-1 rounded-md border border-zinc-300 px-1.5 py-1 text-sm"
+                  value={r.service_id}
+                  onChange={(e) => setRates(rates.map((x, j) => (j === i ? { ...x, service_id: Number(e.target.value) } : x)))}
+                >
+                  {services.map((sv) => (
+                    <option key={sv.id} value={sv.id}>
+                      {sv.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="rounded-md border border-zinc-300 px-1.5 py-1 text-sm"
+                  value={r.mode}
+                  onChange={(e) => setRates(rates.map((x, j) => (j === i ? { ...x, mode: e.target.value as 'percent' | 'fixed' } : x)))}
+                >
+                  <option value="percent">%</option>
+                  <option value="fixed">R$ fixo</option>
+                </select>
+                <input
+                  className="w-20 rounded-md border border-zinc-300 px-1.5 py-1 text-sm"
+                  inputMode="decimal"
+                  value={r.value}
+                  onChange={(e) => setRates(rates.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+                />
+                <button type="button" onClick={() => setRates(rates.filter((_, j) => j !== i))} className="text-zinc-400 hover:text-red-600" aria-label="Remover regra">
+                  <X className="size-4" />
+                </button>
+              </div>
+            ))}
+            {services.length > 0 && (
+              <button
+                type="button"
+                className="text-xs font-medium text-zinc-600 hover:text-zinc-900"
+                onClick={() => setRates([...rates, { service_id: services[0].id, mode: 'fixed', value: '' }])}
+              >
+                + Regra para um serviço
+              </button>
+            )}
+          </div>
+        </div>
+        <Field label="Celular do barbeiro (opcional)" hint="O robô avisa por WhatsApp quando um cliente pede para deixar algo separado (ex.: a cerveja).">
+          <Input type="tel" placeholder="(11) 98888-7777" value={barberPhone} onChange={(e) => setBarberPhone(e.target.value)} />
+        </Field>
         <label className="flex items-center gap-2 text-sm font-medium">
           <input type="checkbox" className="size-4 accent-zinc-900" checked={active} onChange={(e) => setActive(e.target.checked)} />
           Atendendo (aparece no site e no robô)

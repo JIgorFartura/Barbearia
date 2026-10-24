@@ -1,4 +1,25 @@
-import { Bot as BotIcon, CalendarDays, ExternalLink, Gift, Handshake, LayoutDashboard, LogOut, Megaphone, Menu, Package, Palette, Scissors, Store, Ticket, Users, X } from 'lucide-react';
+import {
+  Bot as BotIcon,
+  CalendarDays,
+  CreditCard,
+  ExternalLink,
+  Gift,
+  Handshake,
+  LayoutDashboard,
+  Lock,
+  LogOut,
+  Megaphone,
+  Menu,
+  Package,
+  Palette,
+  Scissors,
+  Sparkles,
+  Store,
+  Ticket,
+  Users,
+  Wallet,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { Me } from '../App';
 import { CrudPage, type Row } from '../components/CrudPage';
@@ -12,12 +33,15 @@ import { Benefits } from './panel/Benefits';
 import { Bot } from './panel/Bot';
 import { Brand } from './panel/Brand';
 import { Counter } from './panel/Counter';
+import { Finance } from './panel/Finance';
+import { Subscription } from './panel/Subscription';
 import { Summary } from './panel/Summary';
 
 const SECTIONS = [
   { id: '', label: 'Resumo', icon: LayoutDashboard },
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
   { id: 'balcao', label: 'Balcão', icon: Store },
+  { id: 'financeiro', label: 'Financeiro', icon: Wallet },
   { id: 'robo', label: 'Robô WhatsApp', icon: BotIcon },
   { id: 'campanhas', label: 'Campanhas', icon: Gift },
   { id: 'beneficios', label: 'Benefícios', icon: Ticket },
@@ -27,7 +51,26 @@ const SECTIONS = [
   { id: 'servicos', label: 'Serviços', icon: Scissors },
   { id: 'produtos', label: 'Produtos', icon: Package },
   { id: 'marca', label: 'Minha marca', icon: Palette },
+  { id: 'mensalidade', label: 'Mensalidade', icon: CreditCard },
 ];
+
+interface ShopStatus {
+  active: boolean;
+  blocked: boolean;
+  blockOn: string | null;
+  overdue: boolean;
+  openInvoices: number;
+  announcements: { id: number; title: string; body: string; level: 'novidade' | 'aviso' | 'manutencao' }[];
+}
+
+/** Avisos do master já fechados neste navegador. */
+function dismissed(): number[] {
+  try {
+    return JSON.parse(localStorage.getItem('avisos-fechados') ?? '[]');
+  } catch {
+    return [];
+  }
+}
 
 const today = () => new Date().toLocaleDateString('en-CA');
 const running = (r: Row) => Boolean(r.active) && (!r.starts_on || r.starts_on <= today()) && (!r.ends_on || r.ends_on >= today());
@@ -42,11 +85,41 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [partners, setPartners] = useState<Row[]>([]);
   const [products, setProducts] = useState<Row[]>([]);
 
+  const [status, setStatus] = useState<ShopStatus | null>(null);
+  const [hidden, setHidden] = useState<number[]>(dismissed);
+  const acting = Boolean(me.user?.acting);
+
   const loadRefs = useCallback(() => {
-    api<Row[]>('GET', '/api/shop/partners').then(setPartners);
-    api<Row[]>('GET', '/api/shop/catalog').then(setProducts);
+    api<Row[]>('GET', '/api/shop/partners').then(setPartners, () => undefined);
+    api<Row[]>('GET', '/api/shop/catalog').then(setProducts, () => undefined);
   }, []);
-  useEffect(loadRefs, [loadRefs]);
+
+  // Situação do acesso (mensalidade) e avisos da plataforma; recarrega ao trocar de tela.
+  useEffect(() => {
+    // Se a consulta falhar, abre o painel normalmente (cada tela mostra o próprio erro).
+    api<ShopStatus>('GET', '/api/shop/status').then(setStatus, () =>
+      setStatus((s) => s ?? { active: true, blocked: false, blockOn: null, overdue: false, openInvoices: 0, announcements: [] }),
+    );
+  }, [section]);
+
+  function hideAnnouncement(id: number) {
+    const next = [...hidden, id];
+    setHidden(next);
+    try {
+      localStorage.setItem('avisos-fechados', JSON.stringify(next));
+    } catch {
+      /* navegador sem armazenamento: some só nesta visita */
+    }
+  }
+
+  const locked = Boolean(status?.blocked && !acting);
+  // Bloqueado por mensalidade, qualquer endereço do painel abre a tela da mensalidade.
+  const current = locked ? 'mensalidade' : section;
+  // Cadastros de apoio só com o painel liberado (bloqueado, só a mensalidade funciona).
+  const ready = Boolean(status && (status.active || acting) && !locked);
+  useEffect(() => {
+    if (ready) loadRefs();
+  }, [ready, loadRefs]);
 
   useEffect(() => {
     if (!path.startsWith('/painel')) history.replaceState(null, '', '/painel');
@@ -56,7 +129,13 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const partnerName = (id: number | null) => partners.find((p) => p.id === id)?.name;
 
   let content;
-  switch (section) {
+  switch (current) {
+    case 'financeiro':
+      content = <Finance />;
+      break;
+    case 'mensalidade':
+      content = <Subscription />;
+      break;
     case 'agenda':
       content = <Agenda />;
       break;
@@ -89,7 +168,8 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
             { key: 'description', label: 'Regras / descrição', type: 'textarea' },
             {
               key: 'catalog_item_id',
-              label: 'Produto ou serviço da campanha (opcional)',
+              label: 'Produto ou serviço que dá carimbo (opcional)',
+              hint: 'Ao fechar uma venda com esse item, o carimbo entra sozinho no cartão do cliente.',
               type: 'select',
               options: [{ value: null, label: '— nenhum —' }, ...products.map((p) => ({ value: p.id, label: p.name }))],
             },
@@ -251,6 +331,23 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       content = <Summary shopName={me.shop?.name ?? ''} />;
   }
 
+  // Espera saber se o acesso está liberado antes de abrir qualquer tela.
+  if (!status) return null;
+  if (!status.active && !acting) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-6">
+        <div className="max-w-md space-y-3 rounded-2xl bg-white p-6 text-center shadow-sm ring-1 ring-zinc-200">
+          <Lock className="mx-auto size-10 text-zinc-400" />
+          <p className="text-lg font-bold">Barbearia suspensa</p>
+          <p className="text-sm text-zinc-500">O acesso a esta barbearia foi suspenso pelo administrador da plataforma. Fale com o suporte para reativar.</p>
+          <button className="text-sm font-medium text-zinc-600 hover:text-zinc-900" onClick={() => api('POST', '/api/auth/logout').then(onLogout)}>
+            Sair
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen lg:flex">
       <aside
@@ -269,13 +366,15 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {SECTIONS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
+              disabled={locked && id !== 'mensalidade'}
               onClick={() => {
                 navigate(`/painel${id ? `/${id}` : ''}`);
                 setMenuOpen(false);
               }}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${section === id ? 'bg-white/10 text-white' : 'hover:bg-white/5 hover:text-white'}`}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40 ${current === id ? 'bg-white/10 text-white' : 'hover:bg-white/5 hover:text-white'}`}
             >
               <Icon className="size-4" /> {label}
+              {id === 'mensalidade' && status?.overdue && <span className="ml-auto size-2 rounded-full bg-red-500" aria-label="Fatura vencida" />}
             </button>
           ))}
         </nav>
@@ -318,9 +417,39 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <button onClick={() => setMenuOpen(true)} aria-label="Abrir menu">
             <Menu className="size-5" />
           </button>
-          <span className="font-semibold">{SECTIONS.find((s) => s.id === section)?.label ?? 'Resumo'}</span>
+          <span className="font-semibold">{SECTIONS.find((s) => s.id === current)?.label ?? 'Resumo'}</span>
         </header>
-        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-8">{content}</main>
+        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-8">
+          {status?.overdue && !locked && section !== 'mensalidade' && (
+            <button
+              onClick={() => navigate('/painel/mensalidade')}
+              className="mb-4 flex w-full items-center gap-2 rounded-xl bg-amber-50 px-4 py-2.5 text-left text-sm text-amber-900 ring-1 ring-amber-200"
+            >
+              <CreditCard className="size-4 shrink-0" />
+              <span>
+                ⚠ Há mensalidade vencida{status.blockOn ? `. Pague até ${date(status.blockOn)} para não ter o acesso suspenso` : ''}. <b>Ver fatura</b>
+              </span>
+            </button>
+          )}
+          {status?.announcements
+            .filter((a) => !hidden.includes(a.id))
+            .map((a) => (
+              <div key={a.id} className="mb-4 flex items-start gap-3 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-950 ring-1 ring-sky-200">
+                <Sparkles className="mt-0.5 size-4 shrink-0" />
+                <div className="flex-1">
+                  <p className="font-semibold">
+                    {a.level === 'manutencao' ? 'Manutenção: ' : a.level === 'aviso' ? 'Aviso: ' : 'Novidade: '}
+                    {a.title}
+                  </p>
+                  <p className="whitespace-pre-line">{a.body}</p>
+                </div>
+                <button onClick={() => hideAnnouncement(a.id)} className="rounded p-0.5 hover:bg-sky-100" aria-label="Fechar aviso">
+                  <X className="size-4" />
+                </button>
+              </div>
+            ))}
+          {content}
+        </main>
       </div>
     </div>
   );
