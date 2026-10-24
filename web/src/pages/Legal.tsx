@@ -70,12 +70,35 @@ export function TermsPage() {
       <ul>
         <li>O valor, o dia de vencimento e o período grátis (se houver) são combinados na contratação e aparecem no painel, na tela Mensalidade.</li>
         <li>
+          Quando a cobrança é feita pelo Asaas, a mensalidade pode ser paga por PIX, cartão de crédito ou boleto, numa página do Asaas, e a confirmação é
+          automática.
+        </li>
+        <li>
           Com a mensalidade vencida além da carência informada no painel, o painel fica limitado à tela de pagamento e o robô responde só por menu até a
           confirmação do pagamento. O site e a área dos clientes continuam no ar.
         </li>
         <li>A barbearia pode cancelar quando quiser; o mês em curso não é devolvido.</li>
       </ul>
-      <h2>4. WhatsApp e mensagens aos clientes</h2>
+      <h2>4. Pagamentos online dos clientes</h2>
+      <ul>
+        <li>
+          Quando a plataforma libera, a barbearia pode oferecer aos clientes o pagamento com cartão (e, no clube de assinatura, também boleto ou PIX) pelo
+          Asaas. Para isso, a barbearia mantém uma conta própria no Asaas, sujeita às regras do Asaas.
+        </li>
+        <li>
+          O pagamento entra na conta Asaas de {l.company} e é repassado automaticamente para a conta Asaas da barbearia, descontadas as taxas do Asaas e a taxa
+          da plataforma informada no painel.
+        </li>
+        <li>
+          Os dados do cartão são digitados só na página do Asaas: a plataforma não recebe nem guarda dados de cartão. O CPF pedido ao cliente é repassado ao
+          Asaas e não fica guardado na plataforma.
+        </li>
+        <li>
+          A barbearia responde pela relação com o cliente que pagou online, inclusive devoluções, contestações e notas fiscais. Estornos feitos pelo Asaas
+          tiram da conta da barbearia o valor repassado.
+        </li>
+      </ul>
+      <h2>5. WhatsApp e mensagens aos clientes</h2>
       <ul>
         <li>A barbearia conecta o próprio número de WhatsApp e segue as regras do WhatsApp/Meta, inclusive sobre mensagens automáticas e modelos aprovados.</li>
         <li>
@@ -84,7 +107,7 @@ export function TermsPage() {
         </li>
         <li>É proibido usar a plataforma para enviar spam, conteúdo ilegal ou mensagens para quem não é cliente da barbearia.</li>
       </ul>
-      <h2>5. Dados pessoais (LGPD)</h2>
+      <h2>6. Dados pessoais (LGPD)</h2>
       <ul>
         <li>
           A barbearia é a controladora dos dados pessoais dos clientes dela; {l.company} é a operadora e trata esses dados só para prestar o serviço, conforme as
@@ -92,11 +115,12 @@ export function TermsPage() {
         </li>
         <li>
           A administração da plataforma não tem acesso pelo sistema à agenda, aos barbeiros, aos clientes nem às conversas da barbearia: cuida só do cadastro, do
-          acesso do dono e da mensalidade.
+          acesso do dono, da mensalidade e dos pagamentos online (valores, formas de pagamento e repasses, sem o nome dos clientes). As cópias de segurança só
+          podem ser baixadas criptografadas, para restaurar o serviço.
         </li>
         <li>
-          {l.company} usa fornecedores necessários ao serviço (hospedagem, armazenamento das cópias de segurança, envio de mensagens de WhatsApp e, quando ligada,
-          a inteligência artificial que interpreta as mensagens recebidas pelo robô).
+          {l.company} usa fornecedores necessários ao serviço (hospedagem, armazenamento das cópias de segurança, envio de mensagens de WhatsApp, processamento
+          de pagamentos pelo Asaas e, quando ligada, a inteligência artificial que interpreta as mensagens recebidas pelo robô).
         </li>
         <li>
           A barbearia mantém a sua política de privacidade (a plataforma publica uma no site da barbearia) e atende aos pedidos dos clientes; o painel tem as
@@ -104,12 +128,12 @@ export function TermsPage() {
         </li>
         <li>Incidentes de segurança que afetem dados pessoais serão comunicados à barbearia em prazo razoável.</li>
       </ul>
-      <h2>6. Disponibilidade e cópias de segurança</h2>
+      <h2>7. Disponibilidade e cópias de segurança</h2>
       <p>
         {l.company} se esforça para manter a plataforma no ar e faz cópias de segurança diárias, mas não garante funcionamento ininterrupto. Manutenções
         programadas são avisadas no painel.
       </p>
-      <h2>7. Responsabilidades</h2>
+      <h2>8. Responsabilidades</h2>
       <ul>
         <li>
           A barbearia responde pelo conteúdo que publica (textos, fotos, preços, anúncios de parceiros) e pela relação com os clientes dela, inclusive vendas, notas
@@ -120,11 +144,11 @@ export function TermsPage() {
           responsabilidade de {l.company} fica limitada ao valor pago nos últimos 3 meses.
         </li>
       </ul>
-      <h2>8. Fim do contrato</h2>
+      <h2>9. Fim do contrato</h2>
       <p>No cancelamento, a barbearia pode pedir uma cópia dos seus dados em até 30 dias. Depois disso, os dados são excluídos, exceto o que a lei mandar guardar.</p>
-      <h2>9. Alterações</h2>
+      <h2>10. Alterações</h2>
       <p>Estes termos podem mudar. Mudanças relevantes são avisadas no painel com antecedência.</p>
-      <h2>10. Contato e foro</h2>
+      <h2>11. Contato e foro</h2>
       <p>
         Dúvidas: {contact(l)}
         {l.address ? ` · ${l.address}` : ''}. Fica eleito o foro da comarca da sede de {l.company}.
@@ -147,6 +171,14 @@ export function PrivacyPage() {
       <ul>
         <li>De quem usa o painel (donos, gerentes e barbeiros): nome, e-mail, celular, senha (guardada criptografada), registros de acesso e ações feitas no painel.</li>
         <li>
+          Da barbearia, para a mensalidade, a nota fiscal e os repasses dos pagamentos online: CPF ou CNPJ, nome ou razão social, e-mail para a nota e o
+          identificador da carteira (Wallet ID) da conta Asaas.
+        </li>
+        <li>
+          Dos pagamentos online: valor, forma de pagamento, situação e repasse. Os dados do cartão são digitados só na página do Asaas; não recebemos nem
+          guardamos dados de cartão.
+        </li>
+        <li>
           Dos clientes das barbearias: tratamos em nome de cada barbearia, que é a controladora. A política de cada barbearia fica no site dela, no link
           “Política de privacidade”.
         </li>
@@ -161,7 +193,7 @@ export function PrivacyPage() {
       <h2>4. Com quem compartilhamos</h2>
       <p>
         Só com fornecedores necessários: hospedagem e armazenamento de cópias de segurança, envio de mensagens de WhatsApp, processamento de pagamentos e notas
-        fiscais e, quando ligada, a inteligência artificial que lê as mensagens recebidas pelo robô para respondê-las. Não vendemos dados pessoais.
+        fiscais (Asaas) e, quando ligada, a inteligência artificial que lê as mensagens recebidas pelo robô para respondê-las. Não vendemos dados pessoais.
       </p>
       <h2>5. Por quanto tempo</h2>
       <p>
@@ -191,6 +223,8 @@ interface ShopPolicy {
   legal: Legal;
   ai: boolean;
   whatsapp: boolean;
+  /** Aceita pagamento com cartão pelo Asaas. */
+  online: boolean;
 }
 
 /** /b/:slug/privacidade — política da barbearia para os clientes dela. */
@@ -219,7 +253,14 @@ export function ShopPrivacyPage({ slug }: { slug: string }) {
         <li>Horário de costume (informado por você ou percebido pelo seu histórico).</li>
         <li>Mensagens trocadas com o {s.bot_name} no WhatsApp.</li>
         <li>Data de nascimento, se você informar (para o presente de aniversário).</li>
+        <li>Pagamentos do clube de assinatura e do sinal: valor, forma e data.</li>
       </ul>
+      {p.online && (
+        <p>
+          Se você pagar online (cartão), os dados do cartão são digitados só na página segura do Asaas, que processa o pagamento: a barbearia e o sistema não
+          recebem nem guardam esses dados. O CPF pedido para o pagamento é repassado ao Asaas e não fica guardado no sistema da barbearia.
+        </p>
+      )}
       <h2>3. Para que usamos</h2>
       <ul>
         <li>Agendar, lembrar e cancelar seus horários.</li>
@@ -242,8 +283,8 @@ export function ShopPrivacyPage({ slug }: { slug: string }) {
       )}
       <h2>{p.ai ? 5 : 4}. Com quem compartilhamos</h2>
       <p>
-        Só com os fornecedores necessários: o sistema da barbearia, o WhatsApp, a hospedagem{p.ai ? ' e a inteligência artificial do robô' : ''}. Parceiros da
-        barbearia só veem o voucher que você apresentar. Não vendemos seus dados.
+        Só com os fornecedores necessários: o sistema da barbearia, o WhatsApp, a hospedagem{p.online ? ', o Asaas (quando você paga online)' : ''}
+        {p.ai ? ' e a inteligência artificial do robô' : ''}. Parceiros da barbearia só veem o voucher que você apresentar. Não vendemos seus dados.
       </p>
       <h2>{p.ai ? 6 : 5}. Bases legais</h2>
       <p>

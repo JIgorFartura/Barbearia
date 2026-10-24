@@ -8,6 +8,7 @@ import path from 'node:path';
 import { hashPassword, requireRole } from '../auth.js';
 import { automationStatus } from '../automations.js';
 import { backupPath, backupStatus, createBackup, listBackups, remoteConfig } from '../backup.js';
+import { encrypt } from '../backupCrypto.js';
 import {
   accessStatus,
   createInvoice,
@@ -543,6 +544,8 @@ masterRouter.get('/backups', (_req, res) => {
     status: backupStatus(),
     files: listBackups(),
     remote: remote ? { bucket: remote.bucket, endpoint: remote.endpoint || 'AWS S3', encrypted: Boolean(process.env.BACKUP_PASSWORD) } : null,
+    // Baixar só criptografada (a cópia tem os dados de dentro das barbearias).
+    canDownload: Boolean(process.env.BACKUP_PASSWORD),
   });
 });
 
@@ -550,10 +553,20 @@ masterRouter.post('/backups', async (_req, res) => {
   res.status(201).json(await createBackup());
 });
 
+/**
+ * Baixar uma cópia para guardar fora do servidor. Ela tem os dados de dentro das barbearias (clientes,
+ * agenda, conversas), que o master não vê: por isso sai só criptografada, e abre apenas com a senha
+ * no restaurador (npm run restore).
+ */
 masterRouter.get('/backups/:name', (req, res) => {
-  const file = backupPath(String(req.params.name));
+  const name = String(req.params.name);
+  const file = backupPath(name);
   if (!file) throw new HttpError(404, 'Cópia não encontrada.');
-  res.download(file, String(req.params.name));
+  const password = process.env.BACKUP_PASSWORD;
+  if (!password) throw new HttpError(409, 'Para baixar, defina a senha das cópias (BACKUP_PASSWORD) no servidor: a cópia sai criptografada.');
+  res.attachment(`${name}.enc`);
+  res.type('application/octet-stream');
+  res.send(encrypt(fs.readFileSync(file), password));
 });
 
 /**

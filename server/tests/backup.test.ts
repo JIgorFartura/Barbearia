@@ -107,7 +107,7 @@ describe('cópia de segurança', () => {
     assert.ok(fs.existsSync(path.join(backupsDir, failed.file!)), 'a cópia local fica mesmo se o envio falhar');
   });
 
-  test('master vê, faz e baixa as cópias; ninguém mais', async () => {
+  test('master vê, faz e baixa as cópias (só criptografadas); ninguém mais', async () => {
     const master = makeClient(() => base);
     assert.equal((await master('POST', '/api/auth/setup', { name: 'Igor', email: 'igor@exemplo.com', password: 'senha-forte-1' })).status, 201);
     const made = await master('POST', '/api/master/backups');
@@ -117,9 +117,26 @@ describe('cópia de segurança', () => {
     assert.equal(list.data.remote, null);
     const res = await fetch(`${base}/api/master/backups/${made.data.file}`, { headers: { cookie: '' } });
     assert.equal(res.status, 401);
-    const download = await master('GET', `/api/master/backups/${made.data.file}`);
-    assert.equal(download.status, 200);
-    assert.match(download.headers.get('content-disposition') ?? '', /attachment/);
+    // A cópia tem os dados de dentro das barbearias: sem a senha das cópias, não baixa.
+    assert.equal(list.data.canDownload, false);
+    assert.equal((await master('GET', `/api/master/backups/${made.data.file}`)).status, 409);
+    process.env.BACKUP_PASSWORD = 'senha-da-copia';
+    try {
+      const login = await fetch(`${base}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ login: 'igor@exemplo.com', password: 'senha-forte-1' }),
+      });
+      const cookie = login.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
+      const download = await fetch(`${base}/api/master/backups/${made.data.file}`, { headers: { cookie } });
+      assert.equal(download.status, 200);
+      assert.match(download.headers.get('content-disposition') ?? '', new RegExp(`attachment; filename="${made.data.file.replace(/\./g, '\\.')}\\.enc"`));
+      const plain = zlib.gunzipSync(decrypt(Buffer.from(await download.arrayBuffer()), 'senha-da-copia'));
+      assert.equal(plain.subarray(0, 15).toString(), 'SQLite format 3', 'abre com a senha, no restaurador');
+      assert.equal((await master('GET', '/api/master/backups')).data.canDownload, true);
+    } finally {
+      delete process.env.BACKUP_PASSWORD;
+    }
     assert.equal((await master('GET', '/api/master/backups/..%2Fbarbearia.db')).status, 404);
     assert.equal(get<{ n: number }>("SELECT COUNT(*) AS n FROM platform_settings WHERE key = 'backup_status'")!.n, 1);
   });

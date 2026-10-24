@@ -10,6 +10,7 @@ import { HttpError, idParam, normalizePhone, parseBody, rateLimit } from '../htt
 import { isRunning, type Campaign } from '../loyalty.js';
 import { llmEnabled } from '../bot/brain.js';
 import { customerByPhone, sendMessage, shopBot } from '../messaging.js';
+import { onlineStatus } from '../onlinePayments.js';
 import { legalInfo } from '../privacy.js';
 
 /** Dados da landing page de cada barbearia (/b/:slug) e login da área do cliente — sem login. */
@@ -100,7 +101,14 @@ publicRouter.get('/legal', (_req, res) => {
 /** Política de privacidade da barbearia (controladora dos dados dos clientes dela). */
 publicRouter.get('/shops/:slug/privacy', (req, res) => {
   const { id, name, address, whatsapp, instagram, bot_name } = shopBySlug(String(req.params.slug));
-  res.json({ shop: { name, address, whatsapp, instagram, bot_name }, legal: legalInfo(), ai: llmEnabled(), whatsapp: shopBot(id).wa_provider !== 'simulador' });
+  res.json({
+    shop: { name, address, whatsapp, instagram, bot_name },
+    legal: legalInfo(),
+    ai: llmEnabled(),
+    whatsapp: shopBot(id).wa_provider !== 'simulador',
+    // Aceita pagamento com cartão pelo Asaas (a política conta para onde vão o CPF e o cartão).
+    online: onlineStatus(id).available,
+  });
 });
 
 /** Clique no anúncio: conta e redireciona para o link do anunciante (validado no cadastro). */

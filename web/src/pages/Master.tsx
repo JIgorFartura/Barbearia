@@ -1090,6 +1090,8 @@ interface BackupInfo {
   status: { at: string | null; file: string | null; bytes: number; remote: 'ok' | 'failed' | 'off'; error: string | null; uploadsSent: number };
   files: { name: string; bytes: number; at: string }[];
   remote: { bucket: string; endpoint: string; encrypted: boolean } | null;
+  /** Baixar só criptografada (com BACKUP_PASSWORD no servidor): a cópia tem os dados das barbearias. */
+  canDownload: boolean;
 }
 
 const kb = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
@@ -1154,14 +1156,23 @@ function BackupCard() {
         <ul className="space-y-0.5 text-xs text-zinc-500">
           {data.files.slice(0, 4).map((f) => (
             <li key={f.name}>
-              <a className="font-medium text-zinc-700 underline-offset-2 hover:underline" href={`/api/master/backups/${f.name}`} download>
-                {f.name}
-              </a>{' '}
+              {data.canDownload ? (
+                <a className="font-medium text-zinc-700 underline-offset-2 hover:underline" href={`/api/master/backups/${f.name}`} download>
+                  {f.name}.enc
+                </a>
+              ) : (
+                <span className="font-medium text-zinc-700">{f.name}</span>
+              )}{' '}
               · {kb(f.bytes)}
             </li>
           ))}
         </ul>
       )}
+      <p className="text-xs text-zinc-500">
+        {data.canDownload
+          ? 'O download sai criptografado: guarde fora do servidor; ele só abre com a senha das cópias, no restaurador (npm run restore).'
+          : 'Para baixar uma cópia, defina a senha das cópias (BACKUP_PASSWORD) no servidor: como ela tem os dados de dentro das barbearias, o download sai só criptografado.'}
+      </p>
       <ErrorText error={error} />
     </Card>
   );

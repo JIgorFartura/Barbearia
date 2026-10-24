@@ -221,7 +221,10 @@ Wallet ID colado em *Receber com cartão*.
 - Cada barbearia só enxerga o que é dela; o barbeiro só o que é dele; o master só a plataforma.
 - **Cópia de segurança** todo dia às 3h (guarda as últimas 14), com envio opcional para um
   armazenamento compatível com S3 (Cloudflare R2, Backblaze B2, AWS S3...) e criptografia
-  opcional (AES-256-GCM).
+  opcional (AES-256-GCM). Como a cópia tem os dados de dentro das barbearias, o master só a
+  **baixa criptografada** (precisa de `BACKUP_PASSWORD`); ela abre só com a senha, no restaurador.
+- **Pagamento com cartão** só na página do Asaas: o sistema não recebe nem guarda dados de cartão,
+  e o CPF do cliente vai para o Asaas sem ficar guardado.
 
 ## Antes da primeira barbearia de verdade (piloto)
 
@@ -284,7 +287,7 @@ próprio servidor, a cada minuto. Todas as variáveis estão comentadas no `.env
 
 ```bash
 npm run restore -- barbearia-AAAA-MM-DD-HHMMSS.db.gz          # cópia local
-npm run restore -- barbearia-AAAA-MM-DD-HHMMSS.db.gz.enc      # cópia criptografada (pede BACKUP_PASSWORD)
+npm run restore -- barbearia-AAAA-MM-DD-HHMMSS.db.gz.enc      # cópia criptografada, inclusive a baixada pelo master (pede BACKUP_PASSWORD)
 npm run restore -- <arquivo> --forcar                          # substitui o banco atual
 ```
 
