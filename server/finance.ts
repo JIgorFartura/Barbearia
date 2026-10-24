@@ -1,7 +1,8 @@
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { addStamps, isRunning, type Campaign } from './loyalty.js';
-import { addDays, daysBetween, localNow } from './time.js';
+import { shopNow } from './clock.js';
+import { addDays, daysBetween } from './time.js';
 
 /**
  * Financeiro da barbearia. Uma venda (comanda) fecha o atendimento: lança a entrada no caixa,
@@ -164,7 +165,7 @@ export function createSale(input: SaleInput): SaleResult {
     const subtotal = items.reduce((s, i) => s + i.unit * i.qty, 0);
     const discount = Math.min(Math.max(0, input.discountCents ?? 0), subtotal);
     const total = subtotal - discount;
-    const date = localNow(input.now).date;
+    const date = shopNow(shop, input.now).date;
     const saleId = run(
       `INSERT INTO sales (barbershop_id, customer_id, appointment_id, date, subtotal_cents, discount_cents, total_cents, method, notes, created_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -195,7 +196,7 @@ export function createSale(input: SaleInput): SaleResult {
     const stamps: SaleResult['stamps'] = [];
     if (customerId) {
       const campaigns = all<Campaign & { catalog_item_id: number | null }>('SELECT * FROM campaigns WHERE barbershop_id = ? AND catalog_item_id IS NOT NULL', [shop]);
-      for (const c of campaigns.filter((x) => isRunning(x))) {
+      for (const c of campaigns.filter((x) => isRunning(x, date))) {
         const qty = items.filter((i) => i.catalogId === c.catalog_item_id).reduce((s, i) => s + i.qty, 0);
         if (!qty) continue;
         const p = addStamps(shop, c.id, customerId, qty, input.userId, saleId);
@@ -307,7 +308,7 @@ export function payEntry(shopId: number, id: number, date: string, method: strin
 // ---------- relatórios
 
 export function financeSummary(shopId: number, from: string, to: string, now?: Date) {
-  const today = localNow(now).date;
+  const today = shopNow(shopId, now).date;
   const sum = (sql: string, params: unknown[]) => get<{ v: number }>(sql, params)?.v ?? 0;
   const income = sum("SELECT COALESCE(SUM(amount_cents), 0) AS v FROM cash_entries WHERE barbershop_id = ? AND type = 'in' AND status = 'paid' AND date >= ? AND date <= ?", [
     shopId,
@@ -429,7 +430,7 @@ export function createPayout(input: { shopId: number; barberId: number; until: s
     );
     const amount = open.reduce((s, i) => s + i.commission_cents, 0);
     if (!amount) throw new HttpError(400, 'Não há comissão em aberto até essa data.');
-    const date = localNow(input.now).date;
+    const date = shopNow(input.shopId, input.now).date;
     const payoutId = run(
       'INSERT INTO barber_payouts (barbershop_id, barber_id, amount_cents, items, until_date, date, method, notes, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [input.shopId, input.barberId, amount, open.length, input.until, date, input.method, input.notes, input.userId, nowIso()],

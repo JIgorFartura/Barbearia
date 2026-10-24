@@ -18,19 +18,19 @@ export interface LocalNow {
   stamp: string;
 }
 
-const partsFormat = new Intl.DateTimeFormat('en-CA', {
-  timeZone: config.timezone,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-});
+const formats = new Map<string, Intl.DateTimeFormat>();
+function partsFormat(timeZone: string): Intl.DateTimeFormat {
+  let f = formats.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    formats.set(timeZone, f);
+  }
+  return f;
+}
 
-/** Data e hora locais da barbearia para um instante. */
-export function localNow(at: Date = new Date()): LocalNow {
-  const p = Object.fromEntries(partsFormat.formatToParts(at).map((x) => [x.type, x.value]));
+/** Data e hora locais para um instante, no fuso informado (padrão: o do servidor). Para uma barbearia, use shopNow. */
+export function localNow(at: Date = new Date(), timeZone: string = config.timezone): LocalNow {
+  const p = Object.fromEntries(partsFormat(timeZone).formatToParts(at).map((x) => [x.type, x.value]));
   const date = `${p.year}-${p.month}-${p.day}`;
   const time = `${p.hour}:${p.minute}`;
   return { date, time, weekday: weekdayOf(date), stamp: `${date} ${time}` };
@@ -86,4 +86,7 @@ export function relativeDay(date: string, today: string): string {
 }
 
 /** Converte um instante ISO (UTC) para "AAAA-MM-DD HH:MM" local. */
-export const isoToLocal = (iso: string) => localNow(new Date(iso)).stamp;
+export const isoToLocal = (iso: string, timeZone?: string) => localNow(new Date(iso), timeZone).stamp;
+
+/** Fusos do Brasil que a barbearia pode escolher. */
+export const TIMEZONES = ['America/Sao_Paulo', 'America/Manaus', 'America/Rio_Branco', 'America/Noronha'] as const;

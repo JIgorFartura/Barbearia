@@ -4,7 +4,8 @@ import { all, get, nowIso, run } from './db.js';
 import { customerHabit, lastVisitDate, type Habit } from './habits.js';
 import { sendMessage, shopBot, type MessageKind, type ShopBot } from './messaging.js';
 import { freeTimes, upcomingFor } from './scheduling.js';
-import { addDays, addMinutes, daysBetween, dayLabel, hourLabel, isoToLocal, localNow, relativeDay, toMinutes, weekdayOf } from './time.js';
+import { shopNow, shopTz } from './clock.js';
+import { addDays, addMinutes, daysBetween, dayLabel, hourLabel, isoToLocal, relativeDay, toMinutes, weekdayOf } from './time.js';
 
 /** Mensagens automáticas só neste horário (horário local da barbearia). */
 export const SEND_FROM = '08:00';
@@ -95,7 +96,8 @@ const offerLine = (s: Suggestion) => `${dayLabel(s.date)} às ${hourLabel(s.time
 
 export async function appointmentReminders(shop: ShopBot, now: Date): Promise<number> {
   if (shop.reminder_hours <= 0) return 0;
-  const n = localNow(now);
+  const n = shopNow(shop.id, now);
+  const tz = shopTz(shop.id);
   const windowMin = shop.reminder_hours * 60;
   const rows = all<CustomerLite & { appt_id: number; starts_at: string; created_at: string; barber_name: string; service_name: string }>(
     `SELECT a.id AS appt_id, a.starts_at, a.created_at, a.service_name, b.name AS barber_name, c.id, c.name, c.phone, c.wa_id
@@ -106,7 +108,7 @@ export async function appointmentReminders(shop: ShopBot, now: Date): Promise<nu
   let sent = 0;
   for (const r of rows) {
     // Marcado já dentro da janela: a confirmação basta, sem lembrete.
-    if (isoToLocal(r.created_at) > addMinutes(r.starts_at, -windowMin)) continue;
+    if (isoToLocal(r.created_at, tz) > addMinutes(r.starts_at, -windowMin)) continue;
     if (logged(shop.id, r.id, 'lembrete', String(r.appt_id))) continue;
     log(shop.id, r.id, 'lembrete', String(r.appt_id));
     const date = r.starts_at.slice(0, 10);
@@ -136,7 +138,7 @@ function nextHabitDate(habit: Habit, nowStamp: string): string | null {
 }
 
 export async function habitOffers(shop: ShopBot, now: Date): Promise<number> {
-  const n = localNow(now);
+  const n = shopNow(shop.id, now);
   if (!shop.habit_enabled || n.weekday !== shop.habit_weekday || n.time < shop.habit_time) return 0;
   const ref = n.date;
   if (logged(shop.id, null, 'costume_rodada', ref)) return 0;
@@ -180,7 +182,7 @@ export interface AwayCustomer {
 /** Clientes que não vêm há `winback_days` dias ou mais e não têm horário marcado. */
 export function awayCustomers(shopId: number, now: Date = new Date()): AwayCustomer[] {
   const shop = shopBot(shopId);
-  const today = localNow(now).date;
+  const today = shopNow(shopId, now).date;
   const out: AwayCustomer[] = [];
   for (const c of all<CustomerLite & { reminders_opt_out: number }>('SELECT id, name, phone, wa_id, reminders_opt_out FROM customers WHERE barbershop_id = ?', [shopId])) {
     const last = lastVisitDate(c.id, now);
@@ -194,7 +196,7 @@ export function awayCustomers(shopId: number, now: Date = new Date()): AwayCusto
 
 /** Mensagem de recontato (com sugestão de horário quando o cliente tem costume). */
 export async function sendWinback(shop: ShopBot, c: CustomerLite, days: number, lastVisit: string, now: Date): Promise<void> {
-  const n = localNow(now);
+  const n = shopNow(shop.id, now);
   const habit = customerHabit(c.id, now);
   let slot: Suggestion | null = null;
   if (habit) {
@@ -256,16 +258,17 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
   if (running) return summary;
   running = true;
   try {
-    const n = localNow(now);
-    run("UPDATE bot_offers SET status = 'expired' WHERE status = 'pending' AND starts_at <= ?", [n.stamp]);
     // Faturas do mês da plataforma: confere de hora em hora (qualquer horário).
     if (Math.abs(now.getTime() - lastInvoiceCheck) >= 3600000) {
       lastInvoiceCheck = now.getTime();
       automationStatus.lastInvoices = ensureInvoices(now);
     }
-    if (n.time < SEND_FROM || n.time >= SEND_UNTIL) return summary;
     for (const { id } of all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1')) {
       const shop = shopBot(id);
+      // Cada barbearia no seu relógio: ofertas vencidas e horário comercial pelo fuso dela.
+      const n = shopNow(id, now);
+      run("UPDATE bot_offers SET status = 'expired' WHERE barbershop_id = ? AND status = 'pending' AND starts_at <= ?", [id, n.stamp]);
+      if (n.time < SEND_FROM || n.time >= SEND_UNTIL) continue;
       // Mensalidade em atraso além da carência: sem disparos até regularizar.
       if (accessStatus(id, now).blocked) continue;
       try {

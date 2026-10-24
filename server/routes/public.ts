@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { config, today } from '../config.js';
+import { shopToday } from '../clock.js';
+import { config } from '../config.js';
 import { checkLoginCode, consumeAccessLink, createCustomerSession, issueLoginCode, sessionCustomer } from '../customerAuth.js';
 import { all, get, nowIso, run } from '../db.js';
 import { HttpError, idParam, normalizePhone, parseBody, rateLimit } from '../http.js';
@@ -27,7 +28,7 @@ function shopBySlug(slug: string): Shop & Record<string, unknown> {
 
 publicRouter.get('/shops/:slug', (req, res) => {
   const { id, ...profile } = shopBySlug(String(req.params.slug));
-  const day = today();
+  const day = shopToday(id);
 
   const ads = all<{ id: number; active: number; starts_on: string | null; ends_on: string | null } & Record<string, unknown>>(
     `SELECT a.id, a.title, a.body, a.image_url, a.link_url, a.placement, a.active, a.starts_on, a.ends_on, p.name AS partner

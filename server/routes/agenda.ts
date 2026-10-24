@@ -6,7 +6,8 @@ import { all, get, nowIso, run, tx } from '../db.js';
 import { reservedItems } from '../consumption.js';
 import { HttpError, idParam, normalizePhone, parseBody, zBool, zId, zText, zUrl } from '../http.js';
 import { book, cancel, dayAgenda, freeTimes, upcomingFor } from '../scheduling.js';
-import { addDays, isDate, isTime, localNow, toMinutes } from '../time.js';
+import { shopNow } from '../clock.js';
+import { addDays, isDate, isTime, toMinutes } from '../time.js';
 
 const zTime = z.string().refine(isTime, 'Hora no formato HH:MM.');
 const zDay = z.string().refine(isDate, 'Data no formato AAAA-MM-DD.');
@@ -72,7 +73,7 @@ function barbersWithHours(shop: number) {
     'SELECT id, name, photo_url, active, phone, service_commission, product_commission FROM barbers WHERE barbershop_id = ? ORDER BY active DESC, name COLLATE NOCASE',
     [shop],
   );
-  const now = localNow().stamp;
+  const now = shopNow(shop).stamp;
   return barbers.map((b) => ({
     ...b,
     hours: all('SELECT weekday, start_time, end_time FROM barber_hours WHERE barber_id = ? ORDER BY weekday, start_time', [b.id]),
@@ -153,7 +154,7 @@ export function registerAgendaRoutes(router: Router): void {
   // Agenda do dia
   router.get('/agenda', (req, res) => {
     const shop = shopId(req);
-    const date = typeof req.query.date === 'string' && isDate(req.query.date) ? req.query.date : localNow().date;
+    const date = typeof req.query.date === 'string' && isDate(req.query.date) ? req.query.date : shopNow(shop).date;
     const blocks = all(
       `SELECT k.id, k.barber_id, k.starts_at, k.ends_at, k.reason FROM barber_blocks k JOIN barbers b ON b.id = k.barber_id
         WHERE b.barbershop_id = ? AND k.starts_at < ? AND k.ends_at > ?`,

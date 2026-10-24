@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireRole, shopId } from '../auth.js';
-import { today } from '../config.js';
+import { shopNow, shopTz } from '../clock.js';
 import { all, get, nowIso, run } from '../db.js';
 import { HttpError, idParam, normalizePhone, parseBody, zBool, zCents, zColor, zDate, zId, zText, zUrl } from '../http.js';
 import { addStamps, customerCard, isRunning, redeemReward, type Campaign } from '../loyalty.js';
@@ -9,7 +9,7 @@ import { issueAccessLink } from '../customerAuth.js';
 import { customerByPhone } from '../messaging.js';
 import { findVoucher, redeemVoucher, shopVouchers } from '../offers.js';
 import { dayAgenda } from '../scheduling.js';
-import { addDays } from '../time.js';
+import { TIMEZONES, addDays, localNow } from '../time.js';
 import { accessStatus } from '../billing.js';
 import { registerAgendaRoutes } from './agenda.js';
 import { registerBotRoutes } from './bot.js';
@@ -45,6 +45,11 @@ const zProfile = z.object({
   instagram: zText(60),
   address: zText(200),
   hours: zText(300),
+  /** Fuso da barbearia (vazio = horário de Brasília). */
+  timezone: z
+    .enum(TIMEZONES)
+    .nullish()
+    .transform((v) => v ?? null),
 });
 
 shopRouter.get('/profile', (req, res) => {
@@ -253,7 +258,8 @@ shopRouter.delete('/loyalty/events/:id', (req, res) => {
 
 shopRouter.get('/summary', (req, res) => {
   const shop = shopId(req);
-  const day = today();
+  const day = shopNow(shop).date;
+  const tz = shopTz(shop);
   const month = day.slice(0, 7);
   const count = (sql: string) => get<{ n: number }>(sql, [shop])?.n ?? 0;
 
@@ -270,7 +276,7 @@ shopRouter.get('/summary', (req, res) => {
     `SELECT e.kind, e.qty, e.created_at FROM loyalty_events e JOIN campaigns c ON c.id = e.campaign_id
       WHERE c.barbershop_id = ? AND e.created_at >= ?`,
     [shop, since],
-  ).filter((e) => today(new Date(e.created_at)).startsWith(month));
+  ).filter((e) => localNow(new Date(e.created_at), tz).date.startsWith(month));
 
   res.json({
     customers: count('SELECT COUNT(*) AS n FROM customers WHERE barbershop_id = ?'),

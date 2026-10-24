@@ -1,7 +1,8 @@
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { sendMessage, shopBot } from './messaging.js';
-import { hourLabel, localNow, relativeDay } from './time.js';
+import { shopNow } from './clock.js';
+import { hourLabel, relativeDay } from './time.js';
 
 /**
  * O que o cliente costuma consumir quando vem (ex.: sempre corta o cabelo e toma 1 cerveja).
@@ -82,7 +83,7 @@ export function suggestionFor(shopId: number, appointmentId: number, now?: Date)
   if (a.status !== 'scheduled' || reservedItems(a.id).length) return null;
   const items = usualConsumption(a.customer_id);
   if (!items.length) return null;
-  const when = relativeDay(a.starts_at.slice(0, 10), localNow(now).date);
+  const when = relativeDay(a.starts_at.slice(0, 10), shopNow(shopId, now).date);
   const day = when === 'hoje' || when === 'amanhã' ? ` ${when}` : '';
   return {
     items,
@@ -117,7 +118,7 @@ export async function reserveItems(
 ): Promise<{ items: ReservedItem[]; barberNotified: boolean; barber: string }> {
   const a = apptInfo(shopId, appointmentId);
   if (opts.customerId && a.customer_id !== opts.customerId) throw new HttpError(404, 'Horário não encontrado.');
-  if (a.status !== 'scheduled' || a.starts_at < localNow(opts.now).stamp) throw new HttpError(409, 'Esse horário não está mais marcado.');
+  if (a.status !== 'scheduled' || a.starts_at < shopNow(shopId, opts.now).stamp) throw new HttpError(409, 'Esse horário não está mais marcado.');
   if (!items.length) throw new HttpError(400, 'Escolha pelo menos um item.');
   tx(() => {
     for (const i of items) {
@@ -136,7 +137,7 @@ export async function reserveItems(
       shop: shopBot(shopId),
       customerId: null,
       phone: a.barber_phone,
-      text: `Oi, ${a.barber_name}! ${a.customer_name} vem ${relativeDay(date, localNow(opts.now).date)} às ${hourLabel(a.starts_at.slice(11))} e pediu pra deixar separado: ${describeItems(reserved)}. 🍺`,
+      text: `Oi, ${a.barber_name}! ${a.customer_name} vem ${relativeDay(date, shopNow(shopId, opts.now).date)} às ${hourLabel(a.starts_at.slice(11))} e pediu pra deixar separado: ${describeItems(reserved)}. 🍺`,
       kind: 'barbeiro',
       dryRun: opts.dryRun,
     });

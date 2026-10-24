@@ -1,6 +1,7 @@
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
-import { addDays, addMinutes, fromMinutes, isDate, isTime, localNow, toMinutes, weekdayOf } from './time.js';
+import { customerNow, shopNow } from './clock.js';
+import { addDays, addMinutes, fromMinutes, isDate, isTime, toMinutes, weekdayOf } from './time.js';
 
 export const DEFAULT_DURATION = 30;
 /** Antecedência mínima para o cliente/robô marcar. */
@@ -140,7 +141,7 @@ export function freeTimes(shopId: number, date: string, opts: { barberId?: numbe
   if (!isDate(date)) throw new HttpError(400, 'Data inválida (use AAAA-MM-DD).');
   const step = get<{ slot_step_min: number }>('SELECT slot_step_min FROM barbershops WHERE id = ?', [shopId])?.slot_step_min ?? 30;
   const duration = durationOf(resolveService(shopId, opts.serviceId));
-  const notBefore = addMinutes(localNow(opts.now).stamp, opts.leadMin ?? CUSTOMER_LEAD_MIN);
+  const notBefore = addMinutes(shopNow(shopId, opts.now).stamp, opts.leadMin ?? CUSTOMER_LEAD_MIN);
   const barbers = activeBarbers(shopId).filter((b) => !opts.barberId || b.id === opts.barberId);
   if (opts.barberId && !barbers.length) throw new HttpError(404, 'Barbeiro não encontrado.');
 
@@ -183,7 +184,7 @@ export function book(input: BookInput): AppointmentView {
     const duration = durationOf(service);
     const start = `${input.date} ${input.time}`;
     const end = addMinutes(start, duration);
-    const now = localNow(input.now).stamp;
+    const now = shopNow(input.shopId, input.now).stamp;
     const byOwner = input.source === 'painel';
 
     if (!byOwner) {
@@ -232,7 +233,7 @@ export function cancel(shopId: number, appointmentId: number, opts: { customerId
   const owned = a && get('SELECT 1 AS ok FROM appointments WHERE id = ? AND barbershop_id = ?', [appointmentId, shopId]);
   if (!a || !owned || (opts.customerId && a.customer_id !== opts.customerId)) throw new HttpError(404, 'Horário não encontrado.');
   if (a.status !== 'scheduled') throw new HttpError(409, 'Esse horário já foi cancelado.');
-  if (opts.customerId && a.starts_at < localNow(opts.now).stamp) throw new HttpError(409, 'Esse horário já passou.');
+  if (opts.customerId && a.starts_at < shopNow(shopId, opts.now).stamp) throw new HttpError(409, 'Esse horário já passou.');
   run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [nowIso(), appointmentId]);
   return appointment(appointmentId)!;
 }
@@ -240,14 +241,14 @@ export function cancel(shopId: number, appointmentId: number, opts: { customerId
 export function upcomingFor(customerId: number, now?: Date): AppointmentView[] {
   return all<AppointmentView>(`${APPOINTMENT_SELECT} WHERE a.customer_id = ? AND a.status = 'scheduled' AND a.starts_at >= ? ORDER BY a.starts_at`, [
     customerId,
-    localNow(now).stamp,
+    customerNow(customerId, now).stamp,
   ]);
 }
 
 export function historyFor(customerId: number, now?: Date): AppointmentView[] {
   return all<AppointmentView>(`${APPOINTMENT_SELECT} WHERE a.customer_id = ? AND (a.starts_at < ? OR a.status <> 'scheduled') ORDER BY a.starts_at DESC LIMIT 30`, [
     customerId,
-    localNow(now).stamp,
+    customerNow(customerId, now).stamp,
   ]);
 }
 

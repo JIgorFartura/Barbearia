@@ -20,14 +20,15 @@ import {
   updateEntry,
 } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
-import { addDays, isDate, localNow } from '../time.js';
+import { shopNow } from '../clock.js';
+import { addDays, isDate } from '../time.js';
 
 const zDay = z.string().refine(isDate, 'Data no formato AAAA-MM-DD.');
 const zMethod = z.enum(METHODS);
 
 /** Período da consulta (?from=&to=); padrão: mês atual. */
 function period(req: Request): { from: string; to: string } {
-  const today = localNow().date;
+  const today = shopNow(shopId(req)).date;
   const from = typeof req.query.from === 'string' && isDate(req.query.from) ? req.query.from : `${today.slice(0, 7)}-01`;
   const to = typeof req.query.to === 'string' && isDate(req.query.to) ? req.query.to : today;
   if (to < from) throw new HttpError(400, 'Período inválido.');

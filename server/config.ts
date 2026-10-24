@@ -34,8 +34,3 @@ export const config = {
   /** Liga as automações (lembretes, recontato). */
   automations: process.env.AUTOMATIONS !== '0',
 };
-
-/** Data de hoje (AAAA-MM-DD) no fuso da barbearia. */
-export function today(date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: config.timezone }).format(date);
-}

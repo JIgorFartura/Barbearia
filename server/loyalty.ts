@@ -1,4 +1,4 @@
-import { today } from './config.js';
+import { shopToday } from './clock.js';
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 
@@ -33,7 +33,8 @@ export function progressFor(goal: number, earned: number, redeemed: number): Pro
   return { earned, redeemed, goal, stamps: earned % goal, available: Math.floor(earned / goal) - redeemed };
 }
 
-export function isRunning(c: Pick<Campaign, 'active' | 'starts_on' | 'ends_on'>, day = today()): boolean {
+/** Valendo no dia informado (AAAA-MM-DD, no relógio da barbearia). */
+export function isRunning(c: Pick<Campaign, 'active' | 'starts_on' | 'ends_on'>, day: string): boolean {
   return Boolean(c.active) && (!c.starts_on || c.starts_on <= day) && (!c.ends_on || c.ends_on >= day);
 }
 
@@ -69,7 +70,7 @@ export function addStamps(shopId: number, campaignId: number, customerId: number
   return tx(() => {
     const c = campaignOf(shopId, campaignId);
     assertCustomer(shopId, customerId);
-    if (!isRunning(c)) throw new HttpError(400, 'Esta campanha não está valendo hoje.');
+    if (!isRunning(c, shopToday(shopId))) throw new HttpError(400, 'Esta campanha não está valendo hoje.');
     run('INSERT INTO loyalty_events (campaign_id, customer_id, kind, qty, user_id, sale_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [
       c.id,
       customerId,
@@ -103,7 +104,8 @@ export function redeemReward(shopId: number, campaignId: number, customerId: num
 /** Cartão do cliente: campanhas valendo + campanhas encerradas onde ele ainda tem prêmio a retirar. */
 export function customerCard(shopId: number, customerId: number) {
   const campaigns = all<Campaign>('SELECT * FROM campaigns WHERE barbershop_id = ? ORDER BY created_at DESC', [shopId]);
+  const day = shopToday(shopId);
   return campaigns
-    .map((c) => ({ campaign: c, running: isRunning(c), progress: progress(c, customerId) }))
+    .map((c) => ({ campaign: c, running: isRunning(c, day), progress: progress(c, customerId) }))
     .filter((x) => x.running || x.progress.available > 0);
 }

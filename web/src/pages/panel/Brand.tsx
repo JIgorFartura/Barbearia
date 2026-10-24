@@ -16,7 +16,16 @@ interface Profile {
   instagram: string | null;
   address: string | null;
   hours: string | null;
+  timezone: string | null;
 }
+
+/** Fusos do Brasil: a agenda, os lembretes e o caixa seguem o relógio da barbearia. */
+const TIMEZONES = [
+  { id: 'America/Sao_Paulo', label: 'Horário de Brasília (SP, RJ, MG, Sul, Nordeste, GO, DF, PA, TO, AP)' },
+  { id: 'America/Manaus', label: 'Uma hora a menos (AM, MT, MS, RO, RR)' },
+  { id: 'America/Rio_Branco', label: 'Duas horas a menos (Acre)' },
+  { id: 'America/Noronha', label: 'Uma hora a mais (Fernando de Noronha)' },
+];
 
 /** Identidade visual da barbearia: é isso que deixa o mesmo sistema com "a cara" de cada uma. */
 export function Brand() {
@@ -82,6 +91,15 @@ export function Brand() {
           </div>
           {text('address', 'Endereço', 'Rua Exemplo, 123 - Centro')}
           {text('hours', 'Horário de funcionamento', 'Ter a Sáb, 9h às 20h')}
+          <Field label="Fuso horário" hint="Vale para a agenda, os lembretes do robô e as datas do caixa.">
+            <select className={inputClass} value={p.timezone ?? 'America/Sao_Paulo'} onChange={(e) => set('timezone', e.target.value)}>
+              {TIMEZONES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </Field>
         </Card>
 
         <div className="space-y-5">

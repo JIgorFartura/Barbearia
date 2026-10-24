@@ -5,7 +5,8 @@ import { HttpError } from '../http.js';
 import { customerCard } from '../loyalty.js';
 import { customerByPhone, recentHistory, recordInbound, sendMessage, shopBot, type CustomerRow, type ShopBot } from '../messaging.js';
 import { book, cancel, freeTimes, upcomingFor } from '../scheduling.js';
-import { addDays, dayLabel, hourLabel, localNow } from '../time.js';
+import { shopNow } from '../clock.js';
+import { addDays, dayLabel, hourLabel } from '../time.js';
 import { localPhone } from '../whatsapp.js';
 import { accessStatus } from '../billing.js';
 import { askConsumption, describeItems, reserveItems, type Usual } from '../consumption.js';
@@ -53,7 +54,7 @@ const firstName = (name: string) => name.split(/\s+/)[0];
 async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: string, now: Date, dryRun: boolean): Promise<string | null> {
   if (!customer) return null;
   const t = normalize(text);
-  const nowStamp = localNow(now).stamp;
+  const nowStamp = shopNow(shop.id, now).stamp;
 
   if (STOP.has(t)) {
     run('UPDATE customers SET reminders_opt_out = 1 WHERE id = ?', [customer.id]);
@@ -138,7 +139,7 @@ function fallbackReply(shop: ShopBot, customer: CustomerRow | null, text: string
   }
   const link = issueAccessLink(customer.id, shop.slug);
   if (/horario|agenda|vaga|marcar|agendar|corte/.test(t)) {
-    const today = localNow(now).date;
+    const today = shopNow(shop.id, now).date;
     const parts: string[] = [];
     for (const date of [today, addDays(today, 1)]) {
       const times = freeTimes(shop.id, date, { now }).flatMap((d) => d.times.map((x) => `${hourLabel(x)} (${d.barber.name})`));

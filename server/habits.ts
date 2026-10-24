@@ -1,5 +1,6 @@
 import { all, get } from './db.js';
-import { addDays, daysBetween, fromMinutes, isoToLocal, localNow, toMinutes, weekdayOf } from './time.js';
+import { customerNow, customerTz } from './clock.js';
+import { addDays, daysBetween, fromMinutes, isoToLocal, toMinutes, weekdayOf } from './time.js';
 
 /** Dia e hora em que o cliente costuma vir: informado por ele ou descoberto pelo histórico. */
 export interface Habit {
@@ -70,7 +71,7 @@ export function inferHabit(visits: Visit[]): Habit | null {
 
 /** Visitas dos últimos 180 dias (horários que não foram cancelados nem marcados como falta). */
 export function pastVisits(customerId: number, now?: Date): Visit[] {
-  const today = localNow(now);
+  const today = customerNow(customerId, now);
   return all<Visit>(
     `SELECT starts_at, barber_id, service_id FROM appointments
       WHERE customer_id = ? AND status = 'scheduled' AND starts_at < ? AND starts_at >= ?
@@ -108,10 +109,10 @@ export function lastVisitDate(customerId: number, now?: Date): string | null {
   const appt =
     get<{ at: string | null }>("SELECT MAX(starts_at) AS at FROM appointments WHERE customer_id = ? AND status = 'scheduled' AND starts_at < ?", [
       customerId,
-      localNow(now).stamp,
+      customerNow(customerId, now).stamp,
     ])?.at?.slice(0, 10) ?? null;
   const loyalty = get<{ at: string | null }>('SELECT MAX(created_at) AS at FROM loyalty_events WHERE customer_id = ?', [customerId])?.at;
-  const fromLoyalty = loyalty ? isoToLocal(loyalty).slice(0, 10) : null;
+  const fromLoyalty = loyalty ? isoToLocal(loyalty, customerTz(customerId)).slice(0, 10) : null;
   if (!appt) return fromLoyalty;
   if (!fromLoyalty) return appt;
   return appt > fromLoyalty ? appt : fromLoyalty;

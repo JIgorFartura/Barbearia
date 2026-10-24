@@ -5,7 +5,8 @@ import { all, get } from '../db.js';
 import { customerHabit } from '../habits.js';
 import type { HistoryItem } from '../messaging.js';
 import { activeBarbers, services, upcomingFor } from '../scheduling.js';
-import { addDays, dayLabel, hourLabel, localNow, WEEKDAYS } from '../time.js';
+import { shopNow } from '../clock.js';
+import { addDays, dayLabel, hourLabel, WEEKDAYS } from '../time.js';
 import { runTool, toolDefinitions, type BotContext } from './tools.js';
 
 /** Instruções iguais para todas as barbearias (ficam em cache junto com as ferramentas). */
@@ -41,7 +42,7 @@ function money(cents: number) {
 
 /** Parte que muda a cada conversa: barbearia, agora, calendário, cliente e oferta pendente. */
 export function buildContext(ctx: BotContext): string {
-  const now = localNow(ctx.now);
+  const now = shopNow(ctx.shop.id, ctx.now);
   const shop = ctx.shop;
   const lines: string[] = ['CONTEXTO'];
   lines.push(`Seu nome: ${shop.bot_name}. Barbearia: ${shop.name}.`);

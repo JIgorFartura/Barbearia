@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { today } from './config.js';
+import { shopToday } from './clock.js';
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { addDays } from './time.js';
@@ -33,27 +33,28 @@ export interface VoucherView {
   partner: string | null;
   customer_id: number;
   customer_name: string;
+  barbershop_id: number;
 }
 
 const VOUCHER_SELECT = `
-  SELECT v.id, v.code, v.status, v.expires_on, v.used_at, v.created_at, o.id AS offer_id, o.title, o.description,
+  SELECT v.id, v.code, v.status, v.expires_on, v.used_at, v.created_at, o.id AS offer_id, o.title, o.description, o.barbershop_id,
          p.name AS partner, c.id AS customer_id, c.name AS customer_name
     FROM vouchers v
     JOIN offers o ON o.id = v.offer_id
     JOIN customers c ON c.id = v.customer_id
     LEFT JOIN partners p ON p.id = o.partner_id`;
 
-/** "Vencido" é calculado: voucher ativo cuja validade já passou. */
-function withExpiry(v: VoucherView, day = today()): VoucherView {
+/** "Vencido" é calculado: voucher ativo cuja validade já passou (no dia da barbearia). */
+function withExpiry(v: VoucherView, day = shopToday(v.barbershop_id)): VoucherView {
   return v.status === 'active' && v.expires_on < day ? { ...v, status: 'expired' } : v;
 }
 
-export const isOfferRunning = (o: Pick<Offer, 'active' | 'starts_on' | 'ends_on'>, day = today()) =>
+export const isOfferRunning = (o: Pick<Offer, 'active' | 'starts_on' | 'ends_on'>, day: string) =>
   Boolean(o.active) && (!o.starts_on || o.starts_on <= day) && (!o.ends_on || o.ends_on >= day);
 
 /** Benefícios valendo hoje, com o que o cliente ainda pode pegar. */
 export function offersFor(shopId: number, customerId: number | null) {
-  const day = today();
+  const day = shopToday(shopId);
   return all<Offer & { partner: string | null; issued: number; mine: number }>(
     `SELECT o.*, p.name AS partner,
             (SELECT COUNT(*) FROM vouchers v WHERE v.offer_id = o.id) AS issued,
@@ -92,7 +93,8 @@ function newCode(prefix: string): string {
 export function claimVoucher(shopId: number, offerId: number, customerId: number): VoucherView {
   return tx(() => {
     const offer = get<Offer>('SELECT * FROM offers WHERE id = ? AND barbershop_id = ?', [offerId, shopId]);
-    if (!offer || !isOfferRunning(offer)) throw new HttpError(404, 'Benefício não encontrado ou encerrado.');
+    const day = shopToday(shopId);
+    if (!offer || !isOfferRunning(offer, day)) throw new HttpError(404, 'Benefício não encontrado ou encerrado.');
     if (!get('SELECT 1 AS ok FROM customers WHERE id = ? AND barbershop_id = ?', [customerId, shopId])) throw new HttpError(404, 'Cliente não encontrado.');
     const issued = get<{ n: number }>('SELECT COUNT(*) AS n FROM vouchers WHERE offer_id = ?', [offerId])!.n;
     if (offer.max_total != null && issued >= offer.max_total) throw new HttpError(409, 'Esse benefício esgotou.');
@@ -101,8 +103,8 @@ export function claimVoucher(shopId: number, offerId: number, customerId: number
 
     const slug = get<{ slug: string }>('SELECT slug FROM barbershops WHERE id = ?', [shopId])!.slug;
     const prefix = slug.replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'BB';
-    let expires = addDays(today(), offer.valid_days);
-    if (offer.ends_on && offer.ends_on > today() && offer.ends_on < expires) expires = offer.ends_on;
+    let expires = addDays(day, offer.valid_days);
+    if (offer.ends_on && offer.ends_on > day && offer.ends_on < expires) expires = offer.ends_on;
     for (let attempt = 0; attempt < 5; attempt++) {
       const code = newCode(prefix);
       if (get('SELECT 1 AS ok FROM vouchers WHERE code = ?', [code])) continue;

@@ -73,7 +73,12 @@ export const nowIso = () => new Date().toISOString();
  * Cada barbearia é um "inquilino": todas as tabelas de conteúdo têm barbershop_id, e as rotas do
  * painel sempre filtram por ele — uma barbearia nunca enxerga os dados de outra.
  */
-const MIGRATIONS: string[] = [
+/** Migração que recria tabelas (ex.: mudar um CHECK): roda com as chaves estrangeiras desligadas. */
+interface Rebuild {
+  rebuild: string;
+}
+
+const MIGRATIONS: (string | Rebuild)[] = [
   `
   CREATE TABLE barbershops (
     id INTEGER PRIMARY KEY,
@@ -544,15 +549,55 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX bot_questions_customer ON bot_questions (customer_id, status);
   `,
+  // 4) Logins: perfil de barbeiro, entrada pelo celular (e-mail opcional) e aceite dos termos de uso.
+  {
+    rebuild: `
+    CREATE TABLE users_new (
+      id INTEGER PRIMARY KEY,
+      barbershop_id INTEGER REFERENCES barbershops(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('master', 'owner', 'barber')),
+      name TEXT NOT NULL,
+      email TEXT UNIQUE COLLATE NOCASE,
+      -- Celular com DDD: entra no lugar do e-mail e recebe o código de "esqueci minha senha".
+      phone TEXT,
+      barber_id INTEGER REFERENCES barbers(id) ON DELETE CASCADE,
+      password_hash TEXT NOT NULL,
+      terms_accepted_at TEXT,
+      created_at TEXT NOT NULL,
+      CHECK (email IS NOT NULL OR phone IS NOT NULL)
+    );
+    INSERT INTO users_new (id, barbershop_id, role, name, email, password_hash, created_at)
+      SELECT id, barbershop_id, role, name, email, password_hash, created_at FROM users;
+    DROP TABLE users;
+    ALTER TABLE users_new RENAME TO users;
+    CREATE UNIQUE INDEX users_phone ON users (phone) WHERE phone IS NOT NULL;
+    CREATE UNIQUE INDEX users_barber ON users (barber_id) WHERE barber_id IS NOT NULL;
+    `,
+  },
+  // 5) Fuso por barbearia, cópias de segurança, WhatsApp da plataforma, LGPD, estoque, avaliações,
+  //    clube de assinatura, sinal, indicações, aniversários e cobrança automática (Asaas).
+  `
+  -- Fuso da barbearia (vazio = o do servidor, horário de Brasília).
+  ALTER TABLE barbershops ADD COLUMN timezone TEXT;
+  `,
 ];
 
 function migrate(): void {
   const current = Number((get<{ user_version: number }>('PRAGMA user_version')?.user_version ?? 0));
   for (let v = current; v < MIGRATIONS.length; v++) {
-    tx(() => {
-      db.exec(MIGRATIONS[v]);
-      db.exec(`PRAGMA user_version = ${v + 1}`);
-    });
+    const m = MIGRATIONS[v];
+    const rebuild = typeof m !== 'string';
+    // Recriar tabela referenciada por outras exige as chaves estrangeiras desligadas (fora da transação).
+    if (rebuild) db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      tx(() => {
+        db.exec(rebuild ? m.rebuild : m);
+        if (rebuild && all('PRAGMA foreign_key_check').length) throw new Error(`Migração ${v + 1}: chaves estrangeiras inconsistentes.`);
+        db.exec(`PRAGMA user_version = ${v + 1}`);
+      });
+    } finally {
+      if (rebuild) db.exec('PRAGMA foreign_keys = ON');
+    }
   }
 }
 
