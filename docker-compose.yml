@@ -1,0 +1,36 @@
+# 1) cp .env.example .env  e ajuste PUBLIC_URL / DOMAIN
+# 2) docker compose up -d --build                      → http://IP-DO-SERVIDOR:3000
+# 3) Com domínio próprio e HTTPS automático:
+#    docker compose --profile https up -d --build      → https://SEU-DOMINIO
+services:
+  app:
+    build: .
+    image: sistema-barbearia:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - app-data:/data
+    ports:
+      - "${APP_BIND:-0.0.0.0}:3000:3000"
+
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Defina DOMAIN no arquivo .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  app-data:
+  caddy-data:
+  caddy-config:

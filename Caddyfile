@@ -1,0 +1,6 @@
+# HTTPS automático (Let's Encrypt) na frente do sistema.
+# O domínio vem da variável DOMAIN do arquivo .env (aponte o DNS do domínio para o IP do servidor).
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}
