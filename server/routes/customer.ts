@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { charge, chargePix, claimCharge } from '../charges.js';
 import { appointmentDeposit, depositPublic, requireDeposit, sendDepositRequest } from '../deposits.js';
 import { shopBot } from '../messaging.js';
+import { onlineStatus, payChargeOnline } from '../onlinePayments.js';
 import { birthdayKey, customerReferral, growthSettings } from '../growth.js';
 import { cancelMembership, customerMembership, listPlans, subscribe } from '../club.js';
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
@@ -116,8 +117,8 @@ function myDeposit(req: Request) {
 }
 
 customerRouter.get('/deposits/:id', async (req, res) => {
-  const { shopId, charge: c } = myDeposit(req);
-  res.json({ ...depositPublic(shopId, c), description: c.description, pix: await chargePix(c) });
+  const { shopId, customerId, charge: c } = myDeposit(req);
+  res.json({ ...depositPublic(shopId, c), description: c.description, pix: await chargePix(c), ...payOnlineInfo(shopId, customerId) });
 });
 
 customerRouter.post('/deposits/:id/claim', (req, res) => {
@@ -245,8 +246,24 @@ async function clubState(shopId: number, customerId: number) {
       claimed: Boolean(open.claimed_at),
       pix: await chargePix(open),
     },
+    ...payOnlineInfo(shopId, customerId),
   };
 }
+
+/** Dá para pagar com cartão (pelo Asaas da plataforma)? E se ainda falta o CPF do cliente. */
+function payOnlineInfo(shopId: number, customerId: number) {
+  return {
+    online: onlineStatus(shopId).available,
+    needsCpf: !get<{ asaas_customer_id: string | null }>('SELECT asaas_customer_id FROM customers WHERE id = ?', [customerId])?.asaas_customer_id,
+  };
+}
+
+/** Pagar online (cartão; no clube também boleto ou PIX): devolve o link da página de pagamento. */
+customerRouter.post('/charges/:id/pay-online', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const body = parseBody(z.object({ cpf: z.string().max(20).nullish() }), req.body ?? {});
+  res.json(await payChargeOnline(shopId, customerId, idParam(req), body.cpf));
+});
 
 customerRouter.get('/club', async (req, res) => {
   const { shopId, customerId } = ctx(req);

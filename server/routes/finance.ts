@@ -79,14 +79,19 @@ export function registerFinanceRoutes(router: Router): void {
     const auto = asaasEnabled();
     const info = billingInfo(shop);
     // Com o Asaas: PIX com baixa automática (precisa do CPF/CNPJ). Sem ele: PIX do master, confirmado à mão.
-    let pix: { payload: string; qr: string; url?: string | null; auto?: boolean } | null = null;
+    let pix: { payload: string; qr: string } | null = null;
+    // Página do Asaas da fatura: PIX, cartão de crédito ou boleto, com baixa automática.
+    let payUrl: string | null = null;
     let pixError: string | null = null;
     if (current && auto && info.billing_document) {
       const r = await asaasPix(current);
-      if (r && 'payload' in r) pix = { ...r, auto: true };
-      else pixError = r?.error ?? null;
+      if (r && 'url' in r) {
+        payUrl = r.url;
+        if (r.payload && r.qr) pix = { payload: r.payload, qr: r.qr };
+      } else pixError = r?.error ?? null;
     }
-    if (current && !pix) pix = await invoicePix(current);
+    const autoPix = Boolean(pix);
+    if (current && !pix && !payUrl) pix = await invoicePix(current);
     res.json({
       plan: s.plan_name,
       price_cents: monthlyPrice(s),
@@ -95,7 +100,7 @@ export function registerFinanceRoutes(router: Router): void {
       blocked: status.blocked,
       graceDays: status.graceDays,
       blockOn: status.blockOn,
-      current: current ? { ...current, pix, pixError } : null,
+      current: current ? { ...current, pix: pix && { ...pix, auto: autoPix }, payUrl, pixError } : null,
       invoices,
       billing: { auto, needsDocument: auto && !info.billing_document, ...info },
     });

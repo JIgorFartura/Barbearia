@@ -174,6 +174,9 @@ export function accessStatus(shopId: number, now?: Date) {
   };
 }
 
+/** Formas da mensalidade que não existem no caixa da barbearia. */
+const CASH_METHOD: Record<string, string> = { cartao: 'credito', boleto: 'outro', transferencia: 'outro' };
+
 /** Master confirma o pagamento: libera o acesso e lança a saída no caixa da barbearia. */
 export function markInvoicePaid(id: number, data: { paid_at: string; method: string | null; notes: string | null }): InvoiceView {
   return tx(() => {
@@ -184,7 +187,7 @@ export function markInvoicePaid(id: number, data: { paid_at: string; method: str
     run(
       `INSERT INTO cash_entries (barbershop_id, type, category, description, amount_cents, method, date, status, invoice_id, created_at)
        VALUES (?, 'out', 'Mensalidade do sistema', ?, ?, ?, ?, 'paid', ?, ?)`,
-      [inv.barbershop_id, inv.description, inv.amount_cents, data.method, data.paid_at, id, nowIso()],
+      [inv.barbershop_id, inv.description, inv.amount_cents, data.method && (CASH_METHOD[data.method] ?? data.method), data.paid_at, id, nowIso()],
     );
     return invoice(id);
   });

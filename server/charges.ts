@@ -144,6 +144,9 @@ export function undoConfirm(shopId: number, chargeId: number): ChargeView {
     if (c.status !== 'paid') throw new HttpError(409, 'Esse pagamento não está confirmado.');
     if (c.sale_id) throw new HttpError(409, 'Esse sinal já foi abatido numa venda. Cancele a venda antes.');
     if (c.refunded_at) throw new HttpError(409, 'Esse sinal já foi devolvido ao cliente.');
+    if (get("SELECT 1 AS ok FROM gateway_payments WHERE charge_id = ? AND applied = 1", [chargeId])) {
+      throw new HttpError(409, 'Esse pagamento foi feito online e baixado sozinho; não dá para desfazer. Para devolver ao cliente, peça o estorno à plataforma.');
+    }
     run("UPDATE charges SET status = 'open', paid_at = NULL, method = NULL, forfeited_at = NULL WHERE id = ?", [chargeId]);
     run('DELETE FROM cash_entries WHERE charge_id = ?', [chargeId]);
     if (c.club_member_id) {

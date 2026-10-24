@@ -20,6 +20,7 @@ import { registerStockRoutes } from './stock.js';
 import { registerClubRoutes } from './club.js';
 import { lowStock } from '../stock.js';
 import { reviewsOverview, shopRating } from '../reviews.js';
+import { onlineStatus } from '../onlinePayments.js';
 
 /** Painel do dono da barbearia. Tudo aqui é filtrado pela barbearia do usuário logado. */
 export const shopRouter = Router();
@@ -307,6 +308,7 @@ function setupChecklist(shop: number, userId: number) {
     [shop],
   )!;
   const has = (sql: string) => Boolean(get(sql, [shop]));
+  const online = onlineStatus(shop);
   return [
     { id: 'marca', label: 'Coloque logo, WhatsApp e endereço em Minha marca', done: Boolean(b.logo_url && b.whatsapp && b.address), link: '/painel/marca' },
     {
@@ -327,6 +329,10 @@ function setupChecklist(shop: number, userId: number) {
     { id: 'venda', label: 'Feche o primeiro atendimento pela Agenda', done: has("SELECT 1 AS ok FROM sales WHERE barbershop_id = ? AND status = 'closed' LIMIT 1"), link: '/painel/agenda' },
     { id: 'pix', label: 'Cadastre a chave PIX (clube de assinatura e sinal)', done: Boolean(b.pix_key), link: '/painel/clube', optional: true },
     { id: 'google', label: 'Coloque o link de avaliação do Google', done: Boolean(b.review_link), link: '/painel/avaliacoes', optional: true },
+    // Só aparece quando a plataforma libera o pagamento com cartão.
+    ...(online.platform
+      ? [{ id: 'cartao', label: 'Aceite cartão: informe a carteira (Wallet ID) da sua conta Asaas', done: online.available, link: '/painel/clube', optional: true }]
+      : []),
   ];
 }
 

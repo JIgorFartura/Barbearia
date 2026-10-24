@@ -25,13 +25,16 @@ interface SubscriptionData {
   blocked: boolean;
   graceDays: number;
   blockOn: string | null;
-  /** PIX da fatura: com o Asaas (auto) a baixa é automática; senão o master confirma. */
-  current: (Invoice & { pix: { payload: string; qr: string; url?: string | null; auto?: boolean } | null; pixError: string | null }) | null;
+  /**
+   * Fatura em aberto. Com o Asaas: página de pagamento (PIX, cartão de crédito ou boleto) e PIX com baixa
+   * automática (auto). Sem ele: PIX do master, confirmado à mão.
+   */
+  current: (Invoice & { pix: { payload: string; qr: string; auto?: boolean } | null; payUrl: string | null; pixError: string | null }) | null;
   invoices: Invoice[];
   billing: { auto: boolean; needsDocument: boolean; billing_document: string | null; billing_name: string | null; billing_email: string | null };
 }
 
-/** Mensalidade da plataforma: fatura em aberto com PIX e histórico. */
+/** Mensalidade da plataforma: fatura em aberto (PIX, cartão ou boleto) e histórico. */
 export function Subscription() {
   const [data, setData] = useState<SubscriptionData | null>(null);
   const [copied, setCopied] = useState(false);
@@ -44,6 +47,8 @@ export function Subscription() {
 
   if (!data) return <ErrorText error={error} />;
   const cur = data.current;
+  // Pelo Asaas a fatura é baixada sozinha quando o pagamento cai (sem "Já paguei").
+  const auto = Boolean(cur && (cur.payUrl || cur.pix?.auto));
   const today = new Date().toLocaleDateString('en-CA');
 
   return (
@@ -99,7 +104,7 @@ export function Subscription() {
           {!data.blocked && cur.overdue && data.blockOn && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">⚠ Pague até {date(data.blockOn)} para não ter o acesso suspenso.</p>
           )}
-          {cur.pix ? (
+          {cur.pix && (
             <div className="grid items-center gap-4 sm:grid-cols-[180px_1fr]">
               <img src={cur.pix.qr} alt="QR Code PIX" className="mx-auto size-44 rounded-lg ring-1 ring-zinc-200" />
               <div className="space-y-2">
@@ -117,24 +122,25 @@ export function Subscription() {
                 </Button>
               </div>
             </div>
-          ) : (
-            <p className="text-sm text-zinc-500">Fale com o administrador da plataforma para receber os dados de pagamento.</p>
           )}
-          {cur.pix?.auto && (
+          {cur.payUrl && (
+            <a
+              href={cur.payUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700"
+            >
+              <CreditCard className="size-4" /> {cur.pix ? 'Pagar com cartão ou boleto' : 'Pagar com cartão, boleto ou PIX'}
+            </a>
+          )}
+          {!cur.pix && !cur.payUrl && <p className="text-sm text-zinc-500">Fale com o administrador da plataforma para receber os dados de pagamento.</p>}
+          {auto && (
             <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-              A confirmação é automática: alguns minutos depois do PIX, a fatura fica paga sozinha.
-              {cur.pix.url && (
-                <>
-                  {' '}
-                  <a href={cur.pix.url} target="_blank" rel="noreferrer" className="font-medium underline">
-                    Abrir a fatura
-                  </a>
-                </>
-              )}
+              A confirmação é automática: alguns minutos depois do pagamento, a fatura fica paga sozinha (no cartão, na hora da aprovação).
             </p>
           )}
           {cur.pixError && <p className="text-xs text-zinc-500">Cobrança automática indisponível agora ({cur.pixError}). Use o PIX acima.</p>}
-          {!cur.pix?.auto && (
+          {!auto && (cur.pix || cur.informed_at) && (
             <div className="flex flex-wrap items-center gap-3 border-t border-zinc-100 pt-3">
               {cur.informed_at ? (
                 <p className="text-sm text-emerald-700">Pagamento informado em {date(cur.informed_at)}. Assim que for confirmado, a fatura fica como paga.</p>
@@ -209,7 +215,7 @@ function BillingInfoCard({ info, onSaved }: { info: SubscriptionData['billing'];
       <form onSubmit={submit} className="space-y-3">
         <div>
           <p className="font-semibold">Dados para a cobrança e a nota fiscal</p>
-          <p className="text-sm text-zinc-500">Com eles, a mensalidade sai por PIX com confirmação automática e a nota fiscal vem no seu nome.</p>
+          <p className="text-sm text-zinc-500">Com eles, você paga a mensalidade por PIX, cartão ou boleto, com confirmação automática, e a nota fiscal vem no seu nome.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="CPF ou CNPJ">

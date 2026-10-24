@@ -28,6 +28,7 @@ import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { AsaasCard } from './master/AsaasCard';
+import { OnlinePaymentsCard } from './master/OnlinePayments';
 import { api } from '../lib/api';
 import { centsToInput, parseMoney } from '../lib/finance';
 import { addDays, date, money, phone as fmtPhone, todayStr } from '../lib/format';
@@ -816,6 +817,8 @@ function BillingTab() {
           </Card>
         )}
       </div>
+
+      <OnlinePaymentsCard />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

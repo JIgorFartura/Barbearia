@@ -1,5 +1,6 @@
 import { Crown, Pencil, Plus, Search, Send } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { OnlineSettingsCard } from '../../components/OnlinePay';
 import { PixSettingsCard } from '../../components/Pix';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -61,7 +62,7 @@ const COMMISSION = [
   { value: 0, label: 'Sem comissão nos usos do clube' },
 ];
 
-/** Clube de assinatura: planos, assinantes e mensalidades (PIX direto na conta da barbearia). */
+/** Clube de assinatura: planos, assinantes e mensalidades (PIX direto na conta da barbearia ou cartão pelo Asaas). */
 export function Club() {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -233,6 +234,7 @@ export function Club() {
           </Card>
 
           <PixSettingsCard onSaved={() => load()} />
+          <OnlineSettingsCard />
 
           <Card>
             <Field label="Comissão do barbeiro nos usos do clube" hint="O serviço do clube sai por R$ 0 na comanda; a comissão é calculada sobre o preço normal.">

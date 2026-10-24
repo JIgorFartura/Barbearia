@@ -1,6 +1,7 @@
 import { Router } from 'express';
+import { platformPayments, type GatewayKind } from '../gatewayPayments.js';
 import { PIX_KEY_TYPES, guessPixKeyType, normalizePixKey, pixKeyType } from '../pix.js';
-import { asaasSettings, cancelInvoiceEverywhere, issueNfse, rotateWebhookToken, saveAsaasSettings, syncManualPayment, testAsaas } from '../asaas.js';
+import { asaasEnabled, asaasSettings, cancelInvoiceEverywhere, issueNfse, rotateWebhookToken, saveAsaasSettings, syncManualPayment, testAsaas } from '../asaas.js';
 import { z } from 'zod';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -372,6 +373,8 @@ const asaasView = () => {
     webhookUrl: `${config.appUrl}/api/webhooks/asaas`,
     webhookToken: s.webhookToken || null,
     nfse: s.nfse,
+    online: s.online,
+    webhookAt: s.webhookAt,
     shopsWithoutDocument: all<{ id: number; name: string }>(
       'SELECT id, name FROM barbershops WHERE active = 1 AND billing_document IS NULL ORDER BY name COLLATE NOCASE',
     ),
@@ -394,12 +397,26 @@ masterRouter.put('/asaas', (req, res) => {
         iss: z.number().min(0).max(10),
         observations: z.string().trim().max(500),
       }),
+      // Pagamentos online dos clientes das barbearias, com repasse e a taxa da plataforma (%).
+      online: z.object({ enabled: z.boolean(), feePct: z.number().min(0).max(30) }).optional(),
     }),
     req.body,
   );
   if (b.nfse.enabled && !b.nfse.serviceName) throw new HttpError(400, 'Para emitir a nota, informe o serviço (como está no cadastro da prefeitura).');
-  saveAsaasSettings({ env: b.env, apiKey: b.apiKey || null, nfse: b.nfse });
+  saveAsaasSettings({ env: b.env, apiKey: b.apiKey || null, nfse: b.nfse, online: b.online });
   res.json(asaasView());
+});
+
+/**
+ * Pagamentos online que passaram pelo Asaas da plataforma: mensalidades das barbearias e pagamentos
+ * dos clientes (clube e sinal). Mostra barbearia, tipo, forma, valores e repasse, nunca o cliente.
+ */
+masterRouter.get('/payments', (req, res) => {
+  const today = localNow().date;
+  const from = typeof req.query.from === 'string' && isDate(req.query.from) ? req.query.from : `${today.slice(0, 7)}-01`;
+  const to = typeof req.query.to === 'string' && isDate(req.query.to) ? req.query.to : today;
+  const kind = ['mensalidade', 'clube', 'sinal'].includes(String(req.query.kind)) ? (String(req.query.kind) as GatewayKind) : null;
+  res.json({ asaas: asaasEnabled(), from, to, ...platformPayments({ from, to, kind }) });
 });
 
 masterRouter.post('/asaas/test', async (_req, res) => {
@@ -587,6 +604,16 @@ masterRouter.get('/readiness', (req, res) => {
       label: 'Recebimento das mensalidades (chave PIX ou Asaas)',
       done: Boolean(settings.pix_key) || Boolean(asaasSettings().apiKey),
       hint: 'Aba Financeiro.',
+    },
+    {
+      id: 'online',
+      label: 'Cartão para barbearias e clientes (Asaas em produção, recebendo os avisos)',
+      done: (() => {
+        const a = asaasSettings();
+        return Boolean(a.apiKey) && a.env === 'production' && Boolean(a.webhookAt);
+      })(),
+      hint: 'Aba Financeiro → Pagamentos online. Teste antes no ambiente de testes (sandbox).',
+      optional: true,
     },
     { id: 'ai', label: 'Inteligência artificial do robô (ANTHROPIC_API_KEY)', done: llmEnabled(), hint: 'Sem ela, o robô responde por menu.', optional: true },
   ]);

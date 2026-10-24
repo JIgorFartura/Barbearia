@@ -6,6 +6,7 @@ import { clubBilling } from './club.js';
 import { expireDeposits } from './deposits.js';
 import { birthdayGifts } from './growth.js';
 import { syncAsaasCharges } from './asaas.js';
+import { sweepStaleOnlinePayments } from './onlinePayments.js';
 import { invoiceReminders } from './invoiceReminders.js';
 import { accessStatus, ensureInvoices } from './billing.js';
 import { config } from './config.js';
@@ -287,6 +288,7 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
       // Cobrança PIX no Asaas (se configurado) e lembrete da mensalidade no WhatsApp da plataforma.
       if (config.automations) {
         await syncAsaasCharges().catch((err) => console.error('[asaas]', err));
+        await sweepStaleOnlinePayments().catch((err) => console.error('[asaas]', err));
         await invoiceReminders(now).catch((err) => console.error('[mensalidade]', err));
       }
     }

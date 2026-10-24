@@ -93,7 +93,7 @@ describe('mensalidade cobrada pelo Asaas', () => {
     assert.equal((await master('PUT', '/api/master/asaas', { env: 'sandbox', apiKey: '', nfse })).data.keyHint, '••••este');
   });
 
-  test('sem CPF/CNPJ, o dono é avisado; com o documento, a cobrança PIX nasce no Asaas', async () => {
+  test('sem CPF/CNPJ, o dono é avisado; com o documento, a cobrança nasce no Asaas (PIX, cartão ou boleto)', async () => {
     const before = (await owner('GET', '/api/shop/subscription')).data;
     assert.equal(before.billing.needsDocument, true);
     assert.equal((await owner('PUT', '/api/shop/billing-info', { document: '111.111.111-11', name: 'Carlos Lima' })).status, 400, 'CPF inválido');
@@ -113,7 +113,7 @@ describe('mensalidade cobrada pelo Asaas', () => {
     const payment = calls.find((c) => c.url.endsWith('/payments') && c.method === 'POST')!;
     assert.deepEqual(payment.body, {
       customer: 'cus_000001',
-      billingType: 'PIX',
+      billingType: 'UNDEFINED',
       value: 149.9,
       dueDate: today,
       description: 'Mensalidade outubro/2026',
@@ -125,7 +125,7 @@ describe('mensalidade cobrada pelo Asaas', () => {
     assert.equal(sub.current.pix.auto, true);
     assert.equal(sub.current.pix.payload, '00020101021226820014br.gov.bcb.pix-asaas');
     assert.equal(sub.current.pix.qr, 'data:image/png;base64,iVBORw0KGgo=');
-    assert.equal(sub.current.pix.url, 'https://sandbox.asaas.com/i/1');
+    assert.equal(sub.current.payUrl, 'https://sandbox.asaas.com/i/1', 'página do Asaas: PIX, cartão ou boleto');
     assert.equal(calls.filter((c) => c.url.endsWith('/payments') && c.method === 'POST').length, 1, 'uma cobrança só');
   });
 
@@ -140,6 +140,7 @@ describe('mensalidade cobrada pelo Asaas', () => {
     assert.deepEqual(inv, { status: 'paid', method: 'pix', paid_at: today });
     assert.equal(accessStatus(shopId).open.length, 0);
     assert.deepEqual(get("SELECT category, amount_cents FROM cash_entries WHERE invoice_id = ?", [invoiceId]), { category: 'Mensalidade do sistema', amount_cents: 14990 });
+    assert.deepEqual(get("SELECT status, method, applied, duplicate FROM gateway_payments WHERE external_id = 'pay_1'"), { status: 'RECEIVED', method: 'PIX', applied: 1, duplicate: 0 });
 
     await new Promise((resolve) => setTimeout(resolve, 30)); // a nota é pedida depois da resposta
     const nf = calls.find((c) => c.url.endsWith('/invoices') && c.method === 'POST')!;
@@ -174,6 +175,16 @@ describe('mensalidade cobrada pelo Asaas', () => {
     await master('POST', `/api/master/invoices/${paid}/pay`, { paid_at: today, method: 'dinheiro', notes: null });
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.ok(calls.some((c) => c.url.endsWith(`/payments/${payOf(paid)}/receiveInCash`)));
+    // O Asaas confirma a baixa manual: não é pagamento em dobro (e não conta como pago pelo Asaas).
+    const token = (await master('GET', '/api/master/asaas')).data.webhookToken;
+    const echo = (event: string, status: string, billingType: string) =>
+      webhook('POST', '/api/webhooks/asaas', { event, payment: { id: payOf(paid), status, billingType, value: 50 } }, { 'asaas-access-token': token });
+    await echo('PAYMENT_RECEIVED', 'RECEIVED_IN_CASH', 'UNDEFINED');
+    const row = () => get<{ status: string; duplicate: number }>('SELECT status, duplicate FROM gateway_payments WHERE external_id = ?', [payOf(paid)]);
+    assert.deepEqual(row(), { status: 'RECEIVED_IN_CASH', duplicate: 0 });
+    // Se a barbearia pagar com cartão mesmo assim (a baixa não chegou ao Asaas), fica marcado para devolver.
+    await echo('PAYMENT_CONFIRMED', 'CONFIRMED', 'CREDIT_CARD');
+    assert.deepEqual(row(), { status: 'CONFIRMED', duplicate: 1 });
     await master('POST', `/api/master/invoices/${cancelled}/cancel`);
     assert.ok(calls.some((c) => c.method === 'DELETE' && c.url.endsWith(`/payments/${payOf(cancelled)}`)));
   });

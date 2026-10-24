@@ -6,6 +6,8 @@ import { cancelMembership, clubCoverage, clubOverview, deletePlan, memberView, s
 import { shopNow } from '../clock.js';
 import { depositsOverview, refundDeposit, saveDepositSettings } from '../deposits.js';
 import { growthSettings, referralsOverview, saveGrowthSettings, upcomingBirthdays } from '../growth.js';
+import { shopOnlinePayments } from '../gatewayPayments.js';
+import { saveShopOnlineSettings, shopOnlineSettings } from '../onlinePayments.js';
 import { run } from '../db.js';
 import { METHODS } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
@@ -142,6 +144,20 @@ export function registerClubRoutes(router: Router): void {
   router.post('/charges/:id/refund', (req, res) => {
     const body = parseBody(z.object({ method: z.enum(METHODS).default('pix') }), req.body ?? {});
     res.json(refundDeposit(shopId(req), idParam(req), { userId: req.user!.id, method: body.method }));
+  });
+
+  // ---------- pagamento online dos clientes (cartão), com repasse para a conta Asaas da barbearia
+
+  router.get('/online', (req, res) => {
+    const shop = shopId(req);
+    res.json({ ...shopOnlineSettings(shop), payments: shopOnlinePayments(shop) });
+  });
+
+  router.put('/online', (req, res) => {
+    const body = parseBody(z.object({ enabled: z.boolean(), walletId: zText(60) }), req.body);
+    const shop = shopId(req);
+    saveShopOnlineSettings(shop, body);
+    res.json({ ...shopOnlineSettings(shop), payments: shopOnlinePayments(shop) });
   });
 
   // ---------- indique um amigo e aniversário

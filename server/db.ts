@@ -809,6 +809,46 @@ const MIGRATIONS: (string | Rebuild)[] = [
   `
   UPDATE sessions SET acting_shop_id = NULL;
   `,
+  // 10) Pagamentos online pelo Asaas da plataforma (cartão, boleto ou PIX): mensalidades das barbearias e,
+  //     dos clientes, clube e sinal, com repasse automático para a conta Asaas da barbearia (split).
+  `
+  CREATE TABLE gateway_payments (
+    id INTEGER PRIMARY KEY,
+    provider TEXT NOT NULL DEFAULT 'asaas',
+    external_id TEXT NOT NULL UNIQUE,
+    barbershop_id INTEGER REFERENCES barbershops(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('mensalidade', 'clube', 'sinal')),
+    invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+    charge_id INTEGER REFERENCES charges(id) ON DELETE SET NULL,
+    value_cents INTEGER NOT NULL,
+    -- Valor depois da taxa do Asaas (vem no aviso de pagamento).
+    net_cents INTEGER,
+    -- Parte da plataforma no repasse (o resto vai para a barbearia).
+    platform_fee_pct REAL NOT NULL DEFAULT 0,
+    -- PIX | BOLETO | CREDIT_CARD | DEBIT_CARD | UNDEFINED (o cliente escolhe)
+    method TEXT,
+    -- PENDING | CONFIRMED | RECEIVED | OVERDUE | REFUNDED | DELETED | ...
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    -- Já baixou a fatura/cobrança (os avisos de confirmado e recebido chegam os dois).
+    applied INTEGER NOT NULL DEFAULT 0,
+    -- Pago duas vezes (ex.: PIX direto e cartão): a barbearia devolve ao cliente.
+    duplicate INTEGER NOT NULL DEFAULT 0,
+    -- Estornado pelo Asaas depois de baixado: o repasse já saiu do caixa da barbearia.
+    refunded INTEGER NOT NULL DEFAULT 0,
+    invoice_url TEXT,
+    created_at TEXT NOT NULL,
+    paid_at TEXT,
+    updated_at TEXT
+  );
+  CREATE INDEX gateway_payments_shop ON gateway_payments (barbershop_id, created_at);
+  CREATE INDEX gateway_payments_charge ON gateway_payments (charge_id);
+
+  -- Carteira Asaas da barbearia (recebe o repasse) e se ela oferece cartão aos clientes.
+  ALTER TABLE barbershops ADD COLUMN asaas_wallet_id TEXT;
+  ALTER TABLE barbershops ADD COLUMN online_payments INTEGER NOT NULL DEFAULT 0;
+  -- Cadastro do cliente no Asaas (o CPF fica só lá, não no sistema).
+  ALTER TABLE customers ADD COLUMN asaas_customer_id TEXT;
+  `,
 ];
 
 function migrate(): void {

@@ -109,7 +109,7 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
     }
     run(
       `UPDATE customers SET name = 'Cliente removido', phone = ?, wa_id = NULL, pref_weekday = NULL, pref_time = NULL, pref_barber_id = NULL,
-              pref_service_id = NULL, pref_interval_days = NULL, reminders_opt_out = 1, birth_date = NULL, referral_code = NULL, anonymized_at = ? WHERE id = ?`,
+              pref_service_id = NULL, pref_interval_days = NULL, reminders_opt_out = 1, birth_date = NULL, referral_code = NULL, asaas_customer_id = NULL, anonymized_at = ? WHERE id = ?`,
       [`removido-${customerId}`, nowIso(), customerId],
     );
   });

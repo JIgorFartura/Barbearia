@@ -1,5 +1,7 @@
 import { charge, chargePayload, confirmCharge, type ChargeView } from './charges.js';
 import { shopNow } from './clock.js';
+import { issueAccessLink } from './customerAuth.js';
+import { onlineStatus } from './onlinePayments.js';
 import { all, get, run, tx } from './db.js';
 import type { Method } from './finance.js';
 import { HttpError } from './http.js';
@@ -297,20 +299,29 @@ export function clubCoverage(shopId: number, customerId: number, date: string): 
 
 // ---------- cobrança pelo WhatsApp
 
-/** Manda a mensalidade com o PIX copia e cola (em mensagem separada, fácil de copiar). */
+/**
+ * Manda a mensalidade com o PIX copia e cola (em mensagem separada, fácil de copiar) e, se a barbearia
+ * aceita cartão, o link da área do cliente para pagar online.
+ */
 export async function sendClubCharge(shop: ShopBot, chargeId: number, opts: { late?: boolean } = {}): Promise<boolean> {
   const c = charge(chargeId, shop.id);
+  if (!c.club_member_id || !c.due_date) return false;
   const payload = chargePayload(c);
-  // Sem chave PIX cadastrada, a barbearia cobra no balcão.
-  if (!payload || !c.club_member_id || !c.due_date) return false;
+  const area = onlineStatus(shop.id).available ? issueAccessLink(c.customer_id, shop.slug) : null;
+  // Sem chave PIX e sem cartão, a barbearia cobra no balcão.
+  if (!payload && !area) return false;
+  // Na API oficial fora da janela de 24h só vai o modelo aprovado, que leva o PIX.
+  const viaTemplate = sendsTemplate(shop, c.phone);
+  if (!payload && viaTemplate) return false;
   const plan = get<{ name: string }>('SELECT p.name FROM club_members m JOIN club_plans p ON p.id = m.plan_id WHERE m.id = ?', [c.club_member_id])!.name;
   const first = firstName(c.customer_name);
   const label = clubLabel(plan);
+  const how = payload
+    ? `O PIX copia e cola vai na próxima mensagem; depois de pagar, é só responder *paguei*.${area ? `\nPrefere cartão? Pague pela sua área: ${area}` : ''}`
+    : `Pague com cartão pela sua área: ${area}`;
   const text = opts.late
-    ? `Oi, ${first}! A mensalidade do ${label} (${money(c.amount_cents)}) venceu em ${br(c.due_date)} e o pagamento ainda não apareceu aqui. Enquanto isso, os benefícios do clube ficam pausados. O PIX copia e cola vai na próxima mensagem; depois de pagar, é só responder *paguei*.`
-    : `Oi, ${first}! Aqui é o ${shop.bot_name}, da ${shop.name}. A mensalidade do ${label} (${money(c.amount_cents)}) vence em ${br(c.due_date)}. O PIX copia e cola vai na próxima mensagem; depois de pagar, é só responder *paguei*. 💈`;
-  // Na API oficial fora da janela de 24h só vai o modelo aprovado, que já leva o PIX.
-  const viaTemplate = sendsTemplate(shop, c.phone);
+    ? `Oi, ${first}! A mensalidade do ${label} (${money(c.amount_cents)}) venceu em ${br(c.due_date)} e o pagamento ainda não apareceu aqui. Enquanto isso, os benefícios do clube ficam pausados. ${how}`
+    : `Oi, ${first}! Aqui é o ${shop.bot_name}, da ${shop.name}. 💈 A mensalidade do ${label} (${money(c.amount_cents)}) vence em ${br(c.due_date)}. ${how}`;
   const sentText = await sendMessage({
     shop,
     customerId: c.customer_id,
@@ -318,10 +329,10 @@ export async function sendClubCharge(shop: ShopBot, chargeId: number, opts: { la
     waId: c.wa_id,
     kind: 'assinatura',
     text,
-    template: { kind: 'assinatura', params: [first, label, money(c.amount_cents), br(c.due_date), payload] },
+    template: payload ? { kind: 'assinatura', params: [first, label, money(c.amount_cents), br(c.due_date), payload] } : undefined,
   });
   if (sentText.status === 'failed') return false;
-  if (!viaTemplate) await sendMessage({ shop, customerId: c.customer_id, phone: c.phone, waId: c.wa_id, kind: 'assinatura', text: payload });
+  if (payload && !viaTemplate) await sendMessage({ shop, customerId: c.customer_id, phone: c.phone, waId: c.wa_id, kind: 'assinatura', text: payload });
   return true;
 }
 

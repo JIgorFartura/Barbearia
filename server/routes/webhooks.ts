@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { handleAsaasEvent } from '../asaas.js';
+import { handleAsaasEvent } from '../asaasWebhook.js';
 import { handleInbound } from '../bot/inbound.js';
 import { setConnection } from '../connection.js';
 import { get } from '../db.js';

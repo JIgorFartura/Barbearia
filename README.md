@@ -28,12 +28,17 @@ aniversário, comércios parceiros e um robô que lembra dele (até da cerveja d
 |---|---|---|
 | <img src="docs/img/master.png" width="300" alt="Painel master"> | <img src="docs/img/master-piloto.png" width="300" alt="Checklist do piloto"> | <img src="docs/img/master-financeiro.png" width="300" alt="Financeiro do master"> |
 
+| Pagar com cartão (cliente) | Receber com cartão (barbearia) | Pagamentos online (master) |
+|---|---|---|
+| <img src="docs/img/cartao-cliente.png" width="200" alt="Pagar com cartão"> | <img src="docs/img/cartao-barbearia.png" width="260" alt="Receber com cartão"> | <img src="docs/img/master-pagamentos.png" width="420" alt="Pagamentos online no master"> |
+
 ## Quatro perfis
 
 - **Master** (dono da plataforma) cuida **só do controle geral**: cria a barbearia e entrega o
   acesso ao dono (plano, valor, dia de vencimento, dias grátis e a mensagem pronta com o link e a
-  senha), troca a senha e o celular do dono, suspende ou reativa, acompanha as **mensalidades**,
-  configura o **Asaas**, o **WhatsApp da plataforma**, os **termos e a política de privacidade**,
+  senha), troca a senha e o celular do dono, suspende ou reativa, acompanha as **mensalidades** e
+  os **pagamentos online** (o que passou pelo Asaas, com a parte da plataforma e o repasse, sem
+  dados dos clientes), configura o **Asaas**, o **WhatsApp da plataforma**, os **termos e a política de privacidade**,
   as **cópias de segurança** e os **avisos** que aparecem no painel de todas as barbearias. A aba
   *Sistema* tem o checklist **"Pronto para o piloto?"**. O master **não vê** agenda, barbeiros,
   clientes nem conversas (são da barbearia): a API recusa o master em qualquer rota do painel.
@@ -46,7 +51,7 @@ aniversário, comércios parceiros e um robô que lembra dele (até da cerveja d
   os clientes dão para ele. Não vê caixa, comissão dos colegas nem configurações.
 - **Cliente** (`/b/<endereço>/conta`): entra pelo celular com um **código enviado pelo robô no
   WhatsApp** (ou pelo link que o robô manda) e fica logado por 180 dias. Agenda e cancela, paga o
-  **sinal**, assina o **clube**, vê o cartão fidelidade, pega vouchers, manda o **link de
+  **sinal** e o **clube** por PIX ou **cartão**, assina o **clube**, vê o cartão fidelidade, pega vouchers, manda o **link de
   indicação**, informa o **aniversário** e o horário de costume, vê as próprias compras, **baixa
   os próprios dados** e pode **excluir a conta** (LGPD).
 
@@ -103,7 +108,7 @@ de receber as de marketing.
 - **Avaliação depois do corte** (padrão 2h depois; no máximo uma por cliente a cada 30 dias).
 - **Presente de aniversário** no dia, com voucher.
 - **Mensalidade do clube** 3 dias antes de vencer (com o PIX em mensagem separada, fácil de
-  copiar) e um lembrete se atrasar.
+  copiar, e o link para pagar com cartão quando a barbearia aceita) e um lembrete se atrasar.
 - **Pedido do sinal** logo depois de marcar pelo site (com o PIX) e o aviso de **vaga liberada**
   quando o sinal não é pago no prazo (esses dois saem a qualquer hora: são resposta ao pedido do
   cliente).
@@ -111,9 +116,10 @@ de receber as de marketing.
 ## Agenda, sinal e barbeiros
 
 - **Agenda** por barbeiro, encaixe pelo balcão, falta, cancelamento e **fechar o atendimento**.
-- **Sinal via PIX** (botão *Sinal* na agenda): sem sinal, só de quem já faltou (últimos 6 meses)
-  ou de todos que marcam pelo site/WhatsApp. O horário fica **segurado** esperando o PIX (QR Code
-  e copia e cola direto na chave da barbearia); sem pagamento no prazo, a vaga é liberada sozinha.
+- **Sinal via PIX ou cartão** (botão *Sinal* na agenda): sem sinal, só de quem já faltou (últimos
+  6 meses) ou de todos que marcam pelo site/WhatsApp. O horário fica **segurado** esperando o
+  pagamento (QR Code e copia e cola direto na chave da barbearia, ou cartão pela área do cliente);
+  sem pagamento no prazo, a vaga é liberada sozinha.
   O sinal é **abatido no fechamento**. Cancelou com antecedência (ou a barbearia cancelou): vira
   **crédito** para o próximo horário (o dono pode devolver). Em cima da hora ou falta: fica com a
   barbearia. Assinantes do clube não pagam sinal.
@@ -124,8 +130,9 @@ de receber as de marketing.
 
 O cliente paga um valor fixo por mês e usa os serviços do plano **sem pagar na hora**, até o
 limite do mês (ou à vontade). Ele assina pela **área do cliente** (ou o dono adiciona no balcão)
-e paga por **PIX direto na chave da barbearia**; avisa com *Já paguei* (ou *paguei* no WhatsApp)
-e o dono confere no banco e confirma pelo aviso no topo do painel, e só então entra no caixa. Na
+e paga por **PIX direto na chave da barbearia** (avisa com *Já paguei*, ou *paguei* no WhatsApp,
+e o dono confere no banco e confirma pelo aviso no topo do painel, e só então entra no caixa) ou
+com **cartão, boleto ou PIX pelo Asaas**, com baixa automática (veja *Pagamentos online*). Na
 comanda, o que o plano cobre já sai por **R$ 0**, e a comissão do barbeiro é calculada sobre o
 preço normal (na % que o dono escolher). Atrasou, os benefícios pausam até o pagamento. Os planos
 aparecem no site da barbearia.
@@ -160,9 +167,10 @@ aparecem no site da barbearia.
 
 - O master define **planos** (ou um valor por barbearia), o **dia de vencimento** e os **dias
   grátis**. As faturas são geradas sozinhas; dá para criar uma **cobrança avulsa**.
-- **Com o Asaas** (opcional, aba *Financeiro* do master): cada fatura vira uma cobrança PIX com
-  QR Code próprio; quando o PIX cai, o Asaas avisa (webhook com token) e a fatura é **baixada
-  sozinha**. Com a nota fiscal ligada, o Asaas emite a **NFS-e** de cada mensalidade paga (link no
+- **Com o Asaas** (opcional, aba *Financeiro* do master): cada fatura vira uma cobrança no Asaas;
+  a barbearia paga com o **PIX** da tela (QR Code próprio) ou com **cartão de crédito ou boleto**
+  na página do Asaas. Quando o pagamento cai, o Asaas avisa (webhook com token) e a fatura é
+  **baixada sozinha**. Com a nota fiscal ligada, o Asaas emite a **NFS-e** de cada mensalidade paga (link no
   painel do dono e do master). O dono informa CPF/CNPJ e nome na tela *Mensalidade*.
 - **Sem o Asaas**: PIX copia e cola com a chave do master e confirmação manual (*Já paguei* →
   *Confirmar pagamento*).
@@ -170,6 +178,37 @@ aparecem no site da barbearia.
 - **Carência** (padrão 5 dias): passou disso, o painel só abre a tela da mensalidade, o robô
   responde só pelo menu e as automáticas param. O **site e a área do cliente continuam no ar**.
   O master pode **liberar até uma data** ou **suspender**.
+
+## Pagamentos online (cartão)
+
+Com o Asaas ligado, a plataforma também recebe **com cartão** e mostra tudo ao master:
+
+- **Barbearias**: a mensalidade pode ser paga com cartão de crédito, boleto ou PIX (tela
+  *Mensalidade*), com baixa automática.
+- **Clientes das barbearias**: na área do cliente aparece **Pagar com cartão** na mensalidade do
+  clube (cartão, boleto ou PIX) e no sinal do horário (só cartão, que cai na hora). O pagamento é
+  feito na **página segura do Asaas**: o sistema nunca recebe nem guarda dados de cartão. Na
+  primeira vez o cliente informa o **CPF**, que vai só para o Asaas (o banco exige) e não fica no
+  sistema.
+- **Repasse automático (split)**: o pagamento entra na conta Asaas da plataforma e é repassado na
+  hora para a **conta Asaas da barbearia**, descontada a **taxa da plataforma** (de 0% a 30%,
+  definida pelo master, sobre o valor líquido depois da taxa do Asaas).
+- **Baixa automática**: quando o Asaas avisa, a mensalidade do clube ou o sinal fica pago, entra
+  no caixa da barbearia e as **taxas** (do Asaas e da plataforma) saem como despesa, para o saldo
+  bater com o que caiu na conta. Os avisos repetidos não duplicam nada. Pago depois de a vaga ser
+  liberada: o sinal vira **crédito**. Pago de dois jeitos (PIX direto e cartão): fica marcado para
+  a barbearia **devolver**. Estornado no Asaas: o repasse sai do caixa da barbearia sozinho. Link
+  de pagamento que não vale mais (cobrança paga de outro jeito ou cancelada) é apagado no Asaas.
+- **Master** (*Financeiro → Pagamentos online*): por período e tipo (mensalidades, clube, sinal),
+  quanto foi pago, as taxas do Asaas, a **sua parte** e o **repassado às barbearias**, por forma de
+  pagamento e um a um (barbearia, tipo, forma, valor, situação), **sem o nome dos clientes**. O
+  cartão do Asaas mostra quando chegou o **último aviso** (sinal de que o webhook está ligado).
+- **Dono** (*Clube de assinatura → Receber com cartão*): informa o **Wallet ID** da conta Asaas
+  dele, liga o cartão e vê os **recebidos online** (cliente, valor, quanto cai na conta dele).
+
+Para ligar: no master, chave de API do Asaas (comece no ambiente de testes), webhook com todos os
+eventos de cobranças, *Liberar pagamento com cartão* e a taxa. Em cada barbearia: conta no Asaas,
+Wallet ID colado em *Receber com cartão*.
 
 ## Privacidade (LGPD) e segurança
 
@@ -196,11 +235,12 @@ O master tem o checklist **"Pronto para o piloto?"** na aba *Sistema*:
    WhatsApp desconectado) e o **seu celular** em *Minha conta*.
 5. **Dados da empresa** nos termos e na política (nome, CNPJ, e-mail).
 6. **Recebimento das mensalidades**: chave PIX ou Asaas.
-7. Recomendado: `ANTHROPIC_API_KEY` para o robô conversar com IA.
+7. Opcional: **cartão** para barbearias e clientes (Asaas em produção, recebendo os avisos).
+8. Recomendado: `ANTHROPIC_API_KEY` para o robô conversar com IA.
 
 Na barbearia, o resumo do painel mostra os **Primeiros passos** (marca, barbeiros, serviços,
 WhatsApp conectado, celular do dono, primeiro cliente, primeiro atendimento fechado, chave PIX e
-link do Google).
+link do Google) e, quando a plataforma libera, o **cartão** em *Clube de assinatura*.
 
 ## Rodar no computador
 
@@ -273,6 +313,8 @@ server/
   club.ts           clube de assinatura; deposits.ts: sinal; reviews.ts: avaliações
   growth.ts         indique um amigo e aniversário; offers.ts: benefícios e vouchers
   billing.ts        mensalidades da plataforma; asaas.ts: Asaas; invoiceReminders.ts
+  onlinePayments.ts pagamento com cartão dos clientes (repasse); gatewayPayments.ts: registro do que passou pelo Asaas
+  asaasWebhook.ts   avisos do Asaas (pagamentos, estornos, nota fiscal)
   privacy.ts        LGPD; backup.ts: cópias de segurança; passwordReset.ts
   routes/           master, painel (shop, agenda, bot, finance, stock, club), barbeiro, cliente, público, webhooks
 web/src/
@@ -289,6 +331,6 @@ tools/                    seed-demo.ts (demonstração), restore-backup.ts (rest
 
 Tudo acima tem teste automático e foi conferido no navegador com dados de demonstração. Ainda
 precisam ser conferidos com as contas reais, no piloto: o envio pelo **WhatsApp oficial (Meta)**
-e pela **Evolution** com os modelos aprovados, a **cobrança e a nota fiscal no Asaas** (testado
-com um simulador da API), o envio da cópia de segurança para o seu **armazenamento S3** e o
-**PIX** pago de verdade num aplicativo de banco.
+e pela **Evolution** com os modelos aprovados, a **cobrança, o cartão, o repasse (split) e a nota
+fiscal no Asaas** (testados com um simulador da API), o envio da cópia de segurança para o seu
+**armazenamento S3** e o **PIX** pago de verdade num aplicativo de banco.

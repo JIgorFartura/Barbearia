@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { OnlinePayButton } from '../components/OnlinePay';
 import { PixPay } from '../components/Pix';
 import { Button, ErrorText, Modal } from '../components/ui';
 import { api } from '../lib/api';
@@ -17,9 +18,12 @@ export interface CustomerDeposit {
 interface DepositDetail extends CustomerDeposit {
   description: string;
   pix: { payload: string; qr: string } | null;
+  /** A barbearia aceita cartão (página segura do Asaas); na primeira vez o cliente informa o CPF. */
+  online: boolean;
+  needsCpf: boolean;
 }
 
-/** Pagar o sinal: PIX (QR Code e copia e cola) e "Já paguei". */
+/** Pagar o sinal: PIX (QR Code e copia e cola) e "Já paguei", ou cartão. */
 export function DepositPayModal({
   slug,
   depositId,
@@ -71,11 +75,22 @@ export function DepositPayModal({
                 Pague o sinal{d.expires_local ? ` até as ${hourLabel(d.expires_local.slice(11))}` : ''} para garantir o horário; sem ele, a vaga é liberada. O valor é
                 descontado no dia.
               </p>
-              {d.pix ? <PixPay pix={d.pix} /> : <p className="text-zinc-600">Fale com a barbearia para pagar o sinal.</p>}
-              <ErrorText error={error} />
-              <Button className="w-full" loading={busy} style={{ background: accent, color: '#09090b' }} onClick={claim}>
-                Já paguei
-              </Button>
+              {d.pix && (
+                <>
+                  <PixPay pix={d.pix} />
+                  <ErrorText error={error} />
+                  <Button className="w-full" loading={busy} style={{ background: accent, color: '#09090b' }} onClick={claim}>
+                    Já paguei
+                  </Button>
+                </>
+              )}
+              {d.online && (
+                <>
+                  {d.pix && <p className="text-center text-xs text-zinc-400">ou</p>}
+                  <OnlinePayButton slug={slug} chargeId={d.id} needsCpf={d.needsCpf} accent={accent} />
+                </>
+              )}
+              {!d.pix && !d.online && <p className="text-zinc-600">Fale com a barbearia para pagar o sinal.</p>}
             </>
           )}
           {(d.paid || d.claimed) && (

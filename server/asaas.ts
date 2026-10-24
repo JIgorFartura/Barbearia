@@ -1,13 +1,15 @@
 import crypto from 'node:crypto';
 import { cancelInvoice, invoice, markInvoicePaid, type InvoiceView } from './billing.js';
 import { all, get, run, tx } from './db.js';
+import { recordGatewayPayment } from './gatewayPayments.js';
 import { HttpError } from './http.js';
 import { localNow } from './time.js';
 
 /**
- * Mensalidade cobrada pelo Asaas (opcional). Cada fatura vira uma cobrança PIX com QR Code próprio;
- * quando o PIX cai, o Asaas avisa (webhook) e a fatura é baixada sozinha, liberando o acesso.
- * Com a nota fiscal ligada, o Asaas emite a NFS-e de cada mensalidade paga.
+ * Asaas da plataforma (opcional). Cada mensalidade vira uma cobrança que a barbearia paga com PIX
+ * (QR Code na tela), cartão ou boleto; quando o pagamento cai, o Asaas avisa (webhook) e a fatura é
+ * baixada sozinha, liberando o acesso. Com a nota fiscal ligada, o Asaas emite a NFS-e de cada
+ * mensalidade paga. Os pagamentos online dos clientes das barbearias ficam em onlinePayments.ts.
  * Sem Asaas configurado, continua o PIX estático do master com confirmação manual.
  */
 
@@ -19,6 +21,10 @@ export interface AsaasSettings {
   /** Token que o Asaas manda no cabeçalho asaas-access-token de cada aviso (webhook). */
   webhookToken: string;
   nfse: { enabled: boolean; serviceName: string; serviceCode: string; iss: number; observations: string };
+  /** Pagamentos online dos clientes das barbearias (cartão), com repasse para a conta Asaas de cada uma. */
+  online: { enabled: boolean; feePct: number };
+  /** Quando chegou o último aviso válido do Asaas (mostra que o webhook está ligado). */
+  webhookAt: string | null;
 }
 
 const BASE: Record<AsaasEnv, string> = { sandbox: 'https://api-sandbox.asaas.com/v3', production: 'https://api.asaas.com/v3' };
@@ -26,7 +32,19 @@ const BASE: Record<AsaasEnv, string> = { sandbox: 'https://api-sandbox.asaas.com
 /** Nos testes, troca-se a função que fala com o Asaas. */
 export const asaasHttp = { fetch: ((...args: Parameters<typeof fetch>) => fetch(...args)) as typeof fetch };
 
-const KEYS = ['asaas_env', 'asaas_api_key', 'asaas_webhook_token', 'nfse_enabled', 'nfse_service_name', 'nfse_service_code', 'nfse_iss', 'nfse_observations'];
+const KEYS = [
+  'asaas_env',
+  'asaas_api_key',
+  'asaas_webhook_token',
+  'nfse_enabled',
+  'nfse_service_name',
+  'nfse_service_code',
+  'nfse_iss',
+  'nfse_observations',
+  'online_enabled',
+  'online_fee_pct',
+  'asaas_webhook_at',
+];
 
 export function asaasSettings(): AsaasSettings {
   const rows = all<{ key: string; value: string }>(`SELECT key, value FROM platform_settings WHERE key IN (${KEYS.map(() => '?').join(', ')})`, KEYS);
@@ -42,13 +60,15 @@ export function asaasSettings(): AsaasSettings {
       iss: Number(m.nfse_iss ?? 0),
       observations: m.nfse_observations ?? '',
     },
+    online: { enabled: m.online_enabled === '1', feePct: Number(m.online_fee_pct ?? 0) },
+    webhookAt: m.asaas_webhook_at ?? null,
   };
 }
 
 const setKey = (key: string, value: string) =>
   run('INSERT INTO platform_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, value]);
 
-export function saveAsaasSettings(s: { env: AsaasEnv; apiKey?: string | null; nfse: AsaasSettings['nfse'] }): AsaasSettings {
+export function saveAsaasSettings(s: { env: AsaasEnv; apiKey?: string | null; nfse: AsaasSettings['nfse']; online?: AsaasSettings['online'] }): AsaasSettings {
   tx(() => {
     setKey('asaas_env', s.env);
     // Chave em branco = mantém a atual (a tela nunca recebe a chave de volta).
@@ -59,11 +79,18 @@ export function saveAsaasSettings(s: { env: AsaasEnv; apiKey?: string | null; nf
     setKey('nfse_service_code', s.nfse.serviceCode);
     setKey('nfse_iss', String(s.nfse.iss));
     setKey('nfse_observations', s.nfse.observations);
+    if (s.online) {
+      setKey('online_enabled', s.online.enabled ? '1' : '0');
+      setKey('online_fee_pct', String(s.online.feePct));
+    }
   });
   return asaasSettings();
 }
 
 export const asaasEnabled = () => Boolean(asaasSettings().apiKey);
+
+/** Chegou um aviso válido do Asaas. */
+export const markWebhookSeen = () => setKey('asaas_webhook_at', new Date().toISOString());
 
 /** Novo token do webhook (o master atualiza no Asaas). */
 export function rotateWebhookToken(): string {
@@ -81,7 +108,7 @@ export class AsaasError extends Error {
   }
 }
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function asaasCall<T>(method: string, path: string, body?: unknown): Promise<T> {
   const s = asaasSettings();
   if (!s.apiKey) throw new AsaasError('Asaas não configurado.', 0);
   let res: Response;
@@ -112,7 +139,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 /** Confere a chave (lista um cliente qualquer). */
 export async function testAsaas(): Promise<void> {
-  await call('GET', '/customers?limit=1');
+  await asaasCall('GET', '/customers?limit=1');
 }
 
 // ---------- cobrança de cada fatura
@@ -133,7 +160,7 @@ async function ensureCustomer(shopId: number): Promise<string> {
   if (s.asaas_customer_id) return s.asaas_customer_id;
   if (!s.billing_document) throw new AsaasError('Falta o CPF ou CNPJ da barbearia (o dono informa na tela Mensalidade).', 0);
   const owner = get<{ email: string | null; phone: string | null }>("SELECT email, phone FROM users WHERE barbershop_id = ? AND role = 'owner' ORDER BY id LIMIT 1", [shopId]);
-  const c = await call<{ id: string }>('POST', '/customers', {
+  const c = await asaasCall<{ id: string }>('POST', '/customers', {
     name: s.billing_name || s.name,
     cpfCnpj: s.billing_document,
     email: s.billing_email || owner?.email || undefined,
@@ -148,7 +175,10 @@ async function ensureCustomer(shopId: number): Promise<string> {
 
 const inFlight = new Set<number>();
 
-/** Cria no Asaas a cobrança PIX da fatura (uma vez) e guarda o QR Code. Erros ficam na fatura. */
+/**
+ * Cria no Asaas a cobrança da fatura (uma vez) e guarda o QR Code do PIX. A barbearia escolhe como
+ * pagar na página do Asaas: PIX, cartão de crédito ou boleto. Erros ficam na fatura.
+ */
 export async function chargeInvoice(invoiceId: number): Promise<boolean> {
   if (!asaasEnabled() || inFlight.has(invoiceId)) return false;
   const inv = get<{ id: number; barbershop_id: number; status: string; amount_cents: number; due_date: string; description: string; asaas_payment_id: string | null }>(
@@ -162,9 +192,10 @@ export async function chargeInvoice(invoiceId: number): Promise<boolean> {
     if (!paymentId) {
       const customer = await ensureCustomer(inv.barbershop_id);
       const today = localNow().date;
-      const p = await call<{ id: string; invoiceUrl: string | null }>('POST', '/payments', {
+      const p = await asaasCall<{ id: string; invoiceUrl: string | null }>('POST', '/payments', {
         customer,
-        billingType: 'PIX',
+        // Indefinida: na página do Asaas a barbearia escolhe PIX, cartão de crédito ou boleto.
+        billingType: 'UNDEFINED',
         value: inv.amount_cents / 100,
         // O Asaas não aceita vencimento no passado (fatura já vencida vence hoje).
         dueDate: inv.due_date < today ? today : inv.due_date,
@@ -173,8 +204,17 @@ export async function chargeInvoice(invoiceId: number): Promise<boolean> {
       });
       paymentId = p.id;
       run('UPDATE invoices SET asaas_payment_id = ?, asaas_invoice_url = ?, asaas_error = NULL WHERE id = ?', [p.id, p.invoiceUrl ?? null, inv.id]);
+      recordGatewayPayment({
+        externalId: p.id,
+        shopId: inv.barbershop_id,
+        kind: 'mensalidade',
+        invoiceId: inv.id,
+        valueCents: inv.amount_cents,
+        method: 'UNDEFINED',
+        invoiceUrl: p.invoiceUrl ?? null,
+      });
     }
-    const qr = await call<{ encodedImage: string; payload: string }>('GET', `/payments/${paymentId}/pixQrCode`);
+    const qr = await asaasCall<{ encodedImage: string; payload: string }>('GET', `/payments/${paymentId}/pixQrCode`);
     run('UPDATE invoices SET asaas_pix_payload = ?, asaas_pix_qr = ?, asaas_error = NULL WHERE id = ?', [qr.payload, `data:image/png;base64,${qr.encodedImage}`, inv.id]);
     return true;
   } catch (err) {
@@ -200,8 +240,13 @@ export async function syncAsaasCharges(limit = 20): Promise<number> {
   return created;
 }
 
-/** PIX do Asaas para a tela da mensalidade (cria a cobrança na hora, se ainda não existe). */
-export async function asaasPix(inv: InvoiceView): Promise<{ payload: string; qr: string; url: string | null } | { error: string } | null> {
+/**
+ * Cobrança do Asaas para a tela da mensalidade (cria na hora, se ainda não existe): o QR Code do PIX
+ * e o link da página do Asaas, onde a barbearia também pode pagar com cartão ou boleto.
+ */
+export async function asaasPix(
+  inv: InvoiceView,
+): Promise<{ payload: string | null; qr: string | null; url: string | null } | { error: string } | null> {
   if (!asaasEnabled() || inv.status !== 'open') return null;
   const read = () =>
     get<{ asaas_pix_payload: string | null; asaas_pix_qr: string | null; asaas_invoice_url: string | null; asaas_error: string | null }>(
@@ -213,48 +258,39 @@ export async function asaasPix(inv: InvoiceView): Promise<{ payload: string; qr:
     await chargeInvoice(inv.id);
     r = read();
   }
-  if (r.asaas_pix_payload && r.asaas_pix_qr) return { payload: r.asaas_pix_payload, qr: r.asaas_pix_qr, url: r.asaas_invoice_url };
+  if (r.asaas_pix_payload || r.asaas_invoice_url) return { payload: r.asaas_pix_payload, qr: r.asaas_pix_qr, url: r.asaas_invoice_url };
   return { error: r.asaas_error ?? 'Cobrança ainda não disponível.' };
 }
 
 // ---------- baixa automática (webhook) e nota fiscal
 
-function sameToken(a: string, b: string): boolean {
+export function sameToken(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-interface AsaasEvent {
-  event?: string;
-  payment?: { id?: string; paymentDate?: string | null; clientPaymentDate?: string | null; confirmedDate?: string | null; billingType?: string };
-  invoice?: { id?: string; status?: string; pdfUrl?: string | null };
+export interface AsaasPayment {
+  id?: string;
+  status?: string;
+  billingType?: string;
+  value?: number;
+  netValue?: number | null;
+  paymentDate?: string | null;
+  clientPaymentDate?: string | null;
+  confirmedDate?: string | null;
 }
 
-/**
- * Aviso do Asaas. Responde rápido: a nota fiscal é pedida depois, sem segurar a resposta.
- * Erros de negócio (fatura já cancelada etc.) não voltam como erro, senão o Asaas pausa a fila de avisos.
- */
-export function handleAsaasEvent(token: string | undefined, body: AsaasEvent): { ok: true; invoiceId?: number; note?: string } {
-  const s = asaasSettings();
-  if (!s.webhookToken || !token || !sameToken(token, s.webhookToken)) throw new HttpError(401, 'Token do webhook inválido.');
-  const event = body.event ?? '';
+const PAID_METHOD: Record<string, string> = { BOLETO: 'boleto', CREDIT_CARD: 'cartao', DEBIT_CARD: 'cartao', PIX: 'pix' };
 
-  if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
-    const inv = body.payment?.id ? get<{ id: number; status: string }>('SELECT id, status FROM invoices WHERE asaas_payment_id = ?', [body.payment.id]) : undefined;
-    if (!inv) return { ok: true, note: 'cobrança desconhecida' };
-    if (inv.status !== 'open') return { ok: true, invoiceId: inv.id, note: `fatura ${inv.status}` };
-    const paidAt = (body.payment?.paymentDate ?? body.payment?.clientPaymentDate ?? body.payment?.confirmedDate ?? localNow().date).slice(0, 10);
-    markInvoicePaid(inv.id, { paid_at: paidAt, method: body.payment?.billingType === 'BOLETO' ? 'boleto' : 'pix', notes: 'Baixa automática pelo Asaas.' });
-    if (s.nfse.enabled) void issueNfse(inv.id);
-    return { ok: true, invoiceId: inv.id };
-  }
-
-  if (event.startsWith('INVOICE_') && body.invoice?.id) {
-    run('UPDATE invoices SET nfse_status = ?, nfse_url = COALESCE(?, nfse_url) WHERE nfse_id = ?', [body.invoice.status ?? event, body.invoice.pdfUrl ?? null, body.invoice.id]);
-    return { ok: true };
-  }
-  return { ok: true, note: 'evento ignorado' };
+/** Mensalidade paga pelo Asaas: baixa a fatura (e pede a nota fiscal, se ligada). */
+export function invoicePaidByAsaas(invoiceId: number, p: AsaasPayment): { ok: true; invoiceId: number; note?: string } {
+  const inv = get<{ id: number; status: string }>('SELECT id, status FROM invoices WHERE id = ?', [invoiceId])!;
+  if (inv.status !== 'open') return { ok: true, invoiceId: inv.id, note: `fatura ${inv.status}` };
+  const paidAt = (p.confirmedDate ?? p.paymentDate ?? p.clientPaymentDate ?? localNow().date).slice(0, 10);
+  markInvoicePaid(inv.id, { paid_at: paidAt, method: PAID_METHOD[p.billingType ?? ''] ?? 'pix', notes: 'Baixa automática pelo Asaas.' });
+  if (asaasSettings().nfse.enabled) void issueNfse(inv.id);
+  return { ok: true, invoiceId: inv.id };
 }
 
 /** Pede ao Asaas a nota fiscal (NFS-e) da mensalidade paga. Erros ficam na fatura para o master ver. */
@@ -266,7 +302,7 @@ export async function issueNfse(invoiceId: number): Promise<boolean> {
   );
   if (!s.nfse.enabled || !inv || inv.status !== 'paid' || !inv.asaas_payment_id || inv.nfse_id) return false;
   try {
-    const nf = await call<{ id: string; status: string }>('POST', '/invoices', {
+    const nf = await asaasCall<{ id: string; status: string }>('POST', '/invoices', {
       payment: inv.asaas_payment_id,
       serviceDescription: inv.description,
       observations: s.nfse.observations || 'Mensalidade do sistema de gestão para barbearias.',
@@ -292,7 +328,7 @@ export async function syncManualPayment(invoiceId: number): Promise<void> {
   ]);
   if (!inv?.asaas_payment_id || !asaasEnabled()) return;
   try {
-    await call('POST', `/payments/${inv.asaas_payment_id}/receiveInCash`, { paymentDate: inv.paid_at ?? localNow().date, value: inv.amount_cents / 100, notifyCustomer: false });
+    await asaasCall('POST', `/payments/${inv.asaas_payment_id}/receiveInCash`, { paymentDate: inv.paid_at ?? localNow().date, value: inv.amount_cents / 100, notifyCustomer: false });
   } catch (err) {
     run('UPDATE invoices SET asaas_error = ? WHERE id = ?', [`Baixa no Asaas: ${(err as Error).message}`.slice(0, 300), invoiceId]);
   }
@@ -304,7 +340,7 @@ export async function cancelAsaasCharge(invoiceId: number): Promise<void> {
   const inv = get<{ asaas_payment_id: string | null }>('SELECT asaas_payment_id FROM invoices WHERE id = ?', [invoiceId]);
   if (!inv?.asaas_payment_id || !asaasEnabled()) return;
   try {
-    await call('DELETE', `/payments/${inv.asaas_payment_id}`);
+    await asaasCall('DELETE', `/payments/${inv.asaas_payment_id}`);
   } catch (err) {
     run('UPDATE invoices SET asaas_error = ? WHERE id = ?', [`Cancelar no Asaas: ${(err as Error).message}`.slice(0, 300), invoiceId]);
   }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { OnlineSettingsCard } from '../../components/OnlinePay';
 import { PixSettingsCard } from '../../components/Pix';
 import { Badge, Button, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -25,6 +26,8 @@ interface DepositRow {
 interface Overview {
   settings: Settings;
   hasPix: boolean;
+  /** Aceita cartão (pagamento online pelo Asaas, com baixa automática). */
+  online: boolean;
   open: DepositRow[];
   credits: DepositRow[];
 }
@@ -58,7 +61,7 @@ const CREDIT = [
   { value: 48, label: '48 horas antes' },
 ];
 
-/** Configuração do sinal via PIX (contra falta) e os créditos de sinal dos clientes. */
+/** Configuração do sinal via PIX ou cartão (contra falta) e os créditos de sinal dos clientes. */
 export function DepositModal({ onClose }: { onClose: () => void }) {
   const [data, setData] = useState<Overview | null>(null);
   const [form, setForm] = useState<Settings | null>(null);
@@ -114,10 +117,13 @@ export function DepositModal({ onClose }: { onClose: () => void }) {
     <Modal title="Sinal para segurar o horário" onClose={onClose}>
       <div className="space-y-4 text-sm">
         <p className="text-zinc-500">
-          Quem marca pelo site ou pelo WhatsApp paga um sinal por PIX para garantir a vaga. Sem o pagamento no prazo, o horário é liberado sozinho. No dia, o
-          sinal é descontado na comanda. Assinantes do clube não pagam sinal.
+          Quem marca pelo site ou pelo WhatsApp paga um sinal por PIX{data.online ? ' ou cartão' : ''} para garantir a vaga. Sem o pagamento no prazo, o horário é
+          liberado sozinho. No dia, o sinal é descontado na comanda. Assinantes do clube não pagam sinal.
         </p>
-        {!data.hasPix && <PixSettingsCard onSaved={() => load()} />}
+        {data.online && (
+          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-emerald-900">Cartão ligado: o cliente também pode pagar o sinal com cartão, e a baixa é automática.</p>
+        )}
+        {!data.hasPix && !data.online && <PixSettingsCard onSaved={() => load()} />}
         <div className="space-y-2">
           {(
             [
@@ -173,10 +179,11 @@ export function DepositModal({ onClose }: { onClose: () => void }) {
           </Button>
           {saved && <span className="text-emerald-700">Salvo!</span>}
         </div>
+        {!data.online && <OnlineSettingsCard compact onSaved={() => load()} />}
 
         {data.open.length > 0 && (
           <div>
-            <p className="mb-1 font-semibold">Esperando o PIX</p>
+            <p className="mb-1 font-semibold">Esperando o pagamento</p>
             <ul className="divide-y divide-zinc-100 rounded-xl ring-1 ring-zinc-200">
               {data.open.map((c) => (
                 <li key={c.id} className="flex items-center justify-between gap-2 px-3 py-2">

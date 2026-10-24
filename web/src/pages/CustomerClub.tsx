@@ -1,6 +1,7 @@
 import { Check, Crown } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Section } from '../components/CustomerSection';
+import { OnlinePayButton } from '../components/OnlinePay';
 import { PixPay } from '../components/Pix';
 import { Button, ErrorText, Modal } from '../components/ui';
 import { api } from '../lib/api';
@@ -34,11 +35,14 @@ interface ClubData {
     claimed: boolean;
     pix: { payload: string; qr: string } | null;
   } | null;
+  /** A barbearia aceita cartão (página segura do Asaas); na primeira vez o cliente informa o CPF. */
+  online: boolean;
+  needsCpf: boolean;
 }
 
 const br = (d: string | null | undefined) => (d ? d.split('-').reverse().slice(0, 2).join('/') : '');
 
-/** Clube de assinatura na área do cliente: assinar, pagar a mensalidade por PIX e acompanhar o uso. */
+/** Clube de assinatura na área do cliente: assinar, pagar a mensalidade (PIX ou cartão) e acompanhar o uso. */
 export function ClubSection({ slug, accent }: { slug: string; accent: string }) {
   const [data, setData] = useState<ClubData | null>(null);
   const [joining, setJoining] = useState<Plan | null>(null);
@@ -113,12 +117,22 @@ export function ClubSection({ slug, accent }: { slug: string; accent: string }) 
               {c.due_date && <p className="text-xs text-zinc-500">Vencimento {br(c.due_date)}</p>}
               {c.claimed ? (
                 <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">✅ Pagamento avisado. A barbearia confere e confirma; enquanto isso, o clube já vale.</p>
-              ) : c.pix ? (
+              ) : c.pix || data.online ? (
                 <div className="mt-3 space-y-3">
-                  <PixPay pix={c.pix} />
-                  <Button className="w-full" style={style} onClick={() => act(`charges/${c.id}/claim`)}>
-                    Já paguei
-                  </Button>
+                  {c.pix && (
+                    <>
+                      <PixPay pix={c.pix} />
+                      <Button className="w-full" style={style} onClick={() => act(`charges/${c.id}/claim`)}>
+                        Já paguei
+                      </Button>
+                    </>
+                  )}
+                  {data.online && (
+                    <>
+                      {c.pix && <p className="text-center text-xs text-zinc-400">ou</p>}
+                      <OnlinePayButton slug={slug} chargeId={c.id} needsCpf={data.needsCpf} accent={accent} label="Pagar com cartão ou boleto" />
+                    </>
+                  )}
                 </div>
               ) : (
                 <p className="mt-2 text-sm text-zinc-600">Pague no balcão da barbearia na sua próxima visita.</p>
@@ -182,7 +196,7 @@ export function ClubSection({ slug, accent }: { slug: string; accent: string }) 
               </li>
             </ul>
             <p className="text-zinc-500">
-              A primeira mensalidade é hoje, por PIX. Depois, a cobrança chega no seu WhatsApp todo mês, no mesmo dia. Cancele quando quiser: o mês pago continua valendo.
+              A primeira mensalidade é hoje, por PIX{data.online ? ' ou cartão' : ''}. Depois, a cobrança chega no seu WhatsApp todo mês, no mesmo dia. Cancele quando quiser: o mês pago continua valendo.
             </p>
             <Button
               className="w-full"
