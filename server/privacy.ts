@@ -77,6 +77,15 @@ export function exportCustomerData(shopId: number, customerId: number) {
       [customerId],
     ),
     mensagens: all("SELECT direction AS sentido, body AS texto, created_at AS quando FROM messages WHERE customer_id = ? AND kind <> 'codigo' ORDER BY id", [customerId]),
+    clube: all(
+      `SELECT p.name AS plano, m.status AS situacao, m.paid_until AS pago_ate, m.created_at AS assinou_em, m.cancelled_at AS cancelou_em
+         FROM club_members m JOIN club_plans p ON p.id = m.plan_id WHERE m.customer_id = ? ORDER BY m.id`,
+      [customerId],
+    ),
+    cobrancas: all(
+      'SELECT description AS descricao, amount_cents AS valor_centavos, status AS situacao, paid_at AS pago_em, created_at AS criada_em FROM charges WHERE customer_id = ? ORDER BY id',
+      [customerId],
+    ),
   };
 }
 
@@ -92,6 +101,9 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
     const stamp = shopNow(shopId, now).stamp;
     run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE customer_id = ? AND status = 'scheduled' AND starts_at >= ?", [nowIso(), customerId, stamp]);
     run('DELETE FROM messages WHERE barbershop_id = ? AND (customer_id = ? OR phone = ?)', [shopId, customerId, phone]);
+    // Clube: encerra a assinatura e as cobranças em aberto (as pagas ficam no caixa, sem identificar a pessoa).
+    run("UPDATE club_members SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, ?) WHERE customer_id = ? AND status <> 'cancelled'", [nowIso(), customerId]);
+    run("UPDATE charges SET status = 'cancelled' WHERE customer_id = ? AND status = 'open'", [customerId]);
     for (const table of ['loyalty_events', 'vouchers', 'bot_offers', 'bot_questions', 'customer_codes', 'customer_sessions', 'reviews']) {
       run(`DELETE FROM ${table} WHERE customer_id = ?`, [customerId]);
     }

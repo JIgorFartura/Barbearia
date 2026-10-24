@@ -3,7 +3,9 @@ import {
   Bot as BotIcon,
   CalendarDays,
   CreditCard,
+  Crown,
   ExternalLink,
+  HandCoins,
   Gift,
   Handshake,
   LayoutDashboard,
@@ -27,6 +29,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
+import { PixConfirmModal } from '../components/Pix';
 import { CrudPage, type Row } from '../components/CrudPage';
 import { Badge, Button, ErrorText } from '../components/ui';
 import { api } from '../lib/api';
@@ -39,6 +42,7 @@ import { Bot } from './panel/Bot';
 import { Brand } from './panel/Brand';
 import { Counter } from './panel/Counter';
 import { Finance } from './panel/Finance';
+import { Club } from './panel/Club';
 import { Reviews } from './panel/Reviews';
 import { Stock } from './panel/Stock';
 import { Subscription } from './panel/Subscription';
@@ -51,6 +55,7 @@ const SECTIONS = [
   { id: 'financeiro', label: 'Financeiro', icon: Wallet },
   { id: 'robo', label: 'Robô WhatsApp', icon: BotIcon },
   { id: 'avaliacoes', label: 'Avaliações', icon: Star },
+  { id: 'clube', label: 'Clube de assinatura', icon: Crown },
   { id: 'campanhas', label: 'Campanhas', icon: Gift },
   { id: 'beneficios', label: 'Benefícios', icon: Ticket },
   { id: 'parceiros', label: 'Parceiros', icon: Handshake },
@@ -71,6 +76,8 @@ interface ShopStatus {
   openInvoices: number;
   /** Conexão do WhatsApp da barbearia (null = simulador). */
   whatsapp: { status: 'ok' | 'down' | 'unknown'; since: string | null; error: string | null } | null;
+  /** PIX que os clientes avisaram que pagaram (clube e sinal) e o dono ainda não conferiu. */
+  pixToConfirm?: number;
   announcements: { id: number; title: string; body: string; level: 'novidade' | 'aviso' | 'manutencao' }[];
 }
 
@@ -98,6 +105,8 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   const [status, setStatus] = useState<ShopStatus | null>(null);
   const [account, setAccount] = useState(false);
+  const [pixOpen, setPixOpen] = useState(false);
+  const [pixRefresh, setPixRefresh] = useState(0);
   const [hidden, setHidden] = useState<number[]>(dismissed);
   const acting = Boolean(me.user?.acting);
 
@@ -107,12 +116,13 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
   }, []);
 
   // Situação do acesso (mensalidade) e avisos da plataforma; recarrega ao trocar de tela.
-  useEffect(() => {
+  const loadStatus = useCallback(() => {
     // Se a consulta falhar, abre o painel normalmente (cada tela mostra o próprio erro).
     api<ShopStatus>('GET', '/api/shop/status').then(setStatus, () =>
       setStatus((s) => s ?? { active: true, blocked: false, blockOn: null, overdue: false, openInvoices: 0, whatsapp: null, announcements: [] }),
     );
-  }, [section]);
+  }, []);
+  useEffect(loadStatus, [section, loadStatus]);
 
   function hideAnnouncement(id: number) {
     const next = [...hidden, id];
@@ -153,6 +163,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       break;
     case 'avaliacoes':
       content = <Reviews />;
+      break;
+    case 'clube':
+      content = <Club key={pixRefresh} />;
       break;
     case 'agenda':
       content = <Agenda />;
@@ -429,6 +442,15 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
           </button>
         </div>
       </aside>
+      {pixOpen && (
+        <PixConfirmModal
+          onClose={() => setPixOpen(false)}
+          onChanged={() => {
+            loadStatus();
+            setPixRefresh((n) => n + 1);
+          }}
+        />
+      )}
       {account && <AccountModal me={me} onClose={() => setAccount(false)} onSaved={onLogout} />}
       {menuOpen && <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={() => setMenuOpen(false)} />}
 
@@ -468,6 +490,17 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 <b>WhatsApp desconectado</b>
                 {status.whatsapp.since && ` desde ${new Date(status.whatsapp.since).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`}: o robô e os lembretes estão parados.{' '}
                 <u>Reconectar</u>
+              </span>
+            </button>
+          )}
+          {Boolean(status?.pixToConfirm) && !locked && (
+            <button
+              onClick={() => setPixOpen(true)}
+              className="mb-4 flex w-full items-center gap-2 rounded-xl bg-emerald-50 px-4 py-2.5 text-left text-sm text-emerald-950 ring-1 ring-emerald-200"
+            >
+              <HandCoins className="size-4 shrink-0" />
+              <span>
+                {status!.pixToConfirm === 1 ? '1 cliente avisou' : `${status!.pixToConfirm} clientes avisaram`} que pagou o PIX. <b>Conferir</b>
               </span>
             </button>
           )}

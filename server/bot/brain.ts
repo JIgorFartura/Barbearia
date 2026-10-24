@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.js';
 import { describeItems, usualConsumption } from '../consumption.js';
 import { availableQty } from '../stock.js';
+import { customerMembership, listPlans } from '../club.js';
 import { all, get } from '../db.js';
 import { customerHabit } from '../habits.js';
 import type { HistoryItem } from '../messaging.js';
@@ -18,7 +19,7 @@ Como falar:
 - Mensagens curtas (até 5 linhas), sem markdown. Pode usar *negrito* do WhatsApp com moderação e no máximo um emoji.
 - Trate o cliente pelo primeiro nome quando souber.
 
-O que você faz: agendamentos, horários livres, cancelamentos, cartão fidelidade (carimbos e prêmios), benefícios e vouchers, parceiros, horário de costume e link da área do cliente.
+O que você faz: agendamentos, horários livres, cancelamentos, cartão fidelidade (carimbos e prêmios), benefícios e vouchers, parceiros, clube de assinatura, horário de costume e link da área do cliente.
 
 Regras:
 - Use as ferramentas para tudo que envolve agenda, cartão, benefícios e parceiros. Nunca invente horários livres, preços, carimbos ou códigos.
@@ -33,6 +34,7 @@ Regras:
 - Se pedir para não receber mais mensagens automáticas, use lembretes com receber=false.
 - Depois de marcar, se o resultado de agendar trouxer pergunta_consumo, termine a confirmação com essa pergunta.
 - Se o cliente pedir para deixar algo separado para o horário dele (ex.: "separa uma cerveja"), use reservar_consumo.
+- Clube de assinatura: quando o cliente perguntar (ou fizer sentido, sem insistir), explique os planos do CONTEXTO. Para assinar ou pagar a mensalidade, mande o link da área do cliente (enviar_link_area). Nunca diga que um pagamento foi confirmado: quem confere o PIX é a barbearia.
 - Se pedir para falar com uma pessoa, diga que vai avisar a equipe e passe o WhatsApp ou o endereço da barbearia.
 - O cliente só tem acesso ao que é dele e ao que é público: horários, cartão, vouchers, benefícios, preços e endereço. Nunca fale de faturamento, caixa, comissões, quanto os barbeiros ganham ou dados de outros clientes.
 - Assuntos fora da barbearia: responda em uma frase que você cuida do atendimento da barbearia.`;
@@ -70,9 +72,30 @@ export function buildContext(ctx: BotContext): string {
     lines.push(`Produtos: ${products.map((p) => `${p.name} (produto_id ${p.id}, ${money(p.price_cents)}${left(p.id) !== null && left(p.id)! <= 0 ? ', ESGOTADO: não ofereça' : ''})`).join('; ')}.`);
   }
 
+  const plans = listPlans(shop.id, { activeOnly: true });
+  if (plans.length) {
+    lines.push(
+      `Clube de assinatura (mensalidade por PIX, assina pela área do cliente): ${plans
+        .map((p) => `${p.name}, ${money(p.price_cents)} por mês, inclui ${p.items.map((i) => i.name).join(' e ')}${p.uses_per_month ? ` (até ${p.uses_per_month} usos por mês)` : ' (à vontade)'}`)
+        .join('; ')}.`,
+    );
+  }
+
   if (ctx.customer) {
     const c = ctx.customer;
     lines.push(`Quem está falando: ${c.name}, cliente cadastrado.`);
+    const club = customerMembership(shop.id, c.id, ctx.now);
+    if (club) {
+      const until = (d: string | null | undefined) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : '');
+      const state = {
+        ok: `em dia até ${until(club.period?.end)}${club.plan.uses_per_month ? `, já usou ${club.used} de ${club.plan.uses_per_month} neste mês` : ''}`,
+        pending: 'esperando o primeiro pagamento (PIX)',
+        late: 'mensalidade atrasada: os benefícios ficam pausados até o pagamento',
+        ending: `cancelou a assinatura; vale até ${until(club.period?.end)}`,
+        ended: 'assinatura encerrada',
+      }[club.state];
+      lines.push(`Clube: assinante do plano ${club.plan.name}, ${state}.`);
+    }
     const habit = customerHabit(c.id, ctx.now);
     if (habit) {
       const barber = barbers.find((b) => b.id === habit.barberId)?.name;

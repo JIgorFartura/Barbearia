@@ -1,4 +1,5 @@
 import { Router, type Request } from 'express';
+import { listPlans } from '../club.js';
 import { z } from 'zod';
 import { shopToday } from '../clock.js';
 import { config } from '../config.js';
@@ -53,6 +54,14 @@ publicRouter.get('/shops/:slug', (req, res) => {
     services: all('SELECT id, name, description, price_cents, duration_min, image_url FROM catalog_items WHERE barbershop_id = ? AND kind = ? AND active = 1 ORDER BY name', [id, 'service']),
     products: all('SELECT id, name, description, price_cents, image_url FROM catalog_items WHERE barbershop_id = ? AND kind = ? AND active = 1 ORDER BY name', [id, 'product']),
     partners: all('SELECT id, name, category, description, benefit, instagram, website, logo_url FROM partners WHERE barbershop_id = ? AND active = 1 ORDER BY name', [id]),
+    clubPlans: listPlans(id, { activeOnly: true }).map(({ id: pid, name, description, price_cents, uses_per_month, items }) => ({
+      id: pid,
+      name,
+      description,
+      price_cents,
+      uses_per_month,
+      items: items.map((i) => i.name),
+    })),
     campaigns: campaigns.map(({ id: cid, name, description, unit_label, goal, reward, image_url, ends_on, partner }) => ({
       id: cid,
       name,

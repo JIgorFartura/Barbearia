@@ -63,6 +63,7 @@ export function registerFinanceRoutes(router: Router): void {
       overdue: status.open.some((i) => i.overdue),
       trialUntil: status.trialUntil,
       whatsapp: connectionInfo(shop),
+      pixToConfirm: get<{ n: number }>("SELECT COUNT(*) AS n FROM charges WHERE barbershop_id = ? AND status = 'open' AND claimed_at IS NOT NULL", [shop])!.n,
       announcements: all("SELECT id, title, body, level, created_at FROM announcements WHERE active = 1 ORDER BY id DESC LIMIT 5"),
     });
   });
@@ -180,6 +181,7 @@ export function registerFinanceRoutes(router: Router): void {
               qty: z.number().int().min(1).max(99),
               unit_price_cents: z.number().int().min(0).max(10_000_000).nullish(),
               barber_id: zId.nullish(),
+              club: z.boolean().nullish(),
             }),
           )
           .min(1, 'Inclua pelo menos um item.')

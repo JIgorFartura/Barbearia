@@ -4,6 +4,7 @@ import { hashPassword } from '../server/auth.js';
 import { get, nowIso, run, tx } from '../server/db.js';
 import { ensureInvoices, savePlatformSettings } from '../server/billing.js';
 import { addEntry, createSale } from '../server/finance.js';
+import { savePlan, subscribe } from '../server/club.js';
 import { book } from '../server/scheduling.js';
 import { stockEntry } from '../server/stock.js';
 import { addDays, localNow, weekdayOf } from '../server/time.js';
@@ -159,6 +160,18 @@ tx(() => {
   ] as const) {
     createSale({ shopId: shop, userId: null, customerId: days === -6 ? pedro : null, items: items.map((i) => ({ ...i })), method, now: at(addDays(today, days)) });
   }
+  // Clube de assinatura: Plano Corte (até 4 por mês). O Pedro assinou há 6 dias e pagou no PIX.
+  // Chave PIX de mentira (formato de chave aleatória): na demonstração ninguém deve pagar de verdade.
+  run("UPDATE barbershops SET pix_key = '00000000-0000-0000-0000-000000000000', pix_name = 'Navalha de Ouro', pix_city = 'Sao Paulo' WHERE id = ?", [shop]);
+  const plan = savePlan(shop, null, {
+    name: 'Plano Corte',
+    description: 'Cabelo sempre em dia, sem se preocupar com a conta.',
+    price_cents: 8990,
+    uses_per_month: 4,
+    active: true,
+    item_ids: [corte, barba],
+  });
+  subscribe(shop, pedro, plan.id, { paidMethod: 'pix', now: at(addDays(today, -6), '11:00') });
   let next = addDays(today, 1);
   while (weekdayOf(next) < 2) next = addDays(next, 1);
   book({ shopId: shop, customerId: pedro, barberId: marcos, serviceId: corte, date: next, time: '10:00', source: 'painel' });
@@ -168,8 +181,8 @@ tx(() => {
   addEntry(shop, { type: 'out', category: 'Contas (água, luz, internet)', description: 'Conta de luz', amount_cents: 31500, method: null, date: addDays(today, 3), status: 'pending' }, null);
 
   // Plataforma: plano, PIX do master e um aviso para as barbearias.
-  const plan = run("INSERT INTO plans (name, price_cents, description, active, created_at) VALUES ('Comunidade', 14990, 'Robô, agenda, financeiro e fidelidade', 1, ?)", [now]).lastInsertRowid;
-  run('UPDATE barbershops SET plan_id = ?, billing_day = 10 WHERE id = ?', [plan, shop]);
+  const platformPlan = run("INSERT INTO plans (name, price_cents, description, active, created_at) VALUES ('Comunidade', 14990, 'Robô, agenda, financeiro e fidelidade', 1, ?)", [now]).lastInsertRowid;
+  run('UPDATE barbershops SET plan_id = ?, billing_day = 10 WHERE id = ?', [platformPlan, shop]);
   savePlatformSettings({ grace_days: 5, trial_days: 14, pix_key: 'pix@sistemabarbearia.com.br', pix_name: 'Sistema Barbearia', pix_city: 'São Paulo' });
   run(
     "INSERT INTO announcements (title, body, level, active, created_at) VALUES ('Financeiro integrado', 'Agora cada atendimento fechado na Agenda entra no caixa, calcula a comissão do barbeiro e dá o carimbo do cartão fidelidade.', 'novidade', 1, ?)",

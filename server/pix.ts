@@ -50,3 +50,35 @@ export function pixPayload(input: PixInput): string {
     '6304';
   return body + crc16(body);
 }
+
+export const PIX_KEY_TYPES = ['cpf', 'celular', 'email', 'aleatoria'] as const;
+export type PixKeyType = (typeof PIX_KEY_TYPES)[number];
+
+/**
+ * Chave no formato que os bancos aceitam dentro do PIX copia e cola: CPF/CNPJ só números,
+ * celular como +55DDDNÚMERO, e-mail em minúsculas e chave aleatória como veio. null = inválida.
+ */
+export function normalizePixKey(type: PixKeyType, value: string): string | null {
+  const v = value.trim();
+  const digits = v.replace(/\D/g, '');
+  switch (type) {
+    case 'cpf':
+      return digits.length === 11 || digits.length === 14 ? digits : null;
+    case 'celular': {
+      const local = digits.length >= 12 && digits.startsWith('55') ? digits.slice(2) : digits;
+      return local.length === 10 || local.length === 11 ? `+55${local}` : null;
+    }
+    case 'email':
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) && v.length <= 77 ? v.toLowerCase() : null;
+    case 'aleatoria':
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v.toLowerCase() : null;
+  }
+}
+
+/** Tipo de uma chave já salva (para a tela). */
+export function pixKeyType(key: string): PixKeyType {
+  if (key.startsWith('+55')) return 'celular';
+  if (key.includes('@')) return 'email';
+  if (/^[0-9a-f]{8}-/i.test(key)) return 'aleatoria';
+  return 'cpf';
+}

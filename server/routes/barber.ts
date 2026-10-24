@@ -5,6 +5,7 @@ import { accessStatus } from '../billing.js';
 import { shopNow } from '../clock.js';
 import { reservedItems } from '../consumption.js';
 import { barberRating } from '../reviews.js';
+import { clubCoverage } from '../club.js';
 import { all, get, run } from '../db.js';
 import { METHODS, barberStatement, commissionBalances, createSale } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
@@ -121,6 +122,14 @@ barberRouter.get('/checkout', (req, res) => {
   });
 });
 
+/** O que o clube de assinatura cobre para o cliente hoje (na hora de fechar a comanda). */
+barberRouter.get('/club', (req, res) => {
+  const { shop } = ids(req);
+  const customer = Number(req.query.customer_id);
+  if (!Number.isInteger(customer) || customer <= 0) throw new HttpError(400, 'Informe o cliente.');
+  res.json(clubCoverage(shop, customer, shopNow(shop).date));
+});
+
 /** Fecha um atendimento próprio ou registra uma venda de balcão (comissão sempre dele ou de ninguém). */
 barberRouter.post('/sales', (req, res) => {
   const { shop, barber, user } = ids(req);
@@ -138,6 +147,7 @@ barberRouter.post('/sales', (req, res) => {
             qty: z.number().int().min(1).max(99),
             unit_price_cents: z.number().int().min(0).max(10_000_000).nullish(),
             barber_id: zId.nullish(),
+            club: z.boolean().nullish(),
           }),
         )
         .min(1, 'Inclua pelo menos um item.')

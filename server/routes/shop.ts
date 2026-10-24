@@ -17,6 +17,7 @@ import { registerBotRoutes } from './bot.js';
 import { crudRoutes } from './crud.js';
 import { registerFinanceRoutes } from './finance.js';
 import { registerStockRoutes } from './stock.js';
+import { registerClubRoutes } from './club.js';
 import { lowStock } from '../stock.js';
 import { reviewsOverview, shopRating } from '../reviews.js';
 
@@ -35,6 +36,7 @@ registerAgendaRoutes(shopRouter);
 registerBotRoutes(shopRouter);
 registerFinanceRoutes(shopRouter);
 registerStockRoutes(shopRouter);
+registerClubRoutes(shopRouter);
 
 // ---------- marca (o que aparece na landing page)
 

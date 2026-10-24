@@ -41,7 +41,7 @@ interface Earnings {
   payouts: { id: number; date: string; amount_cents: number; items: number; until_date: string; method: string | null }[];
 }
 
-const ENDPOINTS: CheckoutEndpoints = { checkout: '/api/barber/checkout', sales: '/api/barber/sales', customers: '/api/barber/customers' };
+const ENDPOINTS: CheckoutEndpoints = { checkout: '/api/barber/checkout', sales: '/api/barber/sales', customers: '/api/barber/customers', club: '/api/barber/club' };
 
 /** Área do barbeiro (no celular): a agenda dele, fechar atendimento e as comissões. */
 export function BarberApp({ me, onLogout }: { me: Me; onLogout: () => void }) {

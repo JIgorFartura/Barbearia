@@ -1,4 +1,4 @@
-import { AtSign, CalendarCheck, Clock, Gift, Handshake, MapPin, MessageCircle, Package, Scissors, Sparkles, UserRound } from 'lucide-react';
+import { AtSign, CalendarCheck, Check, Clock, Crown, Gift, Handshake, MapPin, MessageCircle, Package, Scissors, Sparkles, UserRound } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { instagramLink, money, whatsappLink } from '../lib/format';
@@ -26,6 +26,7 @@ interface PageData {
   partners: { id: number; name: string; category: string | null; description: string | null; benefit: string | null; instagram: string | null; website: string | null; logo_url: string | null }[];
   campaigns: { id: number; name: string; description: string | null; unit_label: string; goal: number; reward: string; image_url: string | null; ends_on: string | null; partner: string | null }[];
   ads: { id: number; title: string; body: string | null; image_url: string | null; hasLink: boolean; placement: 'destaque' | 'mural'; partner: string | null }[];
+  clubPlans: { id: number; name: string; description: string | null; price_cents: number; uses_per_month: number | null; items: string[] }[];
 }
 
 /** Landing page da barbearia (/b/:slug): o mesmo modelo para todas, com a marca de cada uma. */
@@ -119,6 +120,41 @@ export function ShopLanding({ slug }: { slug: string }) {
                       {c.ends_on && `Válida até ${new Date(`${c.ends_on}T12:00:00`).toLocaleDateString('pt-BR')}.`}
                     </p>
                   </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        {data.clubPlans.length > 0 && (
+          <Section icon={<Crown />} title="Clube de assinatura" accent={accent}>
+            <p className="-mt-2 mb-4 text-zinc-600">Pague um valor fixo por mês e venha sem se preocupar com a conta.</p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {data.clubPlans.map((p) => (
+                <div key={p.id} className="flex flex-col rounded-2xl bg-white p-5 shadow-sm ring-1 ring-zinc-200">
+                  <p className="text-lg font-bold">{p.name}</p>
+                  <p className="mt-1">
+                    <span className="text-3xl font-extrabold tabular-nums">{money(p.price_cents)}</span>
+                    <span className="text-zinc-500"> /mês</span>
+                  </p>
+                  <ul className="mt-3 flex-1 space-y-1 text-sm">
+                    {p.items.map((i) => (
+                      <li key={i} className="flex items-center gap-2">
+                        <Check className="size-4 shrink-0 text-emerald-600" /> {i}
+                      </li>
+                    ))}
+                    <li className="flex items-center gap-2">
+                      <Check className="size-4 shrink-0 text-emerald-600" /> {p.uses_per_month ? `Até ${p.uses_per_month} usos por mês` : 'Use à vontade'}
+                    </li>
+                  </ul>
+                  {p.description && <p className="mt-2 text-sm text-zinc-500">{p.description}</p>}
+                  <a
+                    href={`/b/${slug}/conta?clube=${p.id}`}
+                    className="mt-4 inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 font-bold text-zinc-950"
+                    style={{ background: accent }}
+                  >
+                    Quero assinar
+                  </a>
                 </div>
               ))}
             </div>

@@ -1,5 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
+import { chargePix, claimCharge } from '../charges.js';
+import { cancelMembership, customerMembership, listPlans, subscribe } from '../club.js';
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
 import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
 import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
@@ -167,6 +169,66 @@ customerRouter.post('/delete-account', (req, res) => {
   anonymizeCustomer(shopId, customerId);
   destroyCustomerSession(req, res, shopId);
   res.json({ ok: true });
+});
+
+// ---------- clube de assinatura
+
+async function clubState(shopId: number, customerId: number) {
+  const member = customerMembership(shopId, customerId);
+  const open = member?.open_charge ?? null;
+  return {
+    plans: listPlans(shopId, { activeOnly: true }).map(({ id, name, description, price_cents, uses_per_month, items }) => ({
+      id,
+      name,
+      description,
+      price_cents,
+      uses_per_month,
+      items: items.map((i) => i.name),
+    })),
+    member: member && {
+      id: member.id,
+      plan: member.plan,
+      status: member.status,
+      state: member.state,
+      period: member.period,
+      used: member.used,
+      paid_until: member.paid_until,
+    },
+    charge: open && {
+      id: open.id,
+      description: open.description,
+      amount_cents: open.amount_cents,
+      due_date: open.due_date,
+      claimed: Boolean(open.claimed_at),
+      pix: await chargePix(open),
+    },
+  };
+}
+
+customerRouter.get('/club', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  res.json(await clubState(shopId, customerId));
+});
+
+customerRouter.post('/club/subscribe', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const { plan_id } = parseBody(z.object({ plan_id: zId }), req.body);
+  subscribe(shopId, customerId, plan_id);
+  res.status(201).json(await clubState(shopId, customerId));
+});
+
+customerRouter.post('/club/charges/:id/claim', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  claimCharge(shopId, customerId, idParam(req));
+  res.json(await clubState(shopId, customerId));
+});
+
+customerRouter.post('/club/cancel', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const member = customerMembership(shopId, customerId);
+  if (!member || member.status === 'cancelled') throw new HttpError(404, 'Você não tem assinatura ativa.');
+  cancelMembership(shopId, member.id);
+  res.json(await clubState(shopId, customerId));
 });
 
 customerRouter.post('/logout', (req, res) => {

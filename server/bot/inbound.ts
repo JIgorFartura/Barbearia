@@ -11,6 +11,7 @@ import { localPhone } from '../whatsapp.js';
 import { accessStatus } from '../billing.js';
 import { askConsumption, describeItems, reserveItems, type Usual } from '../consumption.js';
 import { handleReviewReply } from '../reviews.js';
+import { claimLatest } from '../charges.js';
 import { llmEnabled, think, type CreateMessage } from './brain.js';
 
 export interface InboundInput {
@@ -45,6 +46,7 @@ const NO = new Set(['nao', 'n', 'nao quero', 'agora nao', 'nao obrigado', 'nao p
 const STOP = new Set(['parar', 'pare', 'sair', 'stop']);
 const RESUME = new Set(['voltar', 'retomar']);
 const CANCEL = new Set(['cancelar', 'cancela', 'desmarcar']);
+const PAID = /^(ja )?(paguei|pago|ta pago|esta pago|fiz o pix|pix feito|pix enviado|mandei o pix|transferi)( ja)?$/;
 
 const firstName = (name: string) => name.split(/\s+/)[0];
 
@@ -70,6 +72,15 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
     if (!next) return 'Você não tem nenhum horário marcado no momento.';
     cancel(shop.id, next.id, { customerId: customer.id, now });
     return `Cancelado: ${dayLabel(next.starts_at.slice(0, 10))} às ${hourLabel(next.starts_at.slice(11))} com ${next.barber_name}. Quando quiser remarcar, é só chamar.`;
+  }
+  // "Paguei": avisa a barbearia do PIX em aberto (mensalidade do clube ou sinal).
+  if (PAID.test(t)) {
+    const c = claimLatest(shop.id, customer.id, now);
+    if (c) {
+      return c.kind === 'clube'
+        ? `Anotado, ${firstName(customer.name)}! Assim que a barbearia conferir o PIX, fica tudo certo com o seu clube. Pode usar os benefícios normalmente. 👊`
+        : `Anotado, ${firstName(customer.name)}! Seu horário continua garantido; a barbearia confere o PIX do sinal. 👊`;
+    }
   }
   // Resposta ao pedido de avaliação (nota de 1 a 5 e, se baixa, o comentário).
   const review = await handleReviewReply(shop, customer, text, now);

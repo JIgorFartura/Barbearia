@@ -2,6 +2,7 @@ import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { addStamps, isRunning, type Campaign } from './loyalty.js';
 import { stockBackForSale, stockOutForSale } from './stock.js';
+import { clubCoverage } from './club.js';
 import { shopNow } from './clock.js';
 import { addDays, daysBetween } from './time.js';
 
@@ -12,7 +13,7 @@ import { addDays, daysBetween } from './time.js';
 
 export const METHODS = ['dinheiro', 'pix', 'debito', 'credito', 'outro'] as const;
 export type Method = (typeof METHODS)[number];
-export const IN_CATEGORIES = ['Atendimentos', 'Anúncios e parcerias', 'Outras entradas'];
+export const IN_CATEGORIES = ['Atendimentos', 'Clube de assinatura', 'Anúncios e parcerias', 'Outras entradas'];
 export const OUT_CATEGORIES = [
   'Comissões',
   'Salários',
@@ -62,6 +63,8 @@ export interface SaleItemInput {
   /** Preço unitário (padrão: preço do catálogo). */
   unit_price_cents?: number | null;
   barber_id?: number | null;
+  /** Usa o clube de assinatura do cliente: sai por R$ 0 e conta no limite do mês. */
+  club?: boolean | null;
 }
 
 export interface SaleInput {
@@ -147,6 +150,12 @@ export function createSale(input: SaleInput): SaleResult {
     }
     if (customerId && !get('SELECT 1 AS ok FROM customers WHERE id = ? AND barbershop_id = ?', [customerId, shop])) throw new HttpError(404, 'Cliente não encontrado.');
     if (!input.items.length) throw new HttpError(400, 'Inclua pelo menos um item.');
+    const date = shopNow(shop, input.now).date;
+
+    // Clube de assinatura: só para quem está com a mensalidade em dia, nos itens do plano e até o limite do mês.
+    const club = input.items.some((i) => i.club) ? (customerId ? clubCoverage(shop, customerId, date) : null) : null;
+    if (input.items.some((i) => i.club) && !club) throw new HttpError(409, 'Esse cliente não está com o clube de assinatura em dia.');
+    let clubLeft = club?.left ?? null;
 
     const items = input.items.map((i) => {
       const barberId = i.barber_id ?? defaultBarber;
@@ -157,16 +166,25 @@ export function createSale(input: SaleInput): SaleResult {
           [i.catalog_item_id, shop],
         );
         if (!c) throw new HttpError(404, 'Item do catálogo não encontrado.');
-        return { catalogId: c.id, kind: c.kind, name: c.name, unit: i.unit_price_cents ?? c.price_cents, qty: i.qty, barberId };
+        if (i.club && club) {
+          if (!club.itemIds.includes(c.id)) throw new HttpError(409, `${c.name} não faz parte do plano ${club.plan}.`);
+          if (clubLeft != null) {
+            if (i.qty > clubLeft) throw new HttpError(409, `O plano ${club.plan} só tem mais ${clubLeft} ${clubLeft === 1 ? 'uso' : 'usos'} neste mês.`);
+            clubLeft -= i.qty;
+          }
+          // Sai por R$ 0; a comissão do barbeiro usa o preço normal (na % que o dono definiu).
+          return { catalogId: c.id, kind: c.kind, name: c.name, unit: 0, qty: i.qty, barberId, clubMemberId: club.memberId, listCents: c.price_cents * i.qty };
+        }
+        return { catalogId: c.id, kind: c.kind, name: c.name, unit: i.unit_price_cents ?? c.price_cents, qty: i.qty, barberId, clubMemberId: null, listCents: 0 };
       }
+      if (i.club) throw new HttpError(400, 'Só itens do catálogo entram no clube.');
       if (!i.name?.trim() || !i.kind) throw new HttpError(400, 'Item avulso precisa de nome e tipo.');
-      return { catalogId: null, kind: i.kind, name: i.name.trim(), unit: i.unit_price_cents ?? 0, qty: i.qty, barberId };
+      return { catalogId: null, kind: i.kind, name: i.name.trim(), unit: i.unit_price_cents ?? 0, qty: i.qty, barberId, clubMemberId: null, listCents: 0 };
     });
 
     const subtotal = items.reduce((s, i) => s + i.unit * i.qty, 0);
     const discount = Math.min(Math.max(0, input.discountCents ?? 0), subtotal);
     const total = subtotal - discount;
-    const date = shopNow(shop, input.now).date;
     const saleId = run(
       `INSERT INTO sales (barbershop_id, customer_id, appointment_id, date, subtotal_cents, discount_cents, total_cents, method, notes, created_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -177,10 +195,13 @@ export function createSale(input: SaleInput): SaleResult {
       const gross = i.unit * i.qty;
       // A comissão em % incide sobre o valor cobrado: o desconto é dividido entre os itens.
       const net = subtotal ? Math.round((gross * total) / subtotal) : 0;
+      const commission = i.clubMemberId
+        ? Math.round((commissionFor(i.barberId, i.kind, i.catalogId, i.qty, i.listCents) * (club?.commissionPct ?? 100)) / 100)
+        : commissionFor(i.barberId, i.kind, i.catalogId, i.qty, net);
       run(
-        `INSERT INTO sale_items (sale_id, catalog_item_id, kind, name, qty, unit_price_cents, total_cents, barber_id, commission_cents)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [saleId, i.catalogId, i.kind, i.name, i.qty, i.unit, gross, i.barberId, commissionFor(i.barberId, i.kind, i.catalogId, i.qty, net)],
+        `INSERT INTO sale_items (sale_id, catalog_item_id, kind, name, qty, unit_price_cents, total_cents, barber_id, commission_cents, club_member_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [saleId, i.catalogId, i.kind, i.name, i.qty, i.unit, gross, i.barberId, commission, i.clubMemberId],
       );
     }
 
@@ -251,16 +272,17 @@ export interface EntryView extends EntryInput {
   sale_id: number | null;
   payout_id: number | null;
   invoice_id: number | null;
-  /** Lançado à mão (pode editar/excluir); os automáticos saem pela venda, comissão ou mensalidade. */
+  charge_id: number | null;
+  /** Lançado à mão (pode editar/excluir); os automáticos saem pela venda, comissão, mensalidade ou PIX confirmado. */
   manual: boolean;
 }
 
 export function listEntries(shopId: number, from: string, to: string): EntryView[] {
   return all<Omit<EntryView, 'manual'>>(
-    `SELECT id, type, category, description, amount_cents, method, date, status, sale_id, payout_id, invoice_id
+    `SELECT id, type, category, description, amount_cents, method, date, status, sale_id, payout_id, invoice_id, charge_id
        FROM cash_entries WHERE barbershop_id = ? AND date >= ? AND date <= ? ORDER BY date DESC, id DESC LIMIT 1000`,
     [shopId, from, to],
-  ).map((e) => ({ ...e, manual: e.sale_id == null && e.payout_id == null && e.invoice_id == null }));
+  ).map((e) => ({ ...e, manual: e.sale_id == null && e.payout_id == null && e.invoice_id == null && e.charge_id == null }));
 }
 
 export function addEntry(shopId: number, e: EntryInput, userId: number | null): number {
@@ -272,12 +294,13 @@ export function addEntry(shopId: number, e: EntryInput, userId: number | null): 
 }
 
 function manualEntry(shopId: number, id: number): void {
-  const e = get<{ sale_id: number | null; payout_id: number | null; invoice_id: number | null }>(
-    'SELECT sale_id, payout_id, invoice_id FROM cash_entries WHERE id = ? AND barbershop_id = ?',
+  const e = get<{ sale_id: number | null; payout_id: number | null; invoice_id: number | null; charge_id: number | null }>(
+    'SELECT sale_id, payout_id, invoice_id, charge_id FROM cash_entries WHERE id = ? AND barbershop_id = ?',
     [id, shopId],
   );
   if (!e) throw new HttpError(404, 'Lançamento não encontrado.');
   if (e.sale_id || e.payout_id || e.invoice_id) throw new HttpError(409, 'Lançamento automático: altere pela venda, comissão ou mensalidade.');
+  if (e.charge_id) throw new HttpError(409, 'Pagamento PIX confirmado: para desfazer, use "Desfazer confirmação" no clube ou no sinal.');
 }
 
 export function updateEntry(shopId: number, id: number, e: EntryInput): void {

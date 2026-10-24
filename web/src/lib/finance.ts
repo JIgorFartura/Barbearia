@@ -11,7 +11,7 @@ export const METHODS: { id: Method; label: string }[] = [
 export const methodLabel = (m: string | null | undefined) => METHODS.find((x) => x.id === m)?.label ?? (m ? m : '—');
 
 // Mesmas categorias do servidor (server/finance.ts).
-export const IN_CATEGORIES = ['Atendimentos', 'Anúncios e parcerias', 'Outras entradas'];
+export const IN_CATEGORIES = ['Atendimentos', 'Clube de assinatura', 'Anúncios e parcerias', 'Outras entradas'];
 export const OUT_CATEGORIES = [
   'Comissões',
   'Salários',

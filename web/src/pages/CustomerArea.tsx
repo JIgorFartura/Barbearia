@@ -1,6 +1,8 @@
 import { ArrowLeft, CalendarCheck, CalendarX, Clock, Download, Gift, History, LogOut, Receipt, Repeat, Scissors, ShieldCheck, Ticket, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Section } from '../components/CustomerSection';
 import { StampCard, type Progress } from '../components/StampCard';
+import { ClubSection } from './CustomerClub';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import { WEEKDAYS, WEEKDAYS_SHORT, addDays, cap, dayLabel, hourLabel, money, phone as fmtPhone, stampLabel, todayStr, weekdayOf } from '../lib/format';
@@ -275,20 +277,6 @@ function Login({ slug, brand, onDone }: { slug: string; brand: Brand; onDone: ()
   );
 }
 
-function Section({ icon, title, action, children }: { icon: ReactNode; title: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-zinc-200">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 font-semibold [&>svg]:size-5 [&>svg]:text-zinc-400">
-          {icon} {title}
-        </h2>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
 function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me: MeData; reload: () => void }) {
   const [booking, setBooking] = useState(false);
   const [prefs, setPrefs] = useState(false);
@@ -401,6 +389,8 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
             : `O ${brand.bot_name} manda a sugestão de horário no começo da semana e um lembrete antes de cada horário.`}
         </p>
       </Section>
+
+      <ClubSection slug={slug} accent={brand.accent_color} />
 
       {me.card.length > 0 && (
         <Section icon={<Gift />} title="Cartão fidelidade">

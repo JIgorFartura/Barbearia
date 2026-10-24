@@ -38,6 +38,17 @@ interface Line {
   qty: number;
   unit_price_cents: number;
   barber_id: number | null;
+  /** Coberto pelo clube de assinatura do cliente (sai por R$ 0). */
+  club?: boolean;
+}
+
+/** O que o clube de assinatura do cliente cobre hoje. */
+interface Coverage {
+  plan: string;
+  itemIds: number[];
+  limit: number | null;
+  left: number | null;
+  periodEnd: string;
 }
 
 export interface SaleResult {
@@ -52,9 +63,10 @@ export interface CheckoutEndpoints {
   checkout: string;
   sales: string;
   customers: string;
+  club: string;
 }
 
-const OWNER: CheckoutEndpoints = { checkout: '/api/shop/finance/checkout', sales: '/api/shop/finance/sales', customers: '/api/shop/customers' };
+const OWNER: CheckoutEndpoints = { checkout: '/api/shop/finance/checkout', sales: '/api/shop/finance/sales', customers: '/api/shop/customers', club: '/api/shop/finance/club' };
 
 /**
  * Fechar o atendimento (ou uma venda de balcão): itens, quem atendeu, desconto e forma de pagamento.
@@ -82,6 +94,7 @@ export function CheckoutModal({
   const [method, setMethod] = useState<Method>('pix');
   const [notes, setNotes] = useState('');
   const [adding, setAdding] = useState('');
+  const [club, setClub] = useState<Coverage | null>(null);
   const [result, setResult] = useState<SaleResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -122,8 +135,40 @@ export function CheckoutModal({
     return () => clearTimeout(t);
   }, [q, customer, endpoints.customers]);
 
+  // Assinante do clube: o que o plano cobre já entra por R$ 0, até o limite do mês.
+  useEffect(() => {
+    setClub(null);
+    if (!customer) {
+      setLines((ls) => ls.map((l) => ({ ...l, club: false })));
+      return;
+    }
+    let alive = true;
+    api<Coverage | null>('GET', `${endpoints.club}?customer_id=${customer.id}`).then(
+      (c) => {
+        if (!alive) return;
+        setClub(c);
+        let left = c?.left ?? Infinity;
+        setLines((ls) =>
+          ls.map((l) => {
+            const covered = Boolean(c && l.catalog_item_id && c.itemIds.includes(l.catalog_item_id) && l.qty <= left);
+            if (covered) left -= l.qty;
+            return { ...l, club: covered };
+          }),
+        );
+      },
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, [customer, endpoints.club]);
+
   const defaultBarber = data?.appointment?.barber_id ?? data?.barbers[0]?.id ?? null;
-  const subtotal = useMemo(() => lines.reduce((s, l) => s + l.unit_price_cents * l.qty, 0), [lines]);
+  const price = (l: Line) => (l.club ? 0 : l.unit_price_cents * l.qty);
+  const subtotal = useMemo(() => lines.reduce((s, l) => s + (l.club ? 0 : l.unit_price_cents * l.qty), 0), [lines]);
+  const clubQty = lines.filter((l) => l.club).reduce((s, l) => s + l.qty, 0);
+  const clubOver = club?.left != null && clubQty > club.left;
+  const coveredBy = (l: Line) => Boolean(club && l.catalog_item_id && club.itemIds.includes(l.catalog_item_id));
   const discountCents = Math.min(parseMoney(discount), subtotal);
   const total = subtotal - discountCents;
 
@@ -132,7 +177,9 @@ export function CheckoutModal({
   function addItem(id: string) {
     const c = data?.catalog.find((x) => String(x.id) === id);
     if (!c) return;
-    setLines((ls) => [...ls, { key: nextKey++, catalog_item_id: c.id, kind: c.kind, name: c.name, qty: 1, unit_price_cents: c.price_cents, barber_id: defaultBarber }]);
+    const left = club?.left == null ? Infinity : club.left - clubQty;
+    const covered = Boolean(club?.itemIds.includes(c.id) && left >= 1);
+    setLines((ls) => [...ls, { key: nextKey++, catalog_item_id: c.id, kind: c.kind, name: c.name, qty: 1, unit_price_cents: c.price_cents, barber_id: defaultBarber, club: covered }]);
     setAdding('');
   }
 
@@ -143,7 +190,15 @@ export function CheckoutModal({
       const r = await api<SaleResult>('POST', endpoints.sales, {
         appointment_id: appointmentId ?? null,
         customer_id: appointmentId ? null : (customer?.id ?? null),
-        items: lines.map((l) => ({ catalog_item_id: l.catalog_item_id, name: l.catalog_item_id ? null : l.name, kind: l.kind, qty: l.qty, unit_price_cents: l.unit_price_cents, barber_id: l.barber_id })),
+        items: lines.map((l) => ({
+          catalog_item_id: l.catalog_item_id,
+          name: l.catalog_item_id ? null : l.name,
+          kind: l.kind,
+          qty: l.qty,
+          unit_price_cents: l.unit_price_cents,
+          barber_id: l.barber_id,
+          club: l.club || null,
+        })),
         discount_cents: discountCents,
         method,
         notes: notes || null,
@@ -210,12 +265,21 @@ export function CheckoutModal({
             </Field>
           )}
 
+          {club && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-950 ring-1 ring-amber-200">
+              👑 Assinante do clube <b>{club.plan}</b>:{' '}
+              {club.left == null ? 'uso à vontade' : `${Math.max(club.left - clubQty, 0)} de ${club.limit} usos sobrando no mês`} (vale até{' '}
+              {club.periodEnd.split('-').reverse().slice(0, 2).join('/')}).
+            </p>
+          )}
+
           <div className="space-y-2">
             {lines.map((l) => (
               <div key={l.key} className="rounded-xl ring-1 ring-zinc-200 px-3 py-2">
                 <div className="flex items-center gap-2">
                   <p className="min-w-0 flex-1 font-medium">{l.name}</p>
-                  <span className="font-semibold whitespace-nowrap tabular-nums">{money(l.unit_price_cents * l.qty)}</span>
+                  {l.club && <span className="text-xs whitespace-nowrap text-zinc-400 line-through tabular-nums">{money(l.unit_price_cents * l.qty)}</span>}
+                  <span className="font-semibold whitespace-nowrap tabular-nums">{money(price(l))}</span>
                   <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-zinc-400 hover:text-red-600" aria-label="Remover item">
                     <Trash2 className="size-4" />
                   </button>
@@ -242,6 +306,16 @@ export function CheckoutModal({
                     </button>
                   </div>
                   <span className="text-zinc-500">× {money(l.unit_price_cents)}</span>
+                  {coveredBy(l) && (
+                    <button
+                      type="button"
+                      onClick={() => update(l.key, { club: !l.club })}
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${l.club ? 'bg-amber-100 text-amber-900 ring-amber-300' : 'text-zinc-500 ring-zinc-200 hover:bg-zinc-100'}`}
+                      aria-pressed={Boolean(l.club)}
+                    >
+                      {l.club ? '✓ Pelo clube' : 'Usar o clube'}
+                    </button>
+                  )}
                   <select
                     className="ml-auto rounded-md border border-zinc-300 px-1.5 py-1 text-xs"
                     value={l.barber_id ?? ''}
@@ -319,8 +393,8 @@ export function CheckoutModal({
               <span>Total</span> <span className="tabular-nums">{money(total)}</span>
             </p>
           </div>
-          <ErrorText error={error} />
-          <Button className="w-full" loading={busy} disabled={!lines.length} onClick={submit}>
+          <ErrorText error={error ?? (clubOver ? `O plano ${club!.plan} só tem mais ${club!.left} ${club!.left === 1 ? 'uso' : 'usos'} neste mês.` : null)} />
+          <Button className="w-full" loading={busy} disabled={!lines.length || clubOver} onClick={submit}>
             Registrar {money(total)} em {METHODS.find((m) => m.id === method)?.label}
           </Button>
         </div>

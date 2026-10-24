@@ -574,8 +574,8 @@ const MIGRATIONS: (string | Rebuild)[] = [
     CREATE UNIQUE INDEX users_barber ON users (barber_id) WHERE barber_id IS NOT NULL;
     `,
   },
-  // 5) Fuso por barbearia, cópias de segurança, WhatsApp da plataforma, LGPD, estoque, avaliações,
-  //    clube de assinatura, sinal, indicações, aniversários e cobrança automática (Asaas).
+  // 5) Fuso por barbearia, cópias de segurança, WhatsApp da plataforma, LGPD, estoque, avaliações
+  //    e conexão do WhatsApp.
   `
   -- Fuso da barbearia (vazio = o do servidor, horário de Brasília).
   ALTER TABLE barbershops ADD COLUMN timezone TEXT;
@@ -670,6 +670,98 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbershops ADD COLUMN wa_checked_at TEXT;
   ALTER TABLE barbershops ADD COLUMN wa_error TEXT;
   ALTER TABLE barbershops ADD COLUMN wa_alerted_at TEXT;
+  `,
+  // 6) Clube de assinatura, cobranças PIX da barbearia (mensalidade do clube e sinal de agendamento).
+  `
+  -- PIX da própria barbearia (clube de assinatura e sinal): direto na chave dela, sem intermediário.
+  ALTER TABLE barbershops ADD COLUMN pix_key TEXT;
+  ALTER TABLE barbershops ADD COLUMN pix_name TEXT;
+  ALTER TABLE barbershops ADD COLUMN pix_city TEXT;
+
+  -- Clube de assinatura: o cliente paga por mês e usa os serviços do plano sem pagar na hora.
+  -- Comissão do barbeiro nos usos do clube: % do preço normal do serviço.
+  ALTER TABLE barbershops ADD COLUMN club_commission_pct INTEGER NOT NULL DEFAULT 100;
+
+  CREATE TABLE club_plans (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+    -- Usos por mês (NULL = à vontade).
+    uses_per_month INTEGER CHECK (uses_per_month IS NULL OR uses_per_month > 0),
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE club_plan_items (
+    plan_id INTEGER NOT NULL REFERENCES club_plans(id) ON DELETE CASCADE,
+    catalog_item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+    PRIMARY KEY (plan_id, catalog_item_id)
+  );
+
+  CREATE TABLE club_members (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    plan_id INTEGER NOT NULL REFERENCES club_plans(id),
+    -- pending: esperando o primeiro pagamento · active · cancelled (vale até paid_until)
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'cancelled')),
+    billing_day INTEGER NOT NULL CHECK (billing_day BETWEEN 1 AND 28),
+    -- Último dia coberto pelos pagamentos confirmados.
+    paid_until TEXT,
+    created_at TEXT NOT NULL,
+    cancelled_at TEXT
+  );
+  CREATE UNIQUE INDEX club_members_customer ON club_members (customer_id) WHERE status <> 'cancelled';
+  CREATE INDEX club_members_shop ON club_members (barbershop_id, status);
+
+  -- Cobranças PIX da barbearia para o cliente (mensalidade do clube e sinal de agendamento).
+  -- O cliente avisa que pagou (claimed_at) e a barbearia confirma no painel.
+  CREATE TABLE charges (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('clube', 'sinal')),
+    description TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'paid', 'cancelled')),
+    claimed_at TEXT,
+    paid_at TEXT,
+    method TEXT,
+    -- Clube: o mês que a cobrança cobre (vence no primeiro dia).
+    club_member_id INTEGER REFERENCES club_members(id) ON DELETE CASCADE,
+    period_start TEXT,
+    period_end TEXT,
+    due_date TEXT,
+    reminded_at TEXT,
+    -- Sinal: o horário segurado até expires_at; depois de pago, abatido na comanda (sale_id),
+    -- perdido se o cliente faltar (forfeited_at) ou devolvido (refunded_at).
+    appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+    expires_at TEXT,
+    sale_id INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+    forfeited_at TEXT,
+    refunded_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX charges_club_period ON charges (club_member_id, period_start) WHERE club_member_id IS NOT NULL AND status <> 'cancelled';
+  CREATE INDEX charges_shop ON charges (barbershop_id, status);
+  CREATE INDEX charges_customer ON charges (customer_id, status);
+  CREATE INDEX charges_appointment ON charges (appointment_id);
+
+  ALTER TABLE cash_entries ADD COLUMN charge_id INTEGER REFERENCES charges(id) ON DELETE SET NULL;
+  -- Item coberto pelo clube: sai por R$ 0 e conta no limite do mês.
+  ALTER TABLE sale_items ADD COLUMN club_member_id INTEGER REFERENCES club_members(id) ON DELETE SET NULL;
+  -- Parte da venda já paga antes (sinal): não entra de novo no caixa.
+  ALTER TABLE sales ADD COLUMN prepaid_cents INTEGER NOT NULL DEFAULT 0;
+
+  -- Sinal via PIX para segurar o horário: off | all (todos) | no_show (só quem já faltou).
+  ALTER TABLE barbershops ADD COLUMN deposit_mode TEXT NOT NULL DEFAULT 'off' CHECK (deposit_mode IN ('off', 'all', 'no_show'));
+  ALTER TABLE barbershops ADD COLUMN deposit_cents INTEGER NOT NULL DEFAULT 2000;
+  -- Quanto tempo o horário fica segurado esperando o PIX.
+  ALTER TABLE barbershops ADD COLUMN deposit_hold_min INTEGER NOT NULL DEFAULT 60;
+  -- Cancelou com pelo menos estas horas de antecedência: o sinal vira crédito para o próximo horário.
+  ALTER TABLE barbershops ADD COLUMN deposit_credit_hours INTEGER NOT NULL DEFAULT 24;
   `,
 ];
 
