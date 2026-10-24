@@ -1,6 +1,7 @@
 import type { Router } from 'express';
 import { z } from 'zod';
-import { shopId } from '../auth.js';
+import { hashPassword, shopId } from '../auth.js';
+import { zPassword } from './auth.js';
 import { customerHabit } from '../habits.js';
 import { all, get, nowIso, run, tx } from '../db.js';
 import { reservedItems } from '../consumption.js';
@@ -79,6 +80,8 @@ function barbersWithHours(shop: number) {
     hours: all('SELECT weekday, start_time, end_time FROM barber_hours WHERE barber_id = ? ORDER BY weekday, start_time', [b.id]),
     blocks: all('SELECT id, starts_at, ends_at, reason FROM barber_blocks WHERE barber_id = ? AND ends_at >= ? ORDER BY starts_at', [b.id, now]),
     rates: all('SELECT service_id, mode, value FROM barber_service_rates WHERE barber_id = ?', [b.id]),
+    // Login do barbeiro no sistema (agenda própria, fechar atendimento, comissões).
+    access: get<{ user_id: number; phone: string | null; email: string | null }>("SELECT id AS user_id, phone, email FROM users WHERE barber_id = ? AND role = 'barber'", [b.id]) ?? null,
   }));
 }
 
@@ -130,6 +133,62 @@ export function registerAgendaRoutes(router: Router): void {
     }
     run('DELETE FROM barbers WHERE id = ?', [id]);
     res.json(barbersWithHours(shop));
+  });
+
+  // Acesso do barbeiro ao sistema (login pelo celular ou e-mail)
+  router.post('/barbers/:id/access', (req, res) => {
+    const shop = shopId(req);
+    const id = barberOf(shop, idParam(req)).id;
+    const body = parseBody(
+      z.object({ phone: z.string().max(30), email: z.string().trim().toLowerCase().email('E-mail inválido.').nullish().or(z.literal('')), password: zPassword }),
+      req.body,
+    );
+    const phone = normalizePhone(body.phone);
+    const email = body.email || null;
+    if (get("SELECT 1 AS ok FROM users WHERE barber_id = ? AND role = 'barber'", [id])) throw new HttpError(409, 'Esse barbeiro já tem acesso.');
+    if (get('SELECT 1 AS ok FROM users WHERE phone = ?', [phone])) throw new HttpError(409, 'Esse celular já está em outro login.');
+    if (email && get('SELECT 1 AS ok FROM users WHERE email = ?', [email])) throw new HttpError(409, 'Esse e-mail já está em outro login.');
+    const name = get<{ name: string }>('SELECT name FROM barbers WHERE id = ?', [id])!.name;
+    run("INSERT INTO users (barbershop_id, role, name, email, phone, barber_id, password_hash, terms_accepted_at, created_at) VALUES (?, 'barber', ?, ?, ?, ?, ?, ?, ?)", [
+      shop,
+      name,
+      email,
+      phone,
+      id,
+      hashPassword(body.password),
+      nowIso(),
+      nowIso(),
+    ]);
+    res.status(201).json(barbersWithHours(shop));
+  });
+
+  router.put('/barbers/:id/access', (req, res) => {
+    const shop = shopId(req);
+    const id = barberOf(shop, idParam(req)).id;
+    const { password } = parseBody(z.object({ password: zPassword }), req.body);
+    const user = get<{ id: number }>("SELECT id FROM users WHERE barber_id = ? AND role = 'barber'", [id]);
+    if (!user) throw new HttpError(404, 'Esse barbeiro ainda não tem acesso.');
+    run('UPDATE users SET password_hash = ? WHERE id = ?', [hashPassword(password), user.id]);
+    run('DELETE FROM sessions WHERE user_id = ?', [user.id]);
+    res.json(barbersWithHours(shop));
+  });
+
+  router.delete('/barbers/:id/access', (req, res) => {
+    const shop = shopId(req);
+    const id = barberOf(shop, idParam(req)).id;
+    run("DELETE FROM users WHERE barber_id = ? AND role = 'barber'", [id]);
+    res.json(barbersWithHours(shop));
+  });
+
+  /** O que os barbeiros podem fazer com o acesso deles. */
+  router.get('/barber-settings', (req, res) => {
+    res.json(get('SELECT barber_can_close FROM barbershops WHERE id = ?', [shopId(req)]));
+  });
+
+  router.put('/barber-settings', (req, res) => {
+    const { barber_can_close } = parseBody(z.object({ barber_can_close: zBool }), req.body);
+    run('UPDATE barbershops SET barber_can_close = ? WHERE id = ?', [barber_can_close, shopId(req)]);
+    res.json({ barber_can_close: barber_can_close ? 1 : 0 });
   });
 
   // Folgas e bloqueios

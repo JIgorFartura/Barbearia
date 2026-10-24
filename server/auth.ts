@@ -133,6 +133,10 @@ export function requireRole(role: Role) {
     const masterActing = role === 'owner' && req.user.role === 'master' && req.user.acting;
     if (req.user.role !== role && !masterActing) throw new HttpError(403, 'Acesso não permitido para este perfil.');
     if (role === 'owner' && !req.user.barbershopId) throw new HttpError(403, 'Usuário sem barbearia vinculada.');
+    if (role === 'barber') {
+      const barber = req.user.barberId ? get<{ active: number }>('SELECT active FROM barbers WHERE id = ?', [req.user.barberId]) : undefined;
+      if (!barber?.active) throw new HttpError(403, 'Seu acesso está desativado. Fale com o dono da barbearia.');
+    }
     next();
   };
 }

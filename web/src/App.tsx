@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './lib/api';
 import { usePath } from './lib/router';
+import { BarberApp } from './pages/BarberApp';
 import { CustomerArea } from './pages/CustomerArea';
 import { Home } from './pages/Home';
 import { PrivacyPage, ShopPrivacyPage, TermsPage } from './pages/Legal';
@@ -46,5 +47,6 @@ export function App() {
   if (me.user?.role === 'master' && me.user.acting) return <Panel me={me} onLogout={refresh} />;
   if (me.user?.role === 'master') return <Master me={me} onLogout={refresh} />;
   if (me.user?.role === 'owner') return <Panel me={me} onLogout={refresh} />;
+  if (me.user?.role === 'barber') return <BarberApp me={me} onLogout={refresh} />;
   return <Home me={me} onLogin={refresh} />;
 }

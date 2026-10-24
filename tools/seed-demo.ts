@@ -98,6 +98,13 @@ tx(() => {
   const paulo = barber('Paulo', true, '11955554444', 40);
   const marcos = barber('Marcos', false, null, 50);
   run("INSERT INTO barber_service_rates (barber_id, service_id, mode, value) VALUES (?, ?, 'fixed', 1500)", [paulo, barba]);
+  // O Paulo tem acesso ao sistema pelo celular: (11) 95555-4444 / paulo1234.
+  run("INSERT INTO users (barbershop_id, role, name, phone, barber_id, password_hash, created_at) VALUES (?, 'barber', 'Paulo', '11955554444', ?, ?, ?)", [
+    shop,
+    paulo,
+    hashPassword('paulo1234'),
+    now,
+  ]);
 
   run(
     "INSERT INTO offers (barbershop_id, title, description, valid_days, per_customer, created_at) VALUES (?, 'Cerveja grátis no próximo corte', 'Mostre o voucher no balcão.', 7, 1, ?)",
@@ -156,4 +163,6 @@ tx(() => {
 });
 ensureInvoices();
 
-console.log('Barbearia demo criada. Painel: demo@barbearia.com / demo12345 · Site: /b/demo · Área do cliente: /b/demo/conta (João: (11) 99999-0000)');
+console.log(
+  'Barbearia demo criada. Painel: demo@barbearia.com / demo12345 · Barbeiro Paulo: (11) 95555-4444 / paulo1234 · Site: /b/demo · Área do cliente: /b/demo/conta (João: (11) 99999-0000)',
+);

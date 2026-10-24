@@ -47,6 +47,15 @@ export interface SaleResult {
 
 let nextKey = 1;
 
+/** Endereços da comanda: o painel do dono ou a área do barbeiro. */
+export interface CheckoutEndpoints {
+  checkout: string;
+  sales: string;
+  customers: string;
+}
+
+const OWNER: CheckoutEndpoints = { checkout: '/api/shop/finance/checkout', sales: '/api/shop/finance/sales', customers: '/api/shop/customers' };
+
 /**
  * Fechar o atendimento (ou uma venda de balcão): itens, quem atendeu, desconto e forma de pagamento.
  * Gera a entrada no caixa, a comissão do barbeiro e os carimbos das campanhas.
@@ -56,11 +65,13 @@ export function CheckoutModal({
   customer: presetCustomer,
   onClose,
   onDone,
+  endpoints = OWNER,
 }: {
   appointmentId?: number;
   customer?: { id: number; name: string } | null;
   onClose: () => void;
   onDone: () => void;
+  endpoints?: CheckoutEndpoints;
 }) {
   const [data, setData] = useState<CheckoutData | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
@@ -76,7 +87,7 @@ export function CheckoutModal({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api<CheckoutData>('GET', `/api/shop/finance/checkout${appointmentId ? `?appointment_id=${appointmentId}` : ''}`).then((d) => {
+    api<CheckoutData>('GET', `${endpoints.checkout}${appointmentId ? `?appointment_id=${appointmentId}` : ''}`).then((d) => {
       setData(d);
       const a = d.appointment;
       if (!a) return;
@@ -100,16 +111,16 @@ export function CheckoutModal({
       ];
       setLines(initial);
     }, (e) => setError(e.message));
-  }, [appointmentId]);
+  }, [appointmentId, endpoints.checkout]);
 
   useEffect(() => {
     if (customer || !q.trim()) {
       setFound([]);
       return;
     }
-    const t = setTimeout(() => api<typeof found>('GET', `/api/shop/customers?q=${encodeURIComponent(q)}`).then((r) => setFound(r.slice(0, 5))), 250);
+    const t = setTimeout(() => api<typeof found>('GET', `${endpoints.customers}?q=${encodeURIComponent(q)}`).then((r) => setFound(r.slice(0, 5))), 250);
     return () => clearTimeout(t);
-  }, [q, customer]);
+  }, [q, customer, endpoints.customers]);
 
   const defaultBarber = data?.appointment?.barber_id ?? data?.barbers[0]?.id ?? null;
   const subtotal = useMemo(() => lines.reduce((s, l) => s + l.unit_price_cents * l.qty, 0), [lines]);
@@ -129,7 +140,7 @@ export function CheckoutModal({
     setBusy(true);
     setError(null);
     try {
-      const r = await api<SaleResult>('POST', '/api/shop/finance/sales', {
+      const r = await api<SaleResult>('POST', endpoints.sales, {
         appointment_id: appointmentId ?? null,
         customer_id: appointmentId ? null : (customer?.id ?? null),
         items: lines.map((l) => ({ catalog_item_id: l.catalog_item_id, name: l.catalog_item_id ? null : l.name, kind: l.kind, qty: l.qty, unit_price_cents: l.unit_price_cents, barber_id: l.barber_id })),

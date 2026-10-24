@@ -1,9 +1,9 @@
-import { Ban, Pencil, Plus, Trash2, Users, X } from 'lucide-react';
+import { Ban, Copy, KeyRound, Pencil, Plus, Smartphone, Trash2, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, ImageInput, Input, Modal } from '../../components/ui';
 import { api } from '../../lib/api';
 import { centsToInput, parseMoney } from '../../lib/finance';
-import { WEEKDAYS, WEEKDAYS_SHORT, cap, hourLabel, phone, stampLabel, todayStr } from '../../lib/format';
+import { WEEKDAYS, WEEKDAYS_SHORT, cap, hourLabel, phone, stampLabel, todayStr, whatsappLink } from '../../lib/format';
 
 interface Hours {
   weekday: number;
@@ -29,6 +29,8 @@ interface Barber {
   rates: Rate[];
   hours: Hours[];
   blocks: { id: number; starts_at: string; ends_at: string; reason: string | null }[];
+  /** Login do barbeiro no sistema (agenda própria e comissões). */
+  access: { user_id: number; phone: string | null; email: string | null } | null;
 }
 
 /** Um dia do expediente no formulário: início, fim e (opcional) uma pausa no meio. */
@@ -82,12 +84,20 @@ export function Barbers() {
   const [list, setList] = useState<Barber[] | null>(null);
   const [editing, setEditing] = useState<Partial<Barber> | null>(null);
   const [blocking, setBlocking] = useState<Barber | null>(null);
+  const [access, setAccess] = useState<{ barber: Barber; reset: boolean } | null>(null);
+  const [canClose, setCanClose] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api<Barber[]>('GET', '/api/shop/barbers').then(setList, (e) => setError(e.message));
+    api<{ barber_can_close: number }>('GET', '/api/shop/barber-settings').then((s) => setCanClose(Boolean(s.barber_can_close)));
   }, []);
   useEffect(load, [load]);
+
+  async function removeAccess(b: Barber) {
+    if (!confirm(`Tirar o acesso de ${b.name} ao sistema?`)) return;
+    setList(await api<Barber[]>('DELETE', `/api/shop/barbers/${b.id}/access`));
+  }
 
   async function remove(b: Barber) {
     if (!confirm(`Excluir ${b.name}?`)) return;
@@ -115,6 +125,20 @@ export function Barbers() {
         </Button>
       </div>
       <ErrorText error={error} />
+      {canClose !== null && list && list.some((b) => b.access) && (
+        <label className="mb-4 flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm ring-1 ring-zinc-200">
+          <input
+            type="checkbox"
+            className="size-4 accent-zinc-900"
+            checked={canClose}
+            onChange={(e) => {
+              setCanClose(e.target.checked);
+              void api('PUT', '/api/shop/barber-settings', { barber_can_close: e.target.checked });
+            }}
+          />
+          Barbeiros podem fechar os próprios atendimentos (lançar a venda e a forma de pagamento pelo celular)
+        </label>
+      )}
       {list?.length === 0 && (
         <EmptyState icon={<Users className="size-6" />} title="Nenhum barbeiro ainda" text="Cadastre quem atende e o expediente de cada um." />
       )}
@@ -154,6 +178,26 @@ export function Barbers() {
                 ))}
               </ul>
             )}
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-zinc-50 px-3 py-2 text-xs">
+              <Smartphone className="size-3.5 text-zinc-400" />
+              {b.access ? (
+                <>
+                  <span className="text-zinc-600">
+                    Acesso ao sistema: <b>{b.access.phone ? phone(b.access.phone) : b.access.email}</b>
+                  </span>
+                  <button className="font-medium text-zinc-600 hover:text-zinc-900" onClick={() => setAccess({ barber: b, reset: true })}>
+                    Nova senha
+                  </button>
+                  <button className="font-medium text-zinc-500 hover:text-red-600" onClick={() => removeAccess(b)}>
+                    Remover acesso
+                  </button>
+                </>
+              ) : (
+                <button className="font-medium text-zinc-600 hover:text-zinc-900" onClick={() => setAccess({ barber: b, reset: false })}>
+                  Dar acesso ao sistema (agenda e comissões no celular dele)
+                </button>
+              )}
+            </div>
             <div className="mt-3 flex gap-2 border-t border-zinc-100 pt-3">
               <Button variant="ghost" className="!px-3 !py-1.5" onClick={() => setEditing(b)}>
                 <Pencil className="size-3.5" /> Editar
@@ -176,6 +220,14 @@ export function Barbers() {
             setEditing(null);
             setList(l);
           }}
+        />
+      )}
+      {access && (
+        <AccessModal
+          barber={access.barber}
+          reset={access.reset}
+          onClose={() => setAccess(null)}
+          onDone={(l) => setList(l)}
         />
       )}
       {blocking && (
@@ -427,6 +479,101 @@ function BlockModal({ barber, onClose, onDone }: { barber: Barber; onClose: () =
           </Button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/** Senha inicial fácil de ditar: 4 letras + 4 números. */
+function suggestPassword(): string {
+  const letters = 'abcdefghjkmnpqrstuvwxyz';
+  const pick = (chars: string, n: number) => Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return `${pick(letters, 4)}${pick('23456789', 4)}`;
+}
+
+/** Cria (ou troca a senha do) acesso do barbeiro e prepara a mensagem para mandar a ele. */
+function AccessModal({ barber, reset, onClose, onDone }: { barber: Barber; reset: boolean; onClose: () => void; onDone: (list: Barber[]) => void }) {
+  const [phoneValue, setPhoneValue] = useState(phone(barber.access?.phone ?? barber.phone ?? ''));
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState(suggestPassword);
+  const [message, setMessage] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const list = reset
+        ? await api<Barber[]>('PUT', `/api/shop/barbers/${barber.id}/access`, { password })
+        : await api<Barber[]>('POST', `/api/shop/barbers/${barber.id}/access`, { phone: phoneValue, email: email || null, password });
+      onDone(list);
+      const login = reset ? phone(barber.access?.phone ?? '') || barber.access?.email : phoneValue;
+      setMessage(
+        `Olá, ${barber.name.split(' ')[0]}! ${reset ? 'Sua nova senha' : 'Seu acesso à agenda da barbearia'}:\n\n${location.origin}\nLogin: ${login}\nSenha: ${password}\n\nLá você vê seus horários, o que cada cliente pediu para separar, fecha os atendimentos e acompanha suas comissões.`,
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const target = (barber.access?.phone ?? phoneValue).replace(/\D/g, '');
+  return (
+    <Modal title={reset ? `Nova senha · ${barber.name}` : `Acesso de ${barber.name}`} onClose={onClose}>
+      {message ? (
+        <div className="space-y-3">
+          <p className="text-sm text-zinc-600">Pronto! Mande o acesso para o barbeiro:</p>
+          <textarea readOnly className="h-44 w-full rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm" value={message} />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void navigator.clipboard?.writeText(message);
+                setCopied(true);
+              }}
+            >
+              <Copy className="size-4" /> {copied ? 'Copiado!' : 'Copiar'}
+            </Button>
+            {target.length >= 10 && (
+              <a
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                href={whatsappLink(target, message)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Enviar pelo WhatsApp
+              </a>
+            )}
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="space-y-4">
+          {!reset && (
+            <>
+              <Field label="Celular do barbeiro (é o login)">
+                <Input type="tel" required placeholder="(11) 98888-7777" value={phoneValue} onChange={(e) => setPhoneValue(e.target.value)} />
+              </Field>
+              <Field label="E-mail (opcional)" hint="Também pode entrar com ele.">
+                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              </Field>
+            </>
+          )}
+          <Field label={reset ? 'Nova senha' : 'Senha inicial'} hint="Ele pode trocar depois em Minha conta.">
+            <Input required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
+          <p className="flex items-start gap-2 rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+            <KeyRound className="mt-0.5 size-3.5 shrink-0" />O barbeiro vê só a agenda dele, o que os clientes pediram para separar e as próprias comissões. Não vê o
+            caixa nem os ganhos dos colegas.
+          </p>
+          <ErrorText error={error} />
+          <Button type="submit" loading={busy} className="w-full">
+            {reset ? 'Salvar nova senha' : 'Criar acesso'}
+          </Button>
+        </form>
+      )}
     </Modal>
   );
 }

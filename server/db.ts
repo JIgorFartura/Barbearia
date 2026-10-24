@@ -640,6 +640,9 @@ const MIGRATIONS: (string | Rebuild)[] = [
   CREATE INDEX stock_moves_item ON stock_moves (catalog_item_id, created_at);
   CREATE INDEX stock_moves_shop ON stock_moves (barbershop_id, created_at);
 
+  -- Barbeiros com login: podem fechar os próprios atendimentos (o dono decide).
+  ALTER TABLE barbershops ADD COLUMN barber_can_close INTEGER NOT NULL DEFAULT 1;
+
   -- Conexão do WhatsApp de cada barbearia (conferida a cada 10 minutos): ok | down.
   ALTER TABLE barbershops ADD COLUMN wa_status TEXT;
   ALTER TABLE barbershops ADD COLUMN wa_status_at TEXT;
