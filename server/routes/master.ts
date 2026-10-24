@@ -19,9 +19,13 @@ import {
   shopBilling,
 } from '../billing.js';
 import { llmEnabled } from '../bot/brain.js';
+import { downShops } from '../connection.js';
+import { platformChannel, savePlatformChannel, sendPlatformMessage } from '../platform.js';
+import { PLATFORM_TEMPLATE_KINDS, TEMPLATES, templateField } from '../templates.js';
+import { PROVIDERS, zEvolutionConfig, zMetaConfig } from '../whatsapp.js';
 import { config } from '../config.js';
 import { all, get, nowIso, run, tx } from '../db.js';
-import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
+import { HttpError, idParam, normalizePhone, parseBody, zId, zText } from '../http.js';
 import { addDays, isDate, localNow } from '../time.js';
 import { zPassword } from './auth.js';
 
@@ -42,7 +46,15 @@ const zOwner = z.object({
   ownerName: z.string().trim().min(2, 'Informe o nome do dono.'),
   ownerEmail: z.string().trim().toLowerCase().email('E-mail do dono inválido.'),
   ownerPassword: zPassword,
+  /** Celular do dono: recebe o código de "esqueci minha senha" e os avisos da plataforma. */
+  ownerPhone: z.string().max(30).nullish(),
 });
+
+const ownerPhone = (raw: string | null | undefined) => (raw?.trim() ? normalizePhone(raw) : null);
+
+function assertFreePhone(phone: string | null, exceptId = 0): void {
+  if (phone && get('SELECT 1 AS ok FROM users WHERE phone = ? AND id <> ?', [phone, exceptId])) throw new HttpError(409, 'Esse celular já está em outro login.');
+}
 
 function assertFreeSlug(slug: string, exceptId = 0): void {
   if (get('SELECT 1 AS ok FROM barbershops WHERE slug = ? AND id <> ?', [slug, exceptId])) {
@@ -62,7 +74,7 @@ masterRouter.get('/shops', (_req, res) => {
   res.json(
     all(
       `
-      SELECT b.id, b.slug, b.name, b.active, b.created_at, b.bot_name, b.wa_provider,
+      SELECT b.id, b.slug, b.name, b.active, b.created_at, b.bot_name, b.wa_provider, b.wa_status, b.wa_status_at, b.wa_error,
              (SELECT group_concat(email, ', ') FROM users u WHERE u.barbershop_id = b.id) AS owners,
              (SELECT COUNT(*) FROM customers c WHERE c.barbershop_id = b.id) AS customers,
              (SELECT COUNT(*) FROM campaigns c WHERE c.barbershop_id = b.id AND c.active = 1) AS campaigns,
@@ -153,9 +165,11 @@ masterRouter.post('/shops', (req, res) => {
   assertPlan(body.plan_id ?? null);
   const trialDays = body.trial_days ?? platformSettings().trial_days;
   const trialUntil = trialDays > 0 ? addDays(localNow().date, trialDays) : null;
+  const phone = ownerPhone(body.ownerPhone);
   const id = tx(() => {
     assertFreeSlug(body.slug);
     assertFreeEmail(body.ownerEmail);
+    assertFreePhone(phone);
     const shop = run('INSERT INTO barbershops (slug, name, plan_id, monthly_price_cents, billing_day, trial_until, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [
       body.slug,
       body.name,
@@ -165,10 +179,11 @@ masterRouter.post('/shops', (req, res) => {
       trialUntil,
       nowIso(),
     ]).lastInsertRowid;
-    run("INSERT INTO users (barbershop_id, role, name, email, password_hash, created_at) VALUES (?, 'owner', ?, ?, ?, ?)", [
+    run("INSERT INTO users (barbershop_id, role, name, email, phone, password_hash, created_at) VALUES (?, 'owner', ?, ?, ?, ?, ?)", [
       shop,
       body.ownerName,
       body.ownerEmail,
+      phone,
       hashPassword(body.ownerPassword),
       nowIso(),
     ]);
@@ -192,10 +207,13 @@ masterRouter.post('/shops/:id/owners', (req, res) => {
   const body = parseBody(zOwner, req.body);
   if (!get('SELECT 1 AS ok FROM barbershops WHERE id = ?', [id])) throw new HttpError(404, 'Barbearia não encontrada.');
   assertFreeEmail(body.ownerEmail);
-  run("INSERT INTO users (barbershop_id, role, name, email, password_hash, created_at) VALUES (?, 'owner', ?, ?, ?, ?)", [
+  const phone = ownerPhone(body.ownerPhone);
+  assertFreePhone(phone);
+  run("INSERT INTO users (barbershop_id, role, name, email, phone, password_hash, created_at) VALUES (?, 'owner', ?, ?, ?, ?, ?)", [
     id,
     body.ownerName,
     body.ownerEmail,
+    phone,
     hashPassword(body.ownerPassword),
     nowIso(),
   ]);
@@ -227,7 +245,17 @@ masterRouter.post('/shops/:id/release', (req, res) => {
 });
 
 masterRouter.get('/shops/:id/owners', (req, res) => {
-  res.json(all("SELECT id, name, email, created_at FROM users WHERE barbershop_id = ? AND role = 'owner' ORDER BY id", [idParam(req)]));
+  res.json(all("SELECT id, name, email, phone, created_at FROM users WHERE barbershop_id = ? AND role = 'owner' ORDER BY id", [idParam(req)]));
+});
+
+/** Celular de um login de dono (recebe o código de "esqueci minha senha" e os avisos). */
+masterRouter.put('/owners/:id/phone', (req, res) => {
+  const { phone: raw } = parseBody(z.object({ phone: z.string().max(30).nullish() }), req.body);
+  const phone = ownerPhone(raw);
+  assertFreePhone(phone, idParam(req));
+  const { changes } = run("UPDATE users SET phone = ? WHERE id = ? AND role = 'owner'", [phone, idParam(req)]);
+  if (!changes) throw new HttpError(404, 'Login não encontrado.');
+  res.json({ ok: true });
 });
 
 /** Nova senha para um login de dono (ele troca depois). */
@@ -353,6 +381,45 @@ masterRouter.delete('/announcements/:id', (req, res) => {
   const { changes } = run('DELETE FROM announcements WHERE id = ?', [idParam(req)]);
   if (!changes) throw new HttpError(404, 'Aviso não encontrado.');
   res.json({ ok: true });
+});
+
+// ---------- WhatsApp da plataforma (avisos aos donos e "esqueci minha senha")
+
+const SECRET_MASK = '••••••';
+const SECRET_FIELDS = ['token', 'appSecret', 'apiKey'];
+
+function platformWhatsapp() {
+  const { provider, config: cfg } = platformChannel();
+  return {
+    provider,
+    config: Object.fromEntries(Object.entries(cfg).map(([k, v]) => [k, SECRET_FIELDS.includes(k) && v ? SECRET_MASK : String(v ?? '')])),
+    templates: PLATFORM_TEMPLATE_KINDS.map((k) => ({ kind: k, field: templateField(k), ...TEMPLATES[k] })),
+    down: downShops(),
+    recent: all("SELECT id, phone, kind, status, error, created_at FROM platform_messages ORDER BY id DESC LIMIT 10"),
+  };
+}
+
+masterRouter.get('/whatsapp', (_req, res) => {
+  res.json(platformWhatsapp());
+});
+
+masterRouter.put('/whatsapp', (req, res) => {
+  const body = parseBody(z.object({ provider: z.enum(PROVIDERS as [string, ...string[]]), config: z.record(z.string(), z.string()).default({}) }), req.body);
+  const previous = platformChannel().config;
+  const merged: Record<string, string> = {};
+  for (const [k, v] of Object.entries(body.config)) merged[k] = v === SECRET_MASK ? (previous[k] ?? '') : v;
+  let cfg: Record<string, string> | null = null;
+  if (body.provider === 'meta') cfg = parseBody(zMetaConfig, merged) as Record<string, string>;
+  if (body.provider === 'evolution') cfg = parseBody(zEvolutionConfig, merged) as Record<string, string>;
+  savePlatformChannel(body.provider as 'simulador' | 'meta' | 'evolution', cfg);
+  res.json(platformWhatsapp());
+});
+
+masterRouter.post('/whatsapp/test', async (req, res) => {
+  const { phone } = parseBody(z.object({ phone: z.string() }), req.body);
+  const r = await sendPlatformMessage({ phone: normalizePhone(phone), text: 'Teste do WhatsApp da plataforma: se você recebeu, os avisos aos donos estão funcionando. ✅', kind: 'teste' });
+  if (r.status === 'failed') throw new HttpError(502, `O WhatsApp recusou: ${r.error}`);
+  res.json(r);
 });
 
 // ---------- saúde do sistema

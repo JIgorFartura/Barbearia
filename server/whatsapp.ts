@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
+import { TEMPLATE_KINDS, TEMPLATES, templateField, type TemplateUse } from './templates.js';
 
 /**
  * Canais de WhatsApp. Cada barbearia escolhe o seu:
@@ -10,14 +11,21 @@ import { z } from 'zod';
 export type Provider = 'simulador' | 'meta' | 'evolution';
 export const PROVIDERS: Provider[] = ['simulador', 'meta', 'evolution'];
 
+/** Nome aprovado de cada modelo (tpl_lembrete, tpl_costume...); vazio = modelo não cadastrado. */
+const templateFields = Object.fromEntries(TEMPLATE_KINDS.map((k) => [templateField(k), z.string().trim().max(100).optional().default('')])) as Record<
+  `tpl_${(typeof TEMPLATE_KINDS)[number]}`,
+  z.ZodDefault<z.ZodOptional<z.ZodString>>
+>;
+
 export const zMetaConfig = z.object({
   token: z.string().trim().min(10, 'Token de acesso da Meta.'),
   phoneNumberId: z.string().trim().regex(/^\d+$/, 'ID do número (só dígitos).'),
   appSecret: z.string().trim().max(200).optional().default(''),
-  verifyToken: z.string().trim().min(6, 'Token de verificação do webhook (mín. 6 caracteres).'),
-  /** Modelo aprovado para mensagens automáticas fora da janela de 24h (corpo com uma variável {{1}}). */
+  verifyToken: z.string().trim().min(6, 'Token de verificação do webhook (mín. 6 caracteres).').optional().default(''),
+  /** Modelo genérico antigo (corpo com uma variável {{1}}): usado quando o tipo não tem modelo próprio. */
   templateName: z.string().trim().max(100).optional().default(''),
   templateLang: z.string().trim().max(10).optional().default('pt_BR'),
+  ...templateFields,
 });
 export type MetaConfig = z.infer<typeof zMetaConfig>;
 
@@ -51,26 +59,47 @@ async function postJson(url: string, headers: Record<string, string>, body: unkn
   return { ok: res.ok, status: res.status, data };
 }
 
+export interface SendTextOptions {
+  /** Mensagem que a barbearia manda por conta própria (lembrete, oferta...), não uma resposta. */
+  automated?: boolean;
+  /** Modelo e variáveis para a API oficial, quando a mensagem sai fora da janela de 24h. */
+  template?: TemplateUse | null;
+  /** O cliente escreveu nas últimas 24h: a Meta aceita texto livre. */
+  inWindow?: boolean;
+}
+
+/** Corpo da mensagem para a API oficial: texto livre ou modelo aprovado. */
+export function metaBody(cfg: MetaConfig, to: string, text: string, opts: SendTextOptions): Record<string, unknown> {
+  const language = { code: cfg.templateLang || 'pt_BR' };
+  const name = opts.template ? (cfg as Record<string, string>)[templateField(opts.template.kind)] : '';
+  if (opts.automated && !opts.inWindow && opts.template && name) {
+    const params = opts.template.params.map((p) => ({ type: 'text', text: p.replace(/\s*\n+\s*/g, ' ').slice(0, 1000) }));
+    const components: Record<string, unknown>[] = [{ type: 'body', parameters: params }];
+    // Modelo de autenticação: o botão "copiar código" leva o código como parâmetro.
+    if (TEMPLATES[opts.template.kind].category === 'AUTHENTICATION') {
+      components.push({ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: opts.template.params[0] }] });
+    }
+    return { messaging_product: 'whatsapp', to, type: 'template', template: { name, language, components } };
+  }
+  if (opts.automated && !opts.inWindow && cfg.templateName) {
+    return {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'template',
+      template: { name: cfg.templateName, language, components: [{ type: 'body', parameters: [{ type: 'text', text: text.replace(/\s*\n+\s*/g, ' ') }] }] },
+    };
+  }
+  return { messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'text', text: { preview_url: true, body: text } };
+}
+
 /** Envia texto. `to` no formato internacional só com dígitos (ex.: 5511988887777). */
-export async function sendText(provider: Provider, rawConfig: unknown, to: string, text: string, opts: { automated?: boolean } = {}): Promise<SendResult> {
+export async function sendText(provider: Provider, rawConfig: unknown, to: string, text: string, opts: SendTextOptions = {}): Promise<SendResult> {
   try {
     if (provider === 'meta') {
       const cfg = zMetaConfig.parse(rawConfig);
       const url = `https://graph.facebook.com/${GRAPH_VERSION}/${cfg.phoneNumberId}/messages`;
-      // Fora da janela de 24h a Meta só entrega modelos aprovados; as automações usam o modelo quando configurado.
-      const body =
-        opts.automated && cfg.templateName
-          ? {
-              messaging_product: 'whatsapp',
-              to,
-              type: 'template',
-              template: {
-                name: cfg.templateName,
-                language: { code: cfg.templateLang || 'pt_BR' },
-                components: [{ type: 'body', parameters: [{ type: 'text', text }] }],
-              },
-            }
-          : { messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'text', text: { preview_url: true, body: text } };
+      // Fora da janela de 24h a Meta só entrega modelos aprovados: cada tipo de mensagem usa o seu.
+      const body = metaBody(cfg, to, text, opts);
       const r = await postJson(url, { authorization: `Bearer ${cfg.token}` }, body);
       if (!r.ok) return { status: 'failed', error: r.data?.error?.message ?? `HTTP ${r.status}` };
       return { status: 'sent', externalId: r.data?.messages?.[0]?.id };
@@ -86,6 +115,46 @@ export async function sendText(provider: Provider, rawConfig: unknown, to: strin
     if (err instanceof z.ZodError) return { status: 'failed', error: 'WhatsApp não configurado corretamente no painel (aba Robô).' };
     return { status: 'failed', error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+// ---------- conexão
+
+/** Confere se o canal está conectado (Evolution: sessão do QR Code; Meta: token e número válidos). */
+export async function probeConnection(provider: Provider, rawConfig: unknown, fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; detail: string }> {
+  try {
+    if (provider === 'evolution') {
+      const cfg = zEvolutionConfig.parse(rawConfig);
+      const res = await fetchImpl(`${cfg.baseUrl}/instance/connectionState/${encodeURIComponent(cfg.instance)}`, {
+        headers: { apikey: cfg.apiKey },
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = (await res.json().catch(() => ({}))) as { instance?: { state?: string }; state?: string; message?: unknown };
+      if (!res.ok) return { ok: false, detail: `Evolution respondeu HTTP ${res.status}` };
+      const state = data.instance?.state ?? data.state ?? 'desconhecido';
+      return state === 'open' ? { ok: true, detail: 'conectado' } : { ok: false, detail: `WhatsApp desconectado (estado: ${state})` };
+    }
+    if (provider === 'meta') {
+      const cfg = zMetaConfig.parse(rawConfig);
+      const res = await fetchImpl(`https://graph.facebook.com/${GRAPH_VERSION}/${cfg.phoneNumberId}?fields=display_phone_number`, {
+        headers: { authorization: `Bearer ${cfg.token}` },
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+      return res.ok ? { ok: true, detail: 'conectado' } : { ok: false, detail: data.error?.message ?? `Meta respondeu HTTP ${res.status}` };
+    }
+    return { ok: true, detail: 'simulador' };
+  } catch (err) {
+    if (err instanceof z.ZodError) return { ok: false, detail: 'WhatsApp não configurado corretamente.' };
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Evento de conexão da Evolution (connection.update): "open" conectou, "close" caiu. */
+export function parseEvolutionConnection(body: any): 'open' | 'close' | null {
+  const event = String(body?.event ?? '').toLowerCase().replace(/_/g, '.');
+  if (event !== 'connection.update') return null;
+  const state = String(body?.data?.state ?? '').toLowerCase();
+  return state === 'open' || state === 'close' ? state : null;
 }
 
 /** Mensagem recebida, já no formato comum aos canais. */

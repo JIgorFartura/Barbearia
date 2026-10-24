@@ -1,9 +1,24 @@
 import { all, get, nowIso, run } from './db.js';
 import { HttpError } from './http.js';
+import type { TemplateUse } from './templates.js';
 import { localPhone, sendText, type Provider } from './whatsapp.js';
 
 /** Tipos de mensagem no histórico do robô. */
-export type MessageKind = 'chat' | 'lembrete' | 'costume' | 'sumido' | 'codigo' | 'teste' | 'manual' | 'barbeiro';
+export type MessageKind =
+  | 'chat'
+  | 'lembrete'
+  | 'costume'
+  | 'sumido'
+  | 'codigo'
+  | 'teste'
+  | 'manual'
+  | 'barbeiro'
+  | 'avaliacao'
+  | 'aniversario'
+  | 'indicacao'
+  | 'sinal'
+  | 'assinatura'
+  | 'aviso';
 
 export interface ShopBot {
   id: number;
@@ -78,13 +93,25 @@ export interface SendOptions {
   /** Simulador do painel: grava, mas não manda nada pelo WhatsApp. */
   dryRun?: boolean;
   tokens?: { in: number; out: number };
+  /** Modelo da API oficial (Meta) para quando a mensagem sai fora da janela de 24h. */
+  template?: TemplateUse | null;
+}
+
+/** Na API oficial e fora da janela de 24h, a mensagem sai pelo modelo aprovado (texto fixo, sem extras). */
+export const sendsTemplate = (shop: ShopBot, phone: string) => shop.wa_provider === 'meta' && !inServiceWindow(shop.id, phone);
+
+/** O cliente escreveu nas últimas 24h? (Na API oficial, só então vale texto livre.) */
+export function inServiceWindow(shopId: number, phone: string): boolean {
+  const since = new Date(Date.now() - 24 * 3600000).toISOString();
+  return Boolean(get("SELECT 1 AS ok FROM messages WHERE barbershop_id = ? AND phone = ? AND direction = 'in' AND created_at >= ? LIMIT 1", [shopId, phone, since]));
 }
 
 /** Envia pelo canal da barbearia e grava no histórico. Nunca lança erro: falhas ficam registradas. */
 export async function sendMessage(opts: SendOptions): Promise<{ id: number; status: string; error?: string }> {
   const provider: Provider = opts.dryRun ? 'simulador' : opts.shop.wa_provider;
   const automated = opts.kind !== 'chat' && opts.kind !== 'teste';
-  const result = await sendText(provider, waConfig(opts.shop), waTarget(opts.phone, opts.waId), opts.text, { automated });
+  const inWindow = provider === 'meta' && automated ? inServiceWindow(opts.shop.id, opts.phone) : true;
+  const result = await sendText(provider, waConfig(opts.shop), waTarget(opts.phone, opts.waId), opts.text, { automated, template: opts.template, inWindow });
   const { lastInsertRowid } = run(
     `INSERT INTO messages (barbershop_id, customer_id, phone, direction, kind, body, status, error, external_id, tokens_in, tokens_out, created_at)
      VALUES (?, ?, ?, 'out', ?, ?, ?, ?, ?, ?, ?, ?)`,

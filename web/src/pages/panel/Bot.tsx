@@ -1,4 +1,4 @@
-import { Bot as BotIcon, Copy, MessageSquare, Send, Smartphone, UserX, Zap } from 'lucide-react';
+import { Bot as BotIcon, CheckCircle2, Copy, MessageSquare, RefreshCw, Send, Smartphone, UserX, WifiOff, Zap } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -19,7 +19,27 @@ interface Settings {
   winback_days: number;
   winback_message: string | null;
   llm: boolean;
+  connection: Connection | null;
+  templates: TemplateInfo[];
 }
+
+interface Connection {
+  status: 'ok' | 'down' | 'unknown';
+  since: string | null;
+  checkedAt: string | null;
+  error: string | null;
+}
+
+interface TemplateInfo {
+  kind: string;
+  field: string;
+  label: string;
+  category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
+  body: string;
+  example: string[];
+}
+
+const CATEGORY_LABEL = { UTILITY: 'Utilidade', MARKETING: 'Marketing', AUTHENTICATION: 'Autenticação' };
 
 interface Msg {
   id: number;
@@ -48,6 +68,13 @@ const KIND_LABEL: Record<string, string> = {
   codigo: 'Código de acesso',
   teste: 'Teste',
   manual: 'Manual',
+  barbeiro: 'Aviso ao barbeiro',
+  avaliacao: 'Avaliação',
+  aniversario: 'Aniversário',
+  indicacao: 'Indicação',
+  sinal: 'Sinal',
+  assinatura: 'Clube',
+  aviso: 'Aviso',
 };
 
 /** Robô do WhatsApp: nome, automações, conexão, simulador e conversas. */
@@ -109,7 +136,7 @@ export function Bot() {
         <form onSubmit={save} className="space-y-5">
           {tab === 'robo' && <RobotTab s={s} set={set} />}
           {tab === 'lembretes' && <RemindersTab s={s} set={set} />}
-          {tab === 'whatsapp' && <WhatsAppTab s={s} set={set} />}
+          {tab === 'whatsapp' && <WhatsAppTab s={s} set={set} onConnection={(c) => setS((v) => (v ? { ...v, connection: c } : v))} />}
           <ErrorText error={error} />
           <div className="flex items-center gap-3">
             <Button type="submit" loading={busy}>
@@ -251,7 +278,77 @@ function CopyField({ label, value, hint }: { label: string; value: string; hint?
   );
 }
 
-function WhatsAppTab({ s, set }: { s: Settings; set: SetFn }) {
+/** Situação da conexão (o sistema confere sozinho a cada 10 minutos e avisa o dono se cair). */
+function ConnectionCard({ connection, onChange }: { connection: Connection | null; onChange: (c: Connection | null) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '');
+  const down = connection?.status === 'down';
+  return (
+    <Card className={`flex flex-wrap items-center justify-between gap-3 ${down ? 'ring-red-200' : ''}`}>
+      <div className="flex items-start gap-3 text-sm">
+        {down ? <WifiOff className="mt-0.5 size-5 shrink-0 text-red-600" /> : <CheckCircle2 className={`mt-0.5 size-5 shrink-0 ${connection?.status === 'ok' ? 'text-emerald-600' : 'text-zinc-400'}`} />}
+        <div>
+          <p className="font-semibold">
+            {connection?.status === 'ok' ? 'WhatsApp conectado' : down ? 'WhatsApp desconectado' : 'Conexão ainda não verificada'}
+          </p>
+          <p className="text-zinc-500">
+            {down && connection?.error ? `${connection.error}. ` : ''}
+            {connection?.checkedAt ? `Última verificação: ${when(connection.checkedAt)}.` : 'O sistema confere a cada 10 minutos.'}
+            {down && ' Reconecte (na Evolution, leia o QR Code de novo) e clique em Verificar agora.'}
+          </p>
+        </div>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        loading={busy}
+        onClick={() => {
+          setBusy(true);
+          setError(null);
+          api<{ connection: Connection | null }>('POST', '/api/shop/bot/check')
+            .then((r) => onChange(r.connection), (e) => setError(e.message))
+            .finally(() => setBusy(false));
+        }}
+      >
+        <RefreshCw className="size-4" /> Verificar agora
+      </Button>
+      <ErrorText error={error} />
+    </Card>
+  );
+}
+
+/** Modelos da Meta: um por tipo de mensagem automática, com o texto sugerido para cadastrar. */
+function TemplatesCard({ templates, cfg, setCfg }: { templates: TemplateInfo[]; cfg: Record<string, string>; setCfg: (key: string, value: string) => void }) {
+  return (
+    <Card className="space-y-3">
+      <div>
+        <p className="font-semibold">Modelos de mensagem (mensagens automáticas)</p>
+        <p className="text-sm text-zinc-500">
+          Fora da janela de 24h depois da última mensagem do cliente, a Meta só entrega modelos aprovados. Cadastre cada texto abaixo no WhatsApp Manager (Modelos
+          de mensagem, idioma Português BR) e escreva aqui o nome aprovado. Sem o modelo, aquele tipo de mensagem só chega para quem falou com o robô nas últimas
+          24h.
+        </p>
+      </div>
+      <ul className="divide-y divide-zinc-100">
+        {templates.map((t) => (
+          <li key={t.kind} className="grid gap-2 py-3 sm:grid-cols-[1fr_14rem] sm:items-start">
+            <div className="text-sm">
+              <p className="font-medium">
+                {t.label} <span className="text-xs font-normal text-zinc-500">· categoria {CATEGORY_LABEL[t.category]}</span>
+              </p>
+              <p className="mt-1 rounded-lg bg-zinc-50 px-2 py-1.5 font-mono text-xs text-zinc-700">{t.body}</p>
+              <p className="mt-1 text-xs text-zinc-500">Exemplo das variáveis: {t.example.map((e, i) => `{{${i + 1}}} = ${e}`).join(' · ')}</p>
+            </div>
+            <Input placeholder="nome aprovado (ex.: lembrete_horario)" value={cfg[t.field] ?? ''} onChange={(e) => setCfg(t.field, e.target.value)} />
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function WhatsAppTab({ s, set, onConnection }: { s: Settings; set: SetFn; onConnection: (c: Connection | null) => void }) {
   const cfg = s.wa_config;
   const setCfg = (key: string, value: string) => set('wa_config', { ...cfg, [key]: value });
   const text = (key: string, label: string, opts: { secret?: boolean; hint?: string; placeholder?: string } = {}) => (
@@ -273,6 +370,7 @@ function WhatsAppTab({ s, set }: { s: Settings; set: SetFn }) {
 
   return (
     <div className="max-w-3xl space-y-4">
+      {s.wa_provider !== 'simulador' && s.connection && <ConnectionCard connection={s.connection} onChange={onConnection} />}
       <div className="grid gap-3 sm:grid-cols-3">
         {options.map((o) => (
           <button
@@ -294,7 +392,11 @@ function WhatsAppTab({ s, set }: { s: Settings; set: SetFn }) {
             {text('instance', 'Nome da instância')}
             {text('apiKey', 'Chave (apikey)', { secret: true })}
           </div>
-          <CopyField label="URL do webhook" value={s.webhooks.evolution} hint="Na Evolution, configure o webhook da instância com esta URL e ative o evento MESSAGES_UPSERT." />
+          <CopyField
+            label="URL do webhook"
+            value={s.webhooks.evolution}
+            hint="Na Evolution, configure o webhook da instância com esta URL e ative os eventos MESSAGES_UPSERT e CONNECTION_UPDATE (avisa na hora se o WhatsApp cair)."
+          />
         </Card>
       )}
 
@@ -308,13 +410,14 @@ function WhatsAppTab({ s, set }: { s: Settings; set: SetFn }) {
           </div>
           <CopyField label="URL de retorno (webhook)" value={s.webhooks.meta} hint="Na Meta: WhatsApp > Configuração > Webhook. Assine o campo “messages”." />
           <div className="grid gap-4 sm:grid-cols-2">
-            {text('templateName', 'Modelo para mensagens automáticas (opcional)', {
-              hint: 'Fora da janela de 24h a Meta só entrega modelos aprovados. Crie um modelo de utilidade com uma variável {{1}}.',
+            {text('templateLang', 'Idioma dos modelos', { placeholder: 'pt_BR' })}
+            {text('templateName', 'Modelo genérico (opcional)', {
+              hint: 'Usado para os tipos sem modelo próprio: um modelo com uma variável {{1}} que recebe a mensagem inteira.',
             })}
-            {text('templateLang', 'Idioma do modelo', { placeholder: 'pt_BR' })}
           </div>
         </Card>
       )}
+      {s.wa_provider === 'meta' && <TemplatesCard templates={s.templates} cfg={cfg} setCfg={setCfg} />}
 
       {s.wa_provider !== 'simulador' && <TestSend />}
     </div>
@@ -336,6 +439,7 @@ function TestSend() {
         <Input type="tel" placeholder="(11) 98888-7777" value={phoneValue} onChange={(e) => setPhone(e.target.value)} />
         <Button
           type="button"
+          className="shrink-0"
           loading={busy}
           onClick={async () => {
             setBusy(true);

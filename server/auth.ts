@@ -5,18 +5,24 @@ import { get, nowIso, run } from './db.js';
 import { HttpError } from './http.js';
 
 /**
- * Perfis com login de e-mail e senha (o cliente da barbearia tem a área própria, em customerAuth.ts):
+ * Perfis com login (e-mail ou celular) e senha; o cliente da barbearia tem a área própria, em customerAuth.ts:
  * - master: dono da plataforma — cadastra as barbearias, vê tudo e pode entrar no painel de qualquer uma;
- * - owner: dono da barbearia — cuida da marca, agenda, robô, catálogo, parceiros, anúncios, campanhas e clientes.
+ * - owner: dono da barbearia — cuida da marca, agenda, robô, catálogo, parceiros, anúncios, campanhas e clientes;
+ * - barber: barbeiro — vê a própria agenda, fecha os próprios atendimentos e acompanha as comissões.
  */
-export type Role = 'master' | 'owner';
+export type Role = 'master' | 'owner' | 'barber';
 
 export interface AuthUser {
   id: number;
   name: string;
-  email: string;
+  email: string | null;
+  phone: string | null;
   role: Role;
   barbershopId: number | null;
+  /** Barbeiro ligado a este login (perfil barber). */
+  barberId: number | null;
+  /** Já aceitou os termos de uso da plataforma (dono). */
+  termsAccepted: boolean;
   /** Master operando o painel de uma barbearia. */
   acting?: boolean;
 }
@@ -79,8 +85,18 @@ export function destroySession(req: Request, res: Response): void {
 export function loadUser(req: Request, _res: Response, next: NextFunction): void {
   const token = readCookie(req);
   if (token) {
-    const row = get<{ id: number; name: string; email: string; role: Role; barbershop_id: number | null; acting_shop_id: number | null }>(
-      `SELECT u.id, u.name, u.email, u.role, u.barbershop_id, s.acting_shop_id
+    const row = get<{
+      id: number;
+      name: string;
+      email: string | null;
+      phone: string | null;
+      role: Role;
+      barbershop_id: number | null;
+      barber_id: number | null;
+      terms_accepted_at: string | null;
+      acting_shop_id: number | null;
+    }>(
+      `SELECT u.id, u.name, u.email, u.phone, u.role, u.barbershop_id, u.barber_id, u.terms_accepted_at, s.acting_shop_id
          FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.id = ? AND s.expires_at > ?`,
       [sha256(token), nowIso()],
@@ -88,7 +104,17 @@ export function loadUser(req: Request, _res: Response, next: NextFunction): void
     if (row) {
       // Master "dentro" do painel de uma barbearia enxerga e opera como o dono dela.
       const acting = row.role === 'master' && row.acting_shop_id ? row.acting_shop_id : null;
-      req.user = { id: row.id, name: row.name, email: row.email, role: row.role, barbershopId: acting ?? row.barbershop_id, acting: Boolean(acting) };
+      req.user = {
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        phone: row.phone,
+        role: row.role,
+        barbershopId: acting ?? row.barbershop_id,
+        barberId: row.barber_id,
+        termsAccepted: Boolean(row.terms_accepted_at),
+        acting: Boolean(acting),
+      };
       req.sessionId = sha256(token);
     }
   }

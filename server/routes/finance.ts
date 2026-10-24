@@ -2,6 +2,7 @@ import type { Request, Router } from 'express';
 import { z } from 'zod';
 import { shopId } from '../auth.js';
 import { accessStatus, informPayment, invoice, invoicePix, listInvoices, shopBilling, monthlyPrice } from '../billing.js';
+import { connectionInfo } from '../connection.js';
 import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
 import { all, get } from '../db.js';
 import {
@@ -60,6 +61,7 @@ export function registerFinanceRoutes(router: Router): void {
       openInvoices: status.open.length,
       overdue: status.open.some((i) => i.overdue),
       trialUntil: status.trialUntil,
+      whatsapp: connectionInfo(shop),
       announcements: all("SELECT id, title, body, level, created_at FROM announcements WHERE active = 1 ORDER BY id DESC LIMIT 5"),
     });
   });

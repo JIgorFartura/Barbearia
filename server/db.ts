@@ -585,6 +585,38 @@ const MIGRATIONS: (string | Rebuild)[] = [
     name TEXT PRIMARY KEY,
     uploaded_at TEXT NOT NULL
   );
+
+  -- WhatsApp da plataforma (do master): avisos aos donos e códigos de "esqueci minha senha".
+  CREATE TABLE platform_messages (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER REFERENCES barbershops(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    phone TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    body TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX platform_messages_created ON platform_messages (created_at);
+
+  CREATE TABLE password_codes (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    secret_hash TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX password_codes_user ON password_codes (user_id, created_at);
+
+  -- Conexão do WhatsApp de cada barbearia (conferida a cada 10 minutos): ok | down.
+  ALTER TABLE barbershops ADD COLUMN wa_status TEXT;
+  ALTER TABLE barbershops ADD COLUMN wa_status_at TEXT;
+  ALTER TABLE barbershops ADD COLUMN wa_checked_at TEXT;
+  ALTER TABLE barbershops ADD COLUMN wa_error TEXT;
+  ALTER TABLE barbershops ADD COLUMN wa_alerted_at TEXT;
   `,
 ];
 

@@ -46,17 +46,76 @@ export function Home({ me, onLogin }: { me: Me; onLogin: () => void }) {
 }
 
 function LoginCard({ onDone }: { onDone: () => void }) {
-  const [email, setEmail] = useState('');
+  const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forgot, setForgot] = useState(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await api('POST', '/api/auth/login', { email, password });
+      await api('POST', '/api/auth/login', { login, password });
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (forgot) return <ForgotCard initial={login} onBack={() => setForgot(false)} onDone={onDone} />;
+
+  return (
+    <form onSubmit={submit} className="space-y-4 rounded-2xl bg-white p-6 text-zinc-900 shadow-2xl">
+      <h2 className="text-xl font-bold">Entrar no painel</h2>
+      <Field label="E-mail ou celular">
+        <Input autoComplete="username" required value={login} onChange={(e) => setLogin(e.target.value)} />
+      </Field>
+      <Field label="Senha">
+        <Input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+      </Field>
+      <ErrorText error={error} />
+      <Button type="submit" loading={busy} className="w-full">
+        Entrar
+      </Button>
+      <button type="button" className="w-full text-center text-sm font-medium text-zinc-500 hover:text-zinc-900" onClick={() => setForgot(true)}>
+        Esqueci minha senha
+      </button>
+    </form>
+  );
+}
+
+/** Esqueci minha senha: código no WhatsApp do celular cadastrado e nova senha. */
+function ForgotCard({ initial, onBack, onDone }: { initial: string; onBack: () => void; onDone: () => void }) {
+  const [login, setLogin] = useState(initial);
+  const [sent, setSent] = useState<{ masked: string; demoCode?: string } | null>(null);
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function ask(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      setSent(await api<{ masked: string; demoCode?: string }>('POST', '/api/auth/forgot', { login }));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reset(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api('POST', '/api/auth/reset', { login, code, password });
       onDone();
     } catch (err) {
       setError((err as Error).message);
@@ -66,18 +125,39 @@ function LoginCard({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <form onSubmit={submit} className="space-y-4 rounded-2xl bg-white p-6 text-zinc-900 shadow-2xl">
-      <h2 className="text-xl font-bold">Entrar no painel</h2>
-      <Field label="E-mail">
-        <Input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-      </Field>
-      <Field label="Senha">
-        <Input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-      </Field>
+    <form onSubmit={sent ? reset : ask} className="space-y-4 rounded-2xl bg-white p-6 text-zinc-900 shadow-2xl">
+      <div>
+        <h2 className="text-xl font-bold">Criar uma nova senha</h2>
+        <p className="text-sm text-zinc-500">
+          {sent ? `Mandamos um código pelo WhatsApp para o celular ${sent.masked}.` : 'Enviamos um código para o WhatsApp do celular cadastrado no seu login.'}
+        </p>
+      </div>
+      {!sent ? (
+        <Field label="E-mail ou celular do login">
+          <Input autoComplete="username" required value={login} onChange={(e) => setLogin(e.target.value)} />
+        </Field>
+      ) : (
+        <>
+          {sent.demoCode && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Demonstração (sem WhatsApp conectado): o código é <b className="tracking-widest">{sent.demoCode}</b>
+            </p>
+          )}
+          <Field label="Código de 6 dígitos">
+            <Input inputMode="numeric" autoComplete="one-time-code" required maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
+          </Field>
+          <Field label="Nova senha" hint="Pelo menos 8 caracteres.">
+            <Input type="password" autoComplete="new-password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
+        </>
+      )}
       <ErrorText error={error} />
       <Button type="submit" loading={busy} className="w-full">
-        Entrar
+        {sent ? 'Salvar nova senha e entrar' : 'Enviar código'}
       </Button>
+      <button type="button" className="w-full text-center text-sm font-medium text-zinc-500 hover:text-zinc-900" onClick={onBack}>
+        Voltar para o login
+      </button>
     </form>
   );
 }

@@ -1,9 +1,10 @@
 import { Router, type Request } from 'express';
 import { handleInbound } from '../bot/inbound.js';
+import { setConnection } from '../connection.js';
 import { get } from '../db.js';
 import { HttpError } from '../http.js';
 import { waConfig, type ShopBot } from '../messaging.js';
-import { parseEvolutionWebhook, parseMetaWebhook, verifyMetaSignature, zMetaConfig, type Inbound } from '../whatsapp.js';
+import { parseEvolutionConnection, parseEvolutionWebhook, parseMetaWebhook, verifyMetaSignature, zMetaConfig, type Inbound } from '../whatsapp.js';
 
 /**
  * Onde o WhatsApp entrega as mensagens. Cada barbearia tem a sua URL com um segredo
@@ -30,7 +31,7 @@ function processLater(shop: ShopBot, messages: Inbound[]): void {
 webhooksRouter.get('/meta/:token', (req, res) => {
   const shop = shopByToken(req, 'meta');
   const cfg = zMetaConfig.safeParse(waConfig(shop));
-  if (req.query['hub.mode'] === 'subscribe' && cfg.success && req.query['hub.verify_token'] === cfg.data.verifyToken) {
+  if (req.query['hub.mode'] === 'subscribe' && cfg.success && cfg.data.verifyToken && req.query['hub.verify_token'] === cfg.data.verifyToken) {
     res.type('text/plain').send(String(req.query['hub.challenge'] ?? ''));
     return;
   }
@@ -51,5 +52,13 @@ webhooksRouter.post('/meta/:token', (req, res) => {
 webhooksRouter.post('/evolution/:token', (req, res) => {
   const shop = shopByToken(req, 'evolution');
   res.sendStatus(200);
+  // A Evolution avisa quando a sessão do QR Code cai ou volta (evento CONNECTION_UPDATE).
+  const state = parseEvolutionConnection(req.body);
+  if (state) {
+    void setConnection(shop.id, state === 'open', state === 'open' ? 'conectado' : 'A sessão do WhatsApp foi encerrada (Evolution).', new Date(), { immediate: true }).catch((err) =>
+      console.error(`[webhook] ${shop.slug}:`, err),
+    );
+    return;
+  }
   processLater(shop, parseEvolutionWebhook(req.body));
 });

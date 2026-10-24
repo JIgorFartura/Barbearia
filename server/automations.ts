@@ -1,9 +1,12 @@
 import { dailyBackup } from './backup.js';
+import { checkConnections } from './connection.js';
 import { accessStatus, ensureInvoices } from './billing.js';
+import { config } from './config.js';
 import { askConsumption } from './consumption.js';
 import { all, get, nowIso, run } from './db.js';
 import { customerHabit, lastVisitDate, type Habit } from './habits.js';
-import { sendMessage, shopBot, type MessageKind, type ShopBot } from './messaging.js';
+import { sendMessage, sendsTemplate, shopBot, type MessageKind, type ShopBot } from './messaging.js';
+import type { TemplateUse } from './templates.js';
 import { freeTimes, upcomingFor } from './scheduling.js';
 import { shopNow, shopTz } from './clock.js';
 import { addDays, addMinutes, daysBetween, dayLabel, hourLabel, isoToLocal, relativeDay, toMinutes, weekdayOf } from './time.js';
@@ -34,8 +37,8 @@ function log(shopId: number, customerId: number | null, kind: string, ref: strin
   run('INSERT INTO automation_log (barbershop_id, customer_id, kind, ref, created_at) VALUES (?, ?, ?, ?, ?)', [shopId, customerId, kind, ref, nowIso()]);
 }
 
-async function send(shop: ShopBot, c: CustomerLite, kind: MessageKind, text: string): Promise<void> {
-  await sendMessage({ shop, customerId: c.id, phone: c.phone, waId: c.wa_id, text, kind });
+async function send(shop: ShopBot, c: CustomerLite, kind: MessageKind, text: string, template: TemplateUse | null = null): Promise<void> {
+  await sendMessage({ shop, customerId: c.id, phone: c.phone, waId: c.wa_id, text, kind, template });
 }
 
 const optedInCustomers = (shopId: number) =>
@@ -113,13 +116,16 @@ export async function appointmentReminders(shop: ShopBot, now: Date): Promise<nu
     if (logged(shop.id, r.id, 'lembrete', String(r.appt_id))) continue;
     log(shop.id, r.id, 'lembrete', String(r.appt_id));
     const date = r.starts_at.slice(0, 10);
+    const when = `${relativeDay(date, n.date)}${relativeDay(date, n.date) === dayLabel(date) ? '' : ` (${dayLabel(date)})`} às ${hourLabel(r.starts_at.slice(11))}`;
     // Se ele costuma consumir algo e ainda não pediu, o lembrete já pergunta (o SIM separa e avisa o barbeiro).
-    const ask = askConsumption(shop.id, r.appt_id, now);
+    // Pelo modelo da Meta o texto é fixo: aí não pergunta, para um "SIM" não separar nada sem ele ter visto.
+    const ask = sendsTemplate(shop, r.phone) ? null : askConsumption(shop.id, r.appt_id, now);
     await send(
       shop,
       r,
       'lembrete',
-      `Oi, ${firstName(r.name)}! Lembrete do ${shop.bot_name} 💈: seu horário na ${shop.name} é ${relativeDay(date, n.date)}${relativeDay(date, n.date) === dayLabel(date) ? '' : ` (${dayLabel(date)})`} às ${hourLabel(r.starts_at.slice(11))} com ${r.barber_name} (${r.service_name}). Se não puder vir, responda CANCELAR.${ask ? `\n${ask}` : ''}`,
+      `Oi, ${firstName(r.name)}! Lembrete do ${shop.bot_name} 💈: seu horário na ${shop.name} é ${when} com ${r.barber_name} (${r.service_name}). Se não puder vir, responda CANCELAR.${ask ? `\n${ask}` : ''}`,
+      { kind: 'lembrete', params: [firstName(r.name), shop.name, when, r.barber_name] },
     );
     sent++;
   }
@@ -162,7 +168,7 @@ export async function habitOffers(shop: ShopBot, now: Date): Promise<number> {
     const text = slot
       ? `Fala, ${firstName(c.name)}! Aqui é o ${shop.bot_name}, da ${shop.name}. 💈 Bora garantir seu horário de sempre? Separei *${offerLine(slot)}*.\nResponda *SIM* para confirmar ou me diga outro horário.\n${OPT_OUT_HINT}`
       : `Fala, ${firstName(c.name)}! Aqui é o ${shop.bot_name}, da ${shop.name}. 💈 Seu horário de costume (${dayLabel(date)} às ${hourLabel(habit.time)}) já está ocupado essa semana. Quer que eu veja outro horário pra você?\n${OPT_OUT_HINT}`;
-    await send(shop, c, 'costume', text);
+    await send(shop, c, 'costume', text, slot ? { kind: 'costume', params: [firstName(c.name), shop.name, `${dayLabel(slot.date)} às ${hourLabel(slot.time)}`, slot.barberName] } : null);
     sent++;
   }
   return sent;
@@ -213,7 +219,7 @@ export async function sendWinback(shop: ShopBot, c: CustomerLite, days: number, 
   );
   const ask = slot ? `Tenho *${offerLine(slot)}*. Responda *SIM* para marcar ou me diga o melhor horário.` : 'Me diga o dia e o horário que eu marco pra você.';
   log(shop.id, c.id, 'sumido', lastVisit);
-  await send(shop, c, 'sumido', `${opening}\n${ask}\n${OPT_OUT_HINT}`);
+  await send(shop, c, 'sumido', `${opening}\n${ask}\n${OPT_OUT_HINT}`, { kind: 'sumido', params: [firstName(c.name), shop.name, String(days)] });
 }
 
 // O recontato olha todos os clientes: basta uma vez por hora para cada barbearia.
@@ -266,6 +272,8 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
     }
     // Cópia de segurança do dia (a partir das 3h); uma falha aqui não para os lembretes.
     await dailyBackup(now).catch((err) => console.error('[backup]', err));
+    // Conexão do WhatsApp de cada barbearia (avisa o dono se cair).
+    if (config.automations) await checkConnections(now).catch((err) => console.error('[conexão]', err));
     for (const { id } of all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1')) {
       const shop = shopBot(id);
       // Cada barbearia no seu relógio: ofertas vencidas e horário comercial pelo fuso dela.

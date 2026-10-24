@@ -3,11 +3,13 @@ import { z } from 'zod';
 import { shopId } from '../auth.js';
 import { awayCustomers, sendWinback } from '../automations.js';
 import { handleInbound } from '../bot/inbound.js';
+import { checkShopConnection, connectionInfo, resetConnection } from '../connection.js';
 import { llmEnabled } from '../bot/brain.js';
 import { config } from '../config.js';
 import { all, get, run } from '../db.js';
 import { HttpError, idParam, normalizePhone, parseBody, zBool, zText } from '../http.js';
 import { sendMessage, shopBot, waConfig } from '../messaging.js';
+import { SHOP_TEMPLATE_KINDS, TEMPLATES, templateField } from '../templates.js';
 import { isTime } from '../time.js';
 import { PROVIDERS, zEvolutionConfig, zMetaConfig } from '../whatsapp.js';
 
@@ -41,6 +43,9 @@ function botSettings(shop: number) {
     winback_days: s.winback_days,
     winback_message: s.winback_message,
     llm: llmEnabled(),
+    connection: connectionInfo(shop),
+    /** Modelos para cadastrar na Meta (WhatsApp oficial), com o texto sugerido. */
+    templates: SHOP_TEMPLATE_KINDS.map((k) => ({ kind: k, field: templateField(k), ...TEMPLATES[k] })),
   };
 }
 
@@ -65,15 +70,18 @@ export function registerBotRoutes(router: Router): void {
     res.json(botSettings(shopId(req)));
   });
 
-  router.put('/bot', (req, res) => {
+  router.put('/bot', async (req, res) => {
     const shop = shopId(req);
     const body = parseBody(zSettings, req.body);
     // Campo de senha que voltou mascarado = manter o valor salvo.
-    const previous = waConfig(shopBot(shop)) as Record<string, string>;
+    const before = shopBot(shop);
+    const previous = waConfig(before) as Record<string, string>;
     const merged: Record<string, string> = {};
     for (const [k, v] of Object.entries(body.wa_config)) merged[k] = v === SECRET_MASK ? (previous[k] ?? '') : v;
     let waJson: string | null = null;
-    if (body.wa_provider === 'meta') waJson = JSON.stringify(parseBody(zMetaConfig, merged));
+    if (body.wa_provider === 'meta') {
+      waJson = JSON.stringify(parseBody(zMetaConfig.extend({ verifyToken: z.string().trim().min(6, 'Token de verificação do webhook (mín. 6 caracteres).') }), merged));
+    }
     if (body.wa_provider === 'evolution') waJson = JSON.stringify(parseBody(zEvolutionConfig, merged));
     run(
       `UPDATE barbershops SET bot_name = ?, bot_persona = ?, wa_provider = ?, wa_config = COALESCE(?, wa_config), slot_step_min = ?, reminder_hours = ?,
@@ -94,7 +102,18 @@ export function registerBotRoutes(router: Router): void {
         shop,
       ],
     );
+    // Canal ou credenciais novas: a situação da conexão volta a "não verificada" e é conferida agora.
+    const after = shopBot(shop);
+    if (after.wa_provider !== before.wa_provider || after.wa_config !== before.wa_config) {
+      resetConnection(shop);
+      if (after.wa_provider !== 'simulador') await checkShopConnection(shop).catch(() => null);
+    }
     res.json(botSettings(shop));
+  });
+
+  /** Confere agora se o WhatsApp está conectado. */
+  router.post('/bot/check', async (req, res) => {
+    res.json({ connection: await checkShopConnection(shopId(req)) });
   });
 
   /** Manda uma mensagem de teste pelo canal configurado. */

@@ -8,7 +8,17 @@ import { Panel } from './pages/Panel';
 import { ShopLanding } from './pages/ShopLanding';
 
 export interface Me {
-  user: { id: number; name: string; email: string; role: 'master' | 'owner'; barbershopId: number | null; acting?: boolean } | null;
+  user: {
+    id: number;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    role: 'master' | 'owner' | 'barber';
+    barbershopId: number | null;
+    barberId: number | null;
+    termsAccepted: boolean;
+    acting?: boolean;
+  } | null;
   shop: { id: number; slug: string; name: string } | null;
   setupNeeded: boolean;
 }

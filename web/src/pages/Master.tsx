@@ -17,16 +17,20 @@ import {
   Server,
   Store,
   Ticket,
+  Smartphone,
   Unlock,
+  UserCog,
   Users,
   Wallet,
+  WifiOff,
 } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import type { Me } from '../App';
+import { AccountModal } from '../components/Account';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { api } from '../lib/api';
 import { centsToInput, parseMoney } from '../lib/finance';
-import { addDays, date, money, todayStr } from '../lib/format';
+import { addDays, date, money, phone as fmtPhone, todayStr } from '../lib/format';
 import { navigate } from '../lib/router';
 
 interface ShopRow {
@@ -37,6 +41,9 @@ interface ShopRow {
   created_at: string;
   bot_name: string;
   wa_provider: 'simulador' | 'meta' | 'evolution';
+  wa_status: 'ok' | 'down' | null;
+  wa_status_at: string | null;
+  wa_error: string | null;
   owners: string | null;
   customers: number;
   campaigns: number;
@@ -111,6 +118,7 @@ type Tab = (typeof TABS)[number]['id'];
 /** Painel do dono da plataforma: barbearias, mensalidades e o sistema. */
 export function Master({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [tab, setTab] = useState<Tab>('barbearias');
+  const [account, setAccount] = useState(false);
   return (
     <div className="min-h-screen">
       <header className="bg-zinc-950 text-white">
@@ -119,7 +127,9 @@ export function Master({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <Scissors className="size-5 text-gold" /> Sistema Barbearia <Badge tone="gold">Master</Badge>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span className="hidden text-zinc-400 sm:inline">{me.user?.name}</span>
+            <button className="flex items-center gap-1 text-zinc-300 hover:text-white" onClick={() => setAccount(true)}>
+              <UserCog className="size-4" /> <span className="hidden sm:inline">{me.user?.name}</span>
+            </button>
             <button className="flex items-center gap-1 text-zinc-300 hover:text-white" onClick={() => api('POST', '/api/auth/logout').then(onLogout)}>
               <LogOut className="size-4" /> Sair
             </button>
@@ -142,6 +152,7 @@ export function Master({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {tab === 'financeiro' && <BillingTab />}
         {tab === 'sistema' && <SystemTab />}
       </main>
+      {account && <AccountModal me={me} onClose={() => setAccount(false)} onSaved={onLogout} />}
     </div>
   );
 }
@@ -253,6 +264,12 @@ function ShopsTab({ onEnter }: { onEnter: () => void }) {
                   Robô {s.bot_name} · {PROVIDER[s.wa_provider]} · {s.barbers} barbeiro(s)
                   {s.failed_week > 0 && <span className="text-red-600"> · {s.failed_week} mensagem(ns) com falha</span>}
                 </p>
+                {s.wa_status === 'down' && (
+                  <p className="mt-1 flex items-center gap-1 text-xs font-medium text-red-700">
+                    <WifiOff className="size-3.5" /> WhatsApp desconectado
+                    {s.wa_status_at && ` desde ${new Date(s.wa_status_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`}
+                  </p>
+                )}
                 <p className="text-xs text-zinc-500">
                   IA (30 dias): {compact(s.tokens_in_30d)} tokens de entrada, {compact(s.tokens_out_30d)} de saída · desde {date(s.created_at)}
                 </p>
@@ -309,7 +326,18 @@ function ShopsTab({ onEnter }: { onEnter: () => void }) {
 }
 
 function NewShopModal({ plans, onClose, onDone }: { plans: Plan[]; onClose: () => void; onDone: () => void }) {
-  const [form, setForm] = useState({ name: '', slug: '', ownerName: '', ownerEmail: '', ownerPassword: '', plan_id: '' as string, price: '', billing_day: '10', trial_days: '14' });
+  const [form, setForm] = useState({
+    name: '',
+    slug: '',
+    ownerName: '',
+    ownerEmail: '',
+    ownerPhone: '',
+    ownerPassword: '',
+    plan_id: '' as string,
+    price: '',
+    billing_day: '10',
+    trial_days: '14',
+  });
   const [slugTouched, setSlugTouched] = useState(false);
   const [created, setCreated] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -326,6 +354,7 @@ function NewShopModal({ plans, onClose, onDone }: { plans: Plan[]; onClose: () =
         slug: form.slug,
         ownerName: form.ownerName,
         ownerEmail: form.ownerEmail,
+        ownerPhone: form.ownerPhone || null,
         ownerPassword: form.ownerPassword,
         plan_id: form.plan_id ? Number(form.plan_id) : null,
         monthly_price_cents: form.price ? parseMoney(form.price) : null,
@@ -395,9 +424,14 @@ function NewShopModal({ plans, onClose, onDone }: { plans: Plan[]; onClose: () =
         <Field label="Nome">
           <Input required value={form.ownerName} onChange={(e) => setForm({ ...form, ownerName: e.target.value })} />
         </Field>
-        <Field label="E-mail">
-          <Input type="email" required value={form.ownerEmail} onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })} />
-        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="E-mail">
+            <Input type="email" required value={form.ownerEmail} onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })} />
+          </Field>
+          <Field label="Celular (WhatsApp)" hint="Para avisos e “esqueci minha senha”.">
+            <Input type="tel" placeholder="(11) 98888-7777" value={form.ownerPhone} onChange={(e) => setForm({ ...form, ownerPhone: e.target.value })} />
+          </Field>
+        </div>
         <Field label="Senha inicial" hint="Pelo menos 8 caracteres. O dono pode trocar depois.">
           <Input required minLength={8} value={form.ownerPassword} onChange={(e) => setForm({ ...form, ownerPassword: e.target.value })} />
         </Field>
@@ -525,10 +559,12 @@ function ReleaseModal({ shop, onClose, onDone }: { shop: ShopRow; onClose: () =>
 }
 
 function OwnersModal({ shop, onClose }: { shop: ShopRow; onClose: () => void }) {
-  const [owners, setOwners] = useState<{ id: number; name: string; email: string }[]>([]);
+  const [owners, setOwners] = useState<{ id: number; name: string; email: string; phone: string | null }[]>([]);
   const [resetting, setResetting] = useState<number | null>(null);
   const [password, setPassword] = useState('');
-  const [form, setForm] = useState({ ownerName: '', ownerEmail: '', ownerPassword: '' });
+  const [phoneFor, setPhoneFor] = useState<number | null>(null);
+  const [phoneValue, setPhoneValue] = useState('');
+  const [form, setForm] = useState({ ownerName: '', ownerEmail: '', ownerPhone: '', ownerPassword: '' });
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(() => {
@@ -545,11 +581,41 @@ function OwnersModal({ shop, onClose }: { shop: ShopRow; onClose: () => void }) 
               <div className="flex items-center justify-between gap-2">
                 <span>
                   <b>{o.name}</b> <span className="text-zinc-500">{o.email}</span>
+                  <span className={`block text-xs ${o.phone ? 'text-zinc-500' : 'text-amber-700'}`}>{o.phone ? fmtPhone(o.phone) : 'sem celular (não recebe avisos nem código de senha)'}</span>
                 </span>
-                <button className="text-xs font-medium text-zinc-600 hover:text-zinc-900" onClick={() => setResetting(resetting === o.id ? null : o.id)}>
-                  Nova senha
-                </button>
+                <span className="flex shrink-0 gap-3">
+                  <button
+                    className="text-xs font-medium text-zinc-600 hover:text-zinc-900"
+                    onClick={() => {
+                      setPhoneFor(phoneFor === o.id ? null : o.id);
+                      setPhoneValue(o.phone ? fmtPhone(o.phone) : '');
+                    }}
+                  >
+                    Celular
+                  </button>
+                  <button className="text-xs font-medium text-zinc-600 hover:text-zinc-900" onClick={() => setResetting(resetting === o.id ? null : o.id)}>
+                    Nova senha
+                  </button>
+                </span>
               </div>
+              {phoneFor === o.id && (
+                <div className="mt-2 flex gap-2">
+                  <Input type="tel" placeholder="(11) 98888-7777" value={phoneValue} onChange={(e) => setPhoneValue(e.target.value)} />
+                  <Button
+                    onClick={() =>
+                      api('PUT', `/api/master/owners/${o.id}/phone`, { phone: phoneValue || null }).then(
+                        () => {
+                          setPhoneFor(null);
+                          load();
+                        },
+                        (e) => setError(e.message),
+                      )
+                    }
+                  >
+                    Salvar
+                  </Button>
+                </div>
+              )}
               {resetting === o.id && (
                 <div className="mt-2 flex gap-2">
                   <Input placeholder="Nova senha (mín. 8)" value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -574,9 +640,10 @@ function OwnersModal({ shop, onClose }: { shop: ShopRow; onClose: () => void }) 
         </ul>
         <div className="space-y-2 rounded-xl bg-zinc-50 p-3">
           <p className="text-sm font-semibold">Novo login (sócio, gerente)</p>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             <Input placeholder="Nome" value={form.ownerName} onChange={(e) => setForm({ ...form, ownerName: e.target.value })} />
             <Input type="email" placeholder="E-mail" value={form.ownerEmail} onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })} />
+            <Input type="tel" placeholder="Celular (opcional)" value={form.ownerPhone} onChange={(e) => setForm({ ...form, ownerPhone: e.target.value })} />
             <Input placeholder="Senha" value={form.ownerPassword} onChange={(e) => setForm({ ...form, ownerPassword: e.target.value })} />
           </div>
           <Button
@@ -585,7 +652,7 @@ function OwnersModal({ shop, onClose }: { shop: ShopRow; onClose: () => void }) 
               api('POST', `/api/master/shops/${shop.id}/owners`, form).then(
                 () => {
                   setMsg(`Login ${form.ownerEmail} criado.`);
-                  setForm({ ownerName: '', ownerEmail: '', ownerPassword: '' });
+                  setForm({ ownerName: '', ownerEmail: '', ownerPhone: '', ownerPassword: '' });
                   load();
                 },
                 (e) => setError(e.message),
@@ -1076,6 +1143,140 @@ function BackupCard() {
   );
 }
 
+interface PlatformWa {
+  provider: 'simulador' | 'meta' | 'evolution';
+  config: Record<string, string>;
+  templates: { kind: string; field: string; label: string; category: string; body: string; example: string[] }[];
+  down: { id: number; name: string; since: string | null; error: string | null }[];
+  recent: { id: number; phone: string; kind: string; status: string; error: string | null; created_at: string }[];
+}
+
+const PLATFORM_KIND: Record<string, string> = { senha: 'Código de senha', alerta: 'Aviso', fatura: 'Mensalidade', aviso: 'Aviso', teste: 'Teste' };
+
+/** WhatsApp da plataforma: fala com os donos (aviso de desconexão, código de senha). */
+function PlatformWhatsAppCard() {
+  const [data, setData] = useState<PlatformWa | null>(null);
+  const [provider, setProvider] = useState<PlatformWa['provider']>('simulador');
+  const [cfg, setCfg] = useState<Record<string, string>>({});
+  const [testPhone, setTestPhone] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const apply = (d: PlatformWa) => {
+    setData(d);
+    setProvider(d.provider);
+    setCfg(d.config);
+  };
+  useEffect(() => {
+    api<PlatformWa>('GET', '/api/master/whatsapp').then(apply, (e) => setError(e.message));
+  }, []);
+  if (!data) return <ErrorText error={error} />;
+  const field = (key: string, label: string, opts: { secret?: boolean; placeholder?: string } = {}) => (
+    <Field label={label}>
+      <Input type={opts.secret ? 'password' : 'text'} autoComplete="off" placeholder={opts.placeholder} value={cfg[key] ?? ''} onChange={(e) => setCfg({ ...cfg, [key]: e.target.value })} />
+    </Field>
+  );
+  const run = (p: Promise<unknown>, ok: string) => {
+    setBusy(true);
+    setError(null);
+    setMsg(null);
+    p.then(() => setMsg(ok), (e) => setError(e.message)).finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="space-y-3">
+      {data.down.length > 0 && (
+        <Card className="space-y-1.5 text-sm ring-red-200">
+          <p className="flex items-center gap-2 font-semibold text-red-700">
+            <WifiOff className="size-4" /> WhatsApp desconectado em {data.down.length} barbearia(s)
+          </p>
+          {data.down.map((d) => (
+            <p key={d.id}>
+              <b>{d.name}</b>
+              {d.since && <span className="text-zinc-500"> · desde {new Date(d.since).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>}
+              {d.error && <span className="text-zinc-500"> · {d.error}</span>}
+            </p>
+          ))}
+        </Card>
+      )}
+      <Card className="space-y-3 text-sm">
+        <div>
+          <p className="flex items-center gap-2 font-semibold">
+            <Smartphone className="size-4" /> WhatsApp da plataforma
+          </p>
+          <p className="text-zinc-500">
+            O seu número: avisa o dono quando o WhatsApp da barbearia cai e manda o código de “esqueci minha senha”. Os donos precisam ter o celular cadastrado.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(['simulador', 'evolution', 'meta'] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setProvider(p)}
+              className={`rounded-full px-3 py-1.5 text-sm font-medium ring-1 ${provider === p ? 'bg-zinc-900 text-white ring-zinc-900' : 'ring-zinc-200 hover:bg-zinc-100'}`}
+            >
+              {PROVIDER[p]}
+            </button>
+          ))}
+        </div>
+        {provider === 'simulador' && <p className="text-amber-700">Sem WhatsApp: os avisos ficam só registrados abaixo (em demonstração, o código de senha aparece na tela).</p>}
+        {provider === 'evolution' && (
+          <div className="grid gap-3 sm:grid-cols-3">
+            {field('baseUrl', 'Endereço da Evolution API', { placeholder: 'https://evolution.seudominio.com.br' })}
+            {field('instance', 'Instância')}
+            {field('apiKey', 'Chave (apikey)', { secret: true })}
+          </div>
+        )}
+        {provider === 'meta' && (
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              {field('phoneNumberId', 'ID do número')}
+              {field('token', 'Token de acesso', { secret: true })}
+              {field('templateLang', 'Idioma dos modelos', { placeholder: 'pt_BR' })}
+            </div>
+            <p className="text-zinc-500">A plataforma não recebe respostas: na API oficial todas as mensagens saem por modelo aprovado.</p>
+            {data.templates.map((t) => (
+              <div key={t.kind} className="grid gap-2 sm:grid-cols-[1fr_14rem] sm:items-start">
+                <div>
+                  <p className="font-medium">{t.label}</p>
+                  <p className="rounded-lg bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-700">{t.body}</p>
+                </div>
+                <Input placeholder="nome aprovado" value={cfg[t.field] ?? ''} onChange={(e) => setCfg({ ...cfg, [t.field]: e.target.value })} />
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button loading={busy} onClick={() => run(api<PlatformWa>('PUT', '/api/master/whatsapp', { provider, config: cfg }).then(apply), 'Salvo!')}>
+            Salvar
+          </Button>
+          {data.provider !== 'simulador' && (
+            <>
+              <Input type="tel" className="!w-44" placeholder="Seu celular" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} />
+              <Button variant="ghost" loading={busy} onClick={() => run(api('POST', '/api/master/whatsapp/test', { phone: testPhone }), 'Teste enviado! Confira o WhatsApp.')}>
+                Enviar teste
+              </Button>
+            </>
+          )}
+        </div>
+        {msg && <p className="text-emerald-700">{msg}</p>}
+        <ErrorText error={error} />
+        {data.recent.length > 0 && (
+          <ul className="space-y-0.5 border-t border-zinc-100 pt-2 text-xs text-zinc-500">
+            {data.recent.map((m) => (
+              <li key={m.id}>
+                {new Date(m.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} · {PLATFORM_KIND[m.kind] ?? m.kind} para {fmtPhone(m.phone)} ·{' '}
+                {m.status === 'failed' ? <span className="text-red-600">falhou{m.error ? `: ${m.error}` : ''}</span> : m.status === 'simulated' ? 'só registrado' : 'enviado'}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 interface Announcement {
   id: number;
   title: string;
@@ -1144,6 +1345,7 @@ function SystemTab() {
             )}
           </Card>
           <BackupCard />
+          <PlatformWhatsAppCard />
         </div>
       )}
 

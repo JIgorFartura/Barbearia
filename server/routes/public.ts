@@ -115,6 +115,7 @@ publicRouter.post('/shops/:slug/login/code', async (req, res) => {
     waId: customer.wa_id,
     text: `Seu código de acesso à área do cliente da ${shop.name}: *${code}*. Vale por 10 minutos. Não passe para ninguém.`,
     kind: 'codigo',
+    template: { kind: 'codigo', params: [code] },
   });
   if (connected && sent.status === 'failed' && !config.demoLoginCodes) throw new HttpError(502, 'Não conseguimos enviar o código pelo WhatsApp. Tente de novo.');
   res.json({ sent: connected && sent.status === 'sent', demoCode: config.demoLoginCodes && (!connected || sent.status === 'failed') ? code : undefined });

@@ -16,12 +16,15 @@ import {
   Sparkles,
   Store,
   Ticket,
+  UserCog,
   Users,
   Wallet,
+  WifiOff,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { Me } from '../App';
+import { AccountModal } from '../components/Account';
 import { CrudPage, type Row } from '../components/CrudPage';
 import { Badge } from '../components/ui';
 import { api } from '../lib/api';
@@ -60,6 +63,8 @@ interface ShopStatus {
   blockOn: string | null;
   overdue: boolean;
   openInvoices: number;
+  /** Conexão do WhatsApp da barbearia (null = simulador). */
+  whatsapp: { status: 'ok' | 'down' | 'unknown'; since: string | null; error: string | null } | null;
   announcements: { id: number; title: string; body: string; level: 'novidade' | 'aviso' | 'manutencao' }[];
 }
 
@@ -86,6 +91,7 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [products, setProducts] = useState<Row[]>([]);
 
   const [status, setStatus] = useState<ShopStatus | null>(null);
+  const [account, setAccount] = useState(false);
   const [hidden, setHidden] = useState<number[]>(dismissed);
   const acting = Boolean(me.user?.acting);
 
@@ -98,7 +104,7 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
   useEffect(() => {
     // Se a consulta falhar, abre o painel normalmente (cada tela mostra o próprio erro).
     api<ShopStatus>('GET', '/api/shop/status').then(setStatus, () =>
-      setStatus((s) => s ?? { active: true, blocked: false, blockOn: null, overdue: false, openInvoices: 0, announcements: [] }),
+      setStatus((s) => s ?? { active: true, blocked: false, blockOn: null, overdue: false, openInvoices: 0, whatsapp: null, announcements: [] }),
     );
   }, [section]);
 
@@ -384,6 +390,11 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <ExternalLink className="size-4" /> Ver meu site
             </a>
           )}
+          {!me.user?.acting && (
+            <button onClick={() => setAccount(true)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-white/5 hover:text-white">
+              <UserCog className="size-4" /> Minha conta
+            </button>
+          )}
           <button
             onClick={() => api('POST', '/api/auth/logout').then(onLogout)}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-white/5 hover:text-white"
@@ -392,6 +403,7 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
           </button>
         </div>
       </aside>
+      {account && <AccountModal me={me} onClose={() => setAccount(false)} onSaved={onLogout} />}
       {menuOpen && <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={() => setMenuOpen(false)} />}
 
       <div className="min-w-0 flex-1">
@@ -420,6 +432,19 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <span className="font-semibold">{SECTIONS.find((s) => s.id === current)?.label ?? 'Resumo'}</span>
         </header>
         <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-8">
+          {status?.whatsapp?.status === 'down' && (
+            <button
+              onClick={() => navigate('/painel/robo')}
+              className="mb-4 flex w-full items-start gap-2 rounded-xl bg-red-50 px-4 py-2.5 text-left text-sm text-red-900 ring-1 ring-red-200"
+            >
+              <WifiOff className="mt-0.5 size-4 shrink-0" />
+              <span>
+                <b>WhatsApp desconectado</b>
+                {status.whatsapp.since && ` desde ${new Date(status.whatsapp.since).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`}: o robô e os lembretes estão parados.{' '}
+                <u>Reconectar</u>
+              </span>
+            </button>
+          )}
           {status?.overdue && !locked && section !== 'mensalidade' && (
             <button
               onClick={() => navigate('/painel/mensalidade')}
