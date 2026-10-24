@@ -1,0 +1,181 @@
+import type { Router } from 'express';
+import { z } from 'zod';
+import { shopId } from '../auth.js';
+import { customerHabit } from '../habits.js';
+import { all, get, nowIso, run, tx } from '../db.js';
+import { HttpError, idParam, parseBody, zBool, zId, zText, zUrl } from '../http.js';
+import { book, cancel, dayAgenda, freeTimes, upcomingFor } from '../scheduling.js';
+import { addDays, isDate, isTime, localNow, toMinutes } from '../time.js';
+
+const zTime = z.string().refine(isTime, 'Hora no formato HH:MM.');
+const zDay = z.string().refine(isDate, 'Data no formato AAAA-MM-DD.');
+
+const zHours = z
+  .array(z.object({ weekday: z.number().int().min(0).max(6), start_time: zTime, end_time: zTime }))
+  .max(21)
+  .superRefine((ranges, ctx) => {
+    for (const r of ranges) {
+      if (toMinutes(r.end_time) <= toMinutes(r.start_time)) ctx.addIssue({ code: 'custom', message: 'O fim do expediente deve ser depois do início.' });
+    }
+    for (let d = 0; d < 7; d++) {
+      const day = ranges.filter((r) => r.weekday === d).sort((a, b) => a.start_time.localeCompare(b.start_time));
+      for (let i = 1; i < day.length; i++) {
+        if (day[i].start_time < day[i - 1].end_time) ctx.addIssue({ code: 'custom', message: 'Faixas de horário sobrepostas no mesmo dia.' });
+      }
+    }
+  });
+
+const zBarber = z.object({ name: z.string().trim().min(2).max(60), photo_url: zUrl, active: zBool, hours: zHours });
+
+function barberOf(shop: number, id: number) {
+  const barber = get<{ id: number }>('SELECT id FROM barbers WHERE id = ? AND barbershop_id = ?', [id, shop]);
+  if (!barber) throw new HttpError(404, 'Barbeiro não encontrado.');
+  return barber;
+}
+
+function saveHours(barberId: number, hours: z.infer<typeof zHours>) {
+  run('DELETE FROM barber_hours WHERE barber_id = ?', [barberId]);
+  for (const h of hours) run('INSERT INTO barber_hours (barber_id, weekday, start_time, end_time) VALUES (?, ?, ?, ?)', [barberId, h.weekday, h.start_time, h.end_time]);
+}
+
+function barbersWithHours(shop: number) {
+  const barbers = all<{ id: number; name: string; photo_url: string | null; active: number }>(
+    'SELECT id, name, photo_url, active FROM barbers WHERE barbershop_id = ? ORDER BY active DESC, name COLLATE NOCASE',
+    [shop],
+  );
+  const now = localNow().stamp;
+  return barbers.map((b) => ({
+    ...b,
+    hours: all('SELECT weekday, start_time, end_time FROM barber_hours WHERE barber_id = ? ORDER BY weekday, start_time', [b.id]),
+    blocks: all('SELECT id, starts_at, ends_at, reason FROM barber_blocks WHERE barber_id = ? AND ends_at >= ? ORDER BY starts_at', [b.id, now]),
+  }));
+}
+
+/** Agenda, barbeiros e horários (painel do dono). */
+export function registerAgendaRoutes(router: Router): void {
+  router.get('/barbers', (req, res) => {
+    res.json(barbersWithHours(shopId(req)));
+  });
+
+  router.post('/barbers', (req, res) => {
+    const body = parseBody(zBarber, req.body);
+    const shop = shopId(req);
+    tx(() => {
+      const { lastInsertRowid } = run('INSERT INTO barbers (barbershop_id, name, photo_url, active, created_at) VALUES (?, ?, ?, ?, ?)', [
+        shop,
+        body.name,
+        body.photo_url,
+        body.active,
+        nowIso(),
+      ]);
+      saveHours(lastInsertRowid, body.hours);
+    });
+    res.status(201).json(barbersWithHours(shop));
+  });
+
+  router.put('/barbers/:id', (req, res) => {
+    const shop = shopId(req);
+    const id = barberOf(shop, idParam(req)).id;
+    const body = parseBody(zBarber, req.body);
+    tx(() => {
+      run('UPDATE barbers SET name = ?, photo_url = ?, active = ? WHERE id = ?', [body.name, body.photo_url, body.active, id]);
+      saveHours(id, body.hours);
+    });
+    res.json(barbersWithHours(shop));
+  });
+
+  router.delete('/barbers/:id', (req, res) => {
+    const shop = shopId(req);
+    const id = barberOf(shop, idParam(req)).id;
+    if (get('SELECT 1 AS ok FROM appointments WHERE barber_id = ? LIMIT 1', [id])) {
+      throw new HttpError(409, 'Esse barbeiro tem horários no histórico. Desative em vez de excluir.');
+    }
+    run('DELETE FROM barbers WHERE id = ?', [id]);
+    res.json(barbersWithHours(shop));
+  });
+
+  // Folgas e bloqueios
+  router.post('/barbers/:id/blocks', (req, res) => {
+    const shop = shopId(req);
+    const id = barberOf(shop, idParam(req)).id;
+    const body = parseBody(z.object({ date: zDay, start_time: zTime, end_date: zDay, end_time: zTime, reason: zText(120) }), req.body);
+    const start = `${body.date} ${body.start_time}`;
+    const end = `${body.end_date} ${body.end_time}`;
+    if (end <= start) throw new HttpError(400, 'O fim do bloqueio deve ser depois do início.');
+    run('INSERT INTO barber_blocks (barber_id, starts_at, ends_at, reason, created_at) VALUES (?, ?, ?, ?, ?)', [id, start, end, body.reason, nowIso()]);
+    res.status(201).json(barbersWithHours(shop));
+  });
+
+  router.delete('/blocks/:id', (req, res) => {
+    const shop = shopId(req);
+    const { changes } = run('DELETE FROM barber_blocks WHERE id = ? AND barber_id IN (SELECT id FROM barbers WHERE barbershop_id = ?)', [idParam(req), shop]);
+    if (!changes) throw new HttpError(404, 'Bloqueio não encontrado.');
+    res.json(barbersWithHours(shop));
+  });
+
+  // Agenda do dia
+  router.get('/agenda', (req, res) => {
+    const shop = shopId(req);
+    const date = typeof req.query.date === 'string' && isDate(req.query.date) ? req.query.date : localNow().date;
+    const blocks = all(
+      `SELECT k.id, k.barber_id, k.starts_at, k.ends_at, k.reason FROM barber_blocks k JOIN barbers b ON b.id = k.barber_id
+        WHERE b.barbershop_id = ? AND k.starts_at < ? AND k.ends_at > ?`,
+      [shop, `${addDays(date, 1)} 00:00`, `${date} 00:00`],
+    );
+    res.json({ date, barbers: barbersWithHours(shop).filter((b) => b.active), appointments: dayAgenda(shop, date), blocks });
+  });
+
+  router.get('/availability', (req, res) => {
+    const date = String(req.query.date ?? '');
+    const num = (v: unknown) => (v ? Number(v) : null);
+    res.json(freeTimes(shopId(req), date, { barberId: num(req.query.barber_id), serviceId: num(req.query.service_id), leadMin: 0 }));
+  });
+
+  router.post('/appointments', (req, res) => {
+    const body = parseBody(
+      z.object({
+        customer_id: zId,
+        barber_id: zId,
+        service_id: zId.nullish(),
+        date: zDay,
+        time: zTime,
+        notes: zText(300),
+      }),
+      req.body,
+    );
+    const a = book({
+      shopId: shopId(req),
+      customerId: body.customer_id,
+      barberId: body.barber_id,
+      serviceId: body.service_id,
+      date: body.date,
+      time: body.time,
+      notes: body.notes,
+      source: 'painel',
+    });
+    res.status(201).json(a);
+  });
+
+  router.post('/appointments/:id/cancel', (req, res) => {
+    res.json(cancel(shopId(req), idParam(req)));
+  });
+
+  /** Falta (no_show) ou desfazer a falta. */
+  router.post('/appointments/:id/status', (req, res) => {
+    const { status } = parseBody(z.object({ status: z.enum(['scheduled', 'no_show']) }), req.body);
+    const { changes } = run("UPDATE appointments SET status = ? WHERE id = ? AND barbershop_id = ? AND status <> 'cancelled'", [
+      status,
+      idParam(req),
+      shopId(req),
+    ]);
+    if (!changes) throw new HttpError(404, 'Horário não encontrado.');
+    res.json({ ok: true });
+  });
+
+  /** Costume e próximos horários do cliente (usado no Balcão). */
+  router.get('/customers/:id/agenda', (req, res) => {
+    const id = idParam(req);
+    if (!get('SELECT 1 AS ok FROM customers WHERE id = ? AND barbershop_id = ?', [id, shopId(req)])) throw new HttpError(404, 'Cliente não encontrado.');
+    res.json({ habit: customerHabit(id), upcoming: upcomingFor(id) });
+  });
+}

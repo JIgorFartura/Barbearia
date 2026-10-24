@@ -5,11 +5,18 @@ import { today } from '../config.js';
 import { all, get, nowIso, run } from '../db.js';
 import { HttpError, idParam, normalizePhone, parseBody, zBool, zCents, zColor, zDate, zId, zText, zUrl } from '../http.js';
 import { addStamps, customerCard, isRunning, redeemReward, type Campaign } from '../loyalty.js';
+import { issueAccessLink } from '../customerAuth.js';
+import { customerByPhone } from '../messaging.js';
+import { findVoucher, redeemVoucher, shopVouchers } from '../offers.js';
+import { registerAgendaRoutes } from './agenda.js';
+import { registerBotRoutes } from './bot.js';
 import { crudRoutes } from './crud.js';
 
 /** Painel do dono da barbearia. Tudo aqui é filtrado pela barbearia do usuário logado. */
 export const shopRouter = Router();
 shopRouter.use(requireRole('owner'));
+registerAgendaRoutes(shopRouter);
+registerBotRoutes(shopRouter);
 
 // ---------- marca (o que aparece na landing page)
 
@@ -28,14 +35,14 @@ const zProfile = z.object({
 });
 
 shopRouter.get('/profile', (req, res) => {
-  res.json(get('SELECT * FROM barbershops WHERE id = ?', [shopId(req)]));
+  res.json(get(`SELECT slug, ${Object.keys(zProfile.shape).join(', ')} FROM barbershops WHERE id = ?`, [shopId(req)]));
 });
 
 shopRouter.put('/profile', (req, res) => {
   const data = parseBody(zProfile, req.body);
   const cols = Object.keys(zProfile.shape);
   run(`UPDATE barbershops SET ${cols.map((c) => `${c} = :${c}`).join(', ')} WHERE id = :id`, { ...data, id: shopId(req) });
-  res.json(get('SELECT * FROM barbershops WHERE id = ?', [shopId(req)]));
+  res.json(get(`SELECT slug, ${Object.keys(zProfile.shape).join(', ')} FROM barbershops WHERE id = ?`, [shopId(req)]));
 });
 
 // ---------- cadastros
@@ -115,6 +122,41 @@ crudRoutes(shopRouter, {
   }),
 });
 
+crudRoutes(shopRouter, {
+  path: '/offers',
+  table: 'offers',
+  label: 'Benefício',
+  order: 'active DESC, created_at DESC',
+  refs: { partner_id: 'partners' },
+  schema: z.object({
+    title: z.string().trim().min(2, 'Dê um título ao benefício.').max(80),
+    description: zText(400),
+    partner_id: zId.nullish().transform((v) => v ?? null),
+    image_url: zUrl,
+    valid_days: z.number().int().min(1).max(365),
+    max_total: z.number().int().min(1).max(100000).nullish().transform((v) => v ?? null),
+    per_customer: z.number().int().min(1).max(50),
+    starts_on: zDate,
+    ends_on: zDate,
+    active: zBool,
+  }),
+});
+
+// ---------- vouchers (validação no balcão)
+
+shopRouter.get('/vouchers', (req, res) => {
+  res.json(shopVouchers(shopId(req)));
+});
+
+shopRouter.get('/vouchers/:code', (req, res) => {
+  res.json(findVoucher(shopId(req), String(req.params.code)));
+});
+
+shopRouter.post('/vouchers/redeem', (req, res) => {
+  const { code } = parseBody(z.object({ code: z.string().trim().min(3).max(20) }), req.body);
+  res.json(redeemVoucher(shopId(req), code, req.user!.id));
+});
+
 // ---------- clientes (comunidade) e balcão
 
 shopRouter.get('/customers', (req, res) => {
@@ -139,8 +181,7 @@ shopRouter.post('/customers', (req, res) => {
   const body = parseBody(z.object({ name: z.string().trim().min(2, 'Informe o nome do cliente.').max(80), phone: z.string() }), req.body);
   const phone = normalizePhone(body.phone);
   const shop = shopId(req);
-  const existing = get('SELECT * FROM customers WHERE barbershop_id = ? AND phone = ?', [shop, phone]);
-  if (existing) throw new HttpError(409, 'Esse celular já está cadastrado.');
+  if (customerByPhone(shop, phone)) throw new HttpError(409, 'Esse celular já está cadastrado.');
   const { lastInsertRowid } = run('INSERT INTO customers (barbershop_id, name, phone, created_at) VALUES (?, ?, ?, ?)', [
     shop,
     body.name,
@@ -162,6 +203,15 @@ shopRouter.get('/customers/:id', (req, res) => {
     [id],
   );
   res.json({ customer, card: customerCard(shop, id), history });
+});
+
+/** Link de acesso à área do cliente, para o dono mandar pelo próprio WhatsApp. */
+shopRouter.post('/customers/:id/access-link', (req, res) => {
+  const shop = shopId(req);
+  const id = idParam(req);
+  if (!get('SELECT 1 AS ok FROM customers WHERE id = ? AND barbershop_id = ?', [id, shop])) throw new HttpError(404, 'Cliente não encontrado.');
+  const slug = get<{ slug: string }>('SELECT slug FROM barbershops WHERE id = ?', [shop])!.slug;
+  res.json({ url: issueAccessLink(id, slug) });
 });
 
 const zLoyalty = z.object({ campaignId: zId, customerId: zId });

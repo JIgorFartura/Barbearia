@@ -64,6 +64,18 @@ export const zCents = z.number().int().min(0).max(100_000_000);
 export const zBool = z.boolean();
 export const zId = z.number().int().positive();
 
+// Limite de pedidos por chave (ex.: IP) numa janela de tempo, em memória.
+const hits = new Map<string, { count: number; until: number }>();
+export function rateLimit(key: string, max: number, windowMs: number, message: string): void {
+  const now = Date.now();
+  const entry = hits.get(key);
+  if (!entry || entry.until < now) {
+    hits.set(key, { count: 1, until: now + windowMs });
+    return;
+  }
+  if (++entry.count > max) throw new HttpError(429, message);
+}
+
 /** Celular só com dígitos (com DDD). */
 export function normalizePhone(value: string): string {
   const digits = value.replace(/\D/g, '');

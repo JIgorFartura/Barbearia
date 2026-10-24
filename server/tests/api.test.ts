@@ -163,12 +163,31 @@ describe('fluxo completo pela API', () => {
     assert.equal(summary.data.rewardsThisMonth, 1);
   });
 
-  test('cliente consulta o próprio cartão pelo celular', async () => {
-    const card = await visitante('POST', '/api/public/shops/barbearia-do-ze/card', { phone: '11 98888 7777' });
-    assert.equal(card.status, 200);
-    assert.equal(card.data.firstName, 'João');
-    assert.equal(card.data.card[0].progress.stamps, 1);
-    assert.equal((await visitante('POST', '/api/public/shops/outra/card', { phone: '11988887777' })).status, 404);
+  test('o site público não expõe configurações internas da barbearia', async () => {
+    const page = await visitante('GET', '/api/public/shops/barbearia-do-ze');
+    for (const key of ['wa_config', 'webhook_token', 'bot_persona', 'wa_provider', 'id']) assert.equal(key in page.data.shop, false, key);
+    assert.equal(page.data.loggedIn, false);
+  });
+
+  test('cliente entra na área logada com o código do WhatsApp e vê o próprio cartão', async () => {
+    const cliente = client();
+    const code = await cliente('POST', '/api/public/shops/barbearia-do-ze/login/code', { phone: '11 98888 7777' });
+    assert.equal(code.status, 200, JSON.stringify(code.data));
+    assert.match(code.data.demoCode, /^\d{6}$/, 'sem WhatsApp conectado, o código aparece em modo demonstração');
+    assert.equal((await cliente('POST', '/api/public/shops/barbearia-do-ze/login/verify', { phone: '11988887777', code: '000000' })).status, 400);
+    const ok = await cliente('POST', '/api/public/shops/barbearia-do-ze/login/verify', { phone: '11988887777', code: code.data.demoCode });
+    assert.equal(ok.status, 200);
+    const me = await cliente('GET', '/api/customer/barbearia-do-ze/me');
+    assert.equal(me.status, 200);
+    assert.equal(me.data.customer.name, 'João da Silva');
+    assert.equal(me.data.card[0].progress.stamps, 1);
+    // A sessão vale só para esta barbearia.
+    assert.equal((await cliente('GET', '/api/customer/outra/me')).status, 401);
+    assert.equal((await visitante('GET', '/api/customer/barbearia-do-ze/me')).status, 401);
+    // Celular novo precisa do nome para criar a conta.
+    const novo = await visitante('POST', '/api/public/shops/barbearia-do-ze/login/code', { phone: '11977776666' });
+    assert.equal(novo.status, 404);
+    assert.equal(novo.data.needsName, true);
   });
 
   test('visitante sem login não acessa o painel', async () => {

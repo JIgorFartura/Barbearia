@@ -200,6 +200,187 @@ const MIGRATIONS: string[] = [
   CREATE INDEX loyalty_events_customer ON loyalty_events (customer_id, campaign_id);
   CREATE INDEX loyalty_events_created ON loyalty_events (created_at);
   `,
+  // 2) Agenda, robô do WhatsApp, área do cliente e benefícios (vouchers).
+  `
+  -- Configuração do robô e das automações de cada barbearia.
+  ALTER TABLE barbershops ADD COLUMN bot_name TEXT NOT NULL DEFAULT 'Assistente';
+  ALTER TABLE barbershops ADD COLUMN bot_persona TEXT;
+  ALTER TABLE barbershops ADD COLUMN wa_provider TEXT NOT NULL DEFAULT 'simulador';
+  ALTER TABLE barbershops ADD COLUMN wa_config TEXT;
+  ALTER TABLE barbershops ADD COLUMN webhook_token TEXT;
+  ALTER TABLE barbershops ADD COLUMN slot_step_min INTEGER NOT NULL DEFAULT 30;
+  ALTER TABLE barbershops ADD COLUMN reminder_hours INTEGER NOT NULL DEFAULT 24;
+  ALTER TABLE barbershops ADD COLUMN habit_enabled INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE barbershops ADD COLUMN habit_weekday INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE barbershops ADD COLUMN habit_time TEXT NOT NULL DEFAULT '09:00';
+  ALTER TABLE barbershops ADD COLUMN winback_enabled INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE barbershops ADD COLUMN winback_days INTEGER NOT NULL DEFAULT 30;
+  ALTER TABLE barbershops ADD COLUMN winback_message TEXT;
+  UPDATE barbershops SET webhook_token = lower(hex(randomblob(16)));
+  CREATE UNIQUE INDEX barbershops_webhook_token ON barbershops (webhook_token);
+  -- Toda barbearia nova ganha o segredo da URL do webhook.
+  CREATE TRIGGER barbershops_webhook_token_new AFTER INSERT ON barbershops WHEN NEW.webhook_token IS NULL
+  BEGIN
+    UPDATE barbershops SET webhook_token = lower(hex(randomblob(16))) WHERE id = NEW.id;
+  END;
+
+  CREATE TABLE barbers (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    photo_url TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  );
+
+  -- Expediente semanal: pode haver mais de uma faixa por dia (ex.: 9h-12h e 13h-19h).
+  CREATE TABLE barber_hours (
+    id INTEGER PRIMARY KEY,
+    barber_id INTEGER NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+    weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL
+  );
+
+  -- Folgas e bloqueios (datas/horas locais "AAAA-MM-DD HH:MM").
+  CREATE TABLE barber_blocks (
+    id INTEGER PRIMARY KEY,
+    barber_id INTEGER NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+    starts_at TEXT NOT NULL,
+    ends_at TEXT NOT NULL,
+    reason TEXT,
+    created_at TEXT NOT NULL
+  );
+
+  -- Horários marcados (datas/horas locais "AAAA-MM-DD HH:MM"). Barbeiro com histórico não é apagado, só desativado.
+  CREATE TABLE appointments (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    barber_id INTEGER NOT NULL REFERENCES barbers(id),
+    service_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL,
+    service_name TEXT NOT NULL,
+    price_cents INTEGER NOT NULL DEFAULT 0,
+    starts_at TEXT NOT NULL,
+    ends_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'cancelled', 'no_show')),
+    source TEXT NOT NULL CHECK (source IN ('painel', 'cliente', 'whatsapp')),
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    cancelled_at TEXT
+  );
+  CREATE INDEX appointments_barber ON appointments (barber_id, starts_at);
+  CREATE INDEX appointments_customer ON appointments (customer_id, starts_at);
+  CREATE INDEX appointments_shop ON appointments (barbershop_id, starts_at);
+
+  -- Horário de costume informado pelo cliente (senão o sistema descobre pelo histórico).
+  ALTER TABLE customers ADD COLUMN wa_id TEXT;
+  ALTER TABLE customers ADD COLUMN pref_weekday INTEGER;
+  ALTER TABLE customers ADD COLUMN pref_time TEXT;
+  ALTER TABLE customers ADD COLUMN pref_barber_id INTEGER REFERENCES barbers(id) ON DELETE SET NULL;
+  ALTER TABLE customers ADD COLUMN pref_service_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL;
+  ALTER TABLE customers ADD COLUMN pref_interval_days INTEGER;
+  ALTER TABLE customers ADD COLUMN reminders_opt_out INTEGER NOT NULL DEFAULT 0;
+
+  -- Benefícios que o cliente resgata como voucher (código único, validado no balcão).
+  CREATE TABLE offers (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    partner_id INTEGER REFERENCES partners(id) ON DELETE SET NULL,
+    image_url TEXT,
+    valid_days INTEGER NOT NULL DEFAULT 7,
+    max_total INTEGER,
+    per_customer INTEGER NOT NULL DEFAULT 1,
+    starts_on TEXT,
+    ends_on TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE vouchers (
+    id INTEGER PRIMARY KEY,
+    offer_id INTEGER NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    code TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'used')),
+    expires_on TEXT NOT NULL,
+    used_at TEXT,
+    used_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX vouchers_customer ON vouchers (customer_id);
+
+  -- Área logada do cliente: sessões longas e códigos de acesso enviados pelo WhatsApp.
+  CREATE TABLE customer_sessions (
+    id TEXT PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
+
+  CREATE TABLE customer_codes (
+    id INTEGER PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL CHECK (purpose IN ('code', 'link')),
+    secret_hash TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX customer_codes_customer ON customer_codes (customer_id, created_at);
+
+  -- Todas as mensagens do robô (recebidas e enviadas), com o consumo de tokens.
+  CREATE TABLE messages (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+    phone TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
+    kind TEXT NOT NULL,
+    body TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT,
+    external_id TEXT,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX messages_external ON messages (barbershop_id, external_id) WHERE external_id IS NOT NULL;
+  CREATE INDEX messages_phone ON messages (barbershop_id, phone, created_at);
+  CREATE INDEX messages_created ON messages (created_at);
+
+  -- Horário que o robô ofereceu (lembrete semanal, cliente sumido): "SIM" confirma.
+  CREATE TABLE bot_offers (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    barber_id INTEGER NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+    service_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL,
+    starts_at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'expired')),
+    appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX bot_offers_customer ON bot_offers (customer_id, status);
+
+  -- O que as automações já fizeram (evita mandar a mesma mensagem duas vezes).
+  CREATE TABLE automation_log (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    ref TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX automation_log_lookup ON automation_log (barbershop_id, kind, ref);
+
+  -- Master dentro do painel de uma barbearia.
+  ALTER TABLE sessions ADD COLUMN acting_shop_id INTEGER REFERENCES barbershops(id) ON DELETE SET NULL;
+  `,
 ];
 
 function migrate(): void {

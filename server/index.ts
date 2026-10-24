@@ -4,13 +4,17 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
 import { loadUser } from './auth.js';
+import { startAutomations } from './automations.js';
+import { llmEnabled } from './bot/brain.js';
 import { config } from './config.js';
 import { HttpError, errorHandler } from './http.js';
 import { authRouter } from './routes/auth.js';
+import { customerRouter } from './routes/customer.js';
 import { masterRouter } from './routes/master.js';
 import { publicRouter } from './routes/public.js';
 import { shopRouter } from './routes/shop.js';
 import { uploadsRouter } from './routes/uploads.js';
+import { webhooksRouter } from './routes/webhooks.js';
 
 export const app = express();
 app.set('trust proxy', config.trustProxy);
@@ -33,7 +37,15 @@ app.use(
     strictTransportSecurity: false,
   }),
 );
-app.use(express.json({ limit: '5mb' }));
+// Guarda o corpo original: a Meta assina o webhook sobre os bytes exatos.
+app.use(
+  express.json({
+    limit: '5mb',
+    verify: (req, _res, buf) => {
+      (req as express.Request).rawBody = buf;
+    },
+  }),
+);
 
 // Além do cookie SameSite, recusa alterações vindas de outros sites (Origin diferente do host).
 app.use('/api', (req, res, next) => {
@@ -61,6 +73,8 @@ app.use('/api/public', publicRouter);
 app.use('/api/master', masterRouter);
 app.use('/api/shop', shopRouter);
 app.use('/api/uploads', uploadsRouter);
+app.use('/api/customer/:slug', customerRouter);
+app.use('/api/webhooks', webhooksRouter);
 app.use('/api', () => {
   throw new HttpError(404, 'Rota não encontrada.');
 });
@@ -79,5 +93,9 @@ if (fs.existsSync(webDir)) {
 app.use(errorHandler);
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  app.listen(config.port, () => console.log(`Sistema Barbearia em http://localhost:${config.port}`));
+  app.listen(config.port, () => {
+    console.log(`Sistema Barbearia em http://localhost:${config.port}`);
+    console.log(llmEnabled() ? `Robô com IA ligado (${config.botModel}).` : 'Robô sem IA (defina ANTHROPIC_API_KEY): respostas por menu.');
+  });
+  if (config.automations) startAutomations();
 }

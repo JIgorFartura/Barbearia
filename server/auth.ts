@@ -5,9 +5,9 @@ import { get, nowIso, run } from './db.js';
 import { HttpError } from './http.js';
 
 /**
- * Perfis:
- * - master: dono da plataforma — cadastra as barbearias e os donos de cada uma;
- * - owner: dono da barbearia — cuida da marca, catálogo, parceiros, anúncios, campanhas e clientes.
+ * Perfis com login de e-mail e senha (o cliente da barbearia tem a área própria, em customerAuth.ts):
+ * - master: dono da plataforma — cadastra as barbearias, vê tudo e pode entrar no painel de qualquer uma;
+ * - owner: dono da barbearia — cuida da marca, agenda, robô, catálogo, parceiros, anúncios, campanhas e clientes.
  */
 export type Role = 'master' | 'owner';
 
@@ -17,6 +17,8 @@ export interface AuthUser {
   email: string;
   role: Role;
   barbershopId: number | null;
+  /** Master operando o painel de uma barbearia. */
+  acting?: boolean;
 }
 
 declare global {
@@ -24,6 +26,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthUser;
+      sessionId?: string;
+      rawBody?: Buffer;
     }
   }
 }
@@ -75,21 +79,33 @@ export function destroySession(req: Request, res: Response): void {
 export function loadUser(req: Request, _res: Response, next: NextFunction): void {
   const token = readCookie(req);
   if (token) {
-    const row = get<{ id: number; name: string; email: string; role: Role; barbershop_id: number | null }>(
-      `SELECT u.id, u.name, u.email, u.role, u.barbershop_id
+    const row = get<{ id: number; name: string; email: string; role: Role; barbershop_id: number | null; acting_shop_id: number | null }>(
+      `SELECT u.id, u.name, u.email, u.role, u.barbershop_id, s.acting_shop_id
          FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.id = ? AND s.expires_at > ?`,
       [sha256(token), nowIso()],
     );
-    if (row) req.user = { id: row.id, name: row.name, email: row.email, role: row.role, barbershopId: row.barbershop_id };
+    if (row) {
+      // Master "dentro" do painel de uma barbearia enxerga e opera como o dono dela.
+      const acting = row.role === 'master' && row.acting_shop_id ? row.acting_shop_id : null;
+      req.user = { id: row.id, name: row.name, email: row.email, role: row.role, barbershopId: acting ?? row.barbershop_id, acting: Boolean(acting) };
+      req.sessionId = sha256(token);
+    }
   }
   next();
+}
+
+/** Master entra no painel de uma barbearia (ou sai, com null). */
+export function setActingShop(req: Request, shopId: number | null): void {
+  if (!req.sessionId) throw new HttpError(401, 'Faça login para continuar.');
+  run('UPDATE sessions SET acting_shop_id = ? WHERE id = ?', [shopId, req.sessionId]);
 }
 
 export function requireRole(role: Role) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) throw new HttpError(401, 'Faça login para continuar.');
-    if (req.user.role !== role) throw new HttpError(403, 'Acesso não permitido para este perfil.');
+    const masterActing = role === 'owner' && req.user.role === 'master' && req.user.acting;
+    if (req.user.role !== role && !masterActing) throw new HttpError(403, 'Acesso não permitido para este perfil.');
     if (role === 'owner' && !req.user.barbershopId) throw new HttpError(403, 'Usuário sem barbearia vinculada.');
     next();
   };
