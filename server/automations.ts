@@ -1,3 +1,4 @@
+import { dailyBackup } from './backup.js';
 import { accessStatus, ensureInvoices } from './billing.js';
 import { askConsumption } from './consumption.js';
 import { all, get, nowIso, run } from './db.js';
@@ -263,6 +264,8 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
       lastInvoiceCheck = now.getTime();
       automationStatus.lastInvoices = ensureInvoices(now);
     }
+    // Cópia de segurança do dia (a partir das 3h); uma falha aqui não para os lembretes.
+    await dailyBackup(now).catch((err) => console.error('[backup]', err));
     for (const { id } of all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1')) {
       const shop = shopBot(id);
       // Cada barbearia no seu relógio: ofertas vencidas e horário comercial pelo fuso dela.

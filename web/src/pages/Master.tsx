@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Copy,
   CreditCard,
+  DatabaseBackup,
   ExternalLink,
   KeyRound,
   LogIn,
@@ -994,6 +995,87 @@ interface SystemInfo {
   counts: { shops: number; customers: number; appointments: number; sales: number; messages: number };
 }
 
+interface BackupInfo {
+  status: { at: string | null; file: string | null; bytes: number; remote: 'ok' | 'failed' | 'off'; error: string | null; uploadsSent: number };
+  files: { name: string; bytes: number; at: string }[];
+  remote: { bucket: string; endpoint: string; encrypted: boolean } | null;
+}
+
+const kb = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+/** Cópias de segurança: última cópia, envio para fora do servidor e download. */
+function BackupCard() {
+  const [data, setData] = useState<BackupInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    api<BackupInfo>('GET', '/api/master/backups').then(setData, (e) => setError(e.message));
+  }, []);
+  useEffect(load, [load]);
+  if (!data) return <ErrorText error={error} />;
+  const s = data.status;
+  return (
+    <Card className="space-y-2 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 font-semibold">
+          <DatabaseBackup className="size-4" /> Cópias de segurança
+        </p>
+        <Button
+          variant="ghost"
+          className="!px-3 !py-1.5"
+          loading={busy}
+          onClick={() => {
+            setBusy(true);
+            setError(null);
+            api('POST', '/api/master/backups')
+              .then(load, (e) => setError(e.message))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Fazer cópia agora
+        </Button>
+      </div>
+      <p>
+        {s.at ? (
+          <>
+            Última cópia: <b>{new Date(s.at).toLocaleString('pt-BR')}</b> · {kb(s.bytes)} · todo dia a partir das 3h
+          </>
+        ) : (
+          <span className="text-amber-700">Nenhuma cópia ainda. A primeira sai hoje, a partir das 3h (ou clique em Fazer cópia agora).</span>
+        )}
+      </p>
+      {data.remote ? (
+        s.remote === 'failed' ? (
+          <p className="text-red-700">
+            ⚠ A última cópia não chegou ao armazenamento externo ({data.remote.bucket}): {s.error}
+          </p>
+        ) : (
+          <p className="text-emerald-700">
+            ✓ Enviada para fora do servidor ({data.remote.endpoint} · {data.remote.bucket}){data.remote.encrypted ? ', criptografada' : ''}.
+          </p>
+        )
+      ) : (
+        <p className="text-amber-700">
+          ⚠ As cópias ficam só neste servidor. Configure um armazenamento externo (variáveis BACKUP_S3_ no servidor) para não perder nada se o servidor quebrar.
+        </p>
+      )}
+      {data.files.length > 0 && (
+        <ul className="space-y-0.5 text-xs text-zinc-500">
+          {data.files.slice(0, 4).map((f) => (
+            <li key={f.name}>
+              <a className="font-medium text-zinc-700 underline-offset-2 hover:underline" href={`/api/master/backups/${f.name}`} download>
+                {f.name}
+              </a>{' '}
+              · {kb(f.bytes)}
+            </li>
+          ))}
+        </ul>
+      )}
+      <ErrorText error={error} />
+    </Card>
+  );
+}
+
 interface Announcement {
   id: number;
   title: string;
@@ -1061,6 +1143,7 @@ function SystemTab() {
               ))
             )}
           </Card>
+          <BackupCard />
         </div>
       )}
 

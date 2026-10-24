@@ -17,6 +17,7 @@
     "start": "node --disable-warning=ExperimentalWarning dist/server/index.js",
     "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
     "demo": "tsx tools/seed-demo.ts",
+    "restore": "tsx tools/restore-backup.ts",
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test --test-reporter=spec \"server/**/*.test.ts\""
   },
   "dependencies": {

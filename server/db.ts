@@ -579,6 +579,12 @@ const MIGRATIONS: (string | Rebuild)[] = [
   `
   -- Fuso da barbearia (vazio = o do servidor, horário de Brasília).
   ALTER TABLE barbershops ADD COLUMN timezone TEXT;
+
+  -- Imagens já enviadas para o armazenamento externo da cópia de segurança.
+  CREATE TABLE backup_files (
+    name TEXT PRIMARY KEY,
+    uploaded_at TEXT NOT NULL
+  );
   `,
 ];
 

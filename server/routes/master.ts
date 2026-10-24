@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { hashPassword, requireRole, setActingShop } from '../auth.js';
 import { automationStatus } from '../automations.js';
+import { backupPath, backupStatus, createBackup, listBackups, remoteConfig } from '../backup.js';
 import {
   accessStatus,
   cancelInvoice,
@@ -364,6 +365,27 @@ const appVersion = (() => {
     return '—';
   }
 })();
+
+// ---------- cópias de segurança
+
+masterRouter.get('/backups', (_req, res) => {
+  const remote = remoteConfig();
+  res.json({
+    status: backupStatus(),
+    files: listBackups(),
+    remote: remote ? { bucket: remote.bucket, endpoint: remote.endpoint || 'AWS S3', encrypted: Boolean(process.env.BACKUP_PASSWORD) } : null,
+  });
+});
+
+masterRouter.post('/backups', async (_req, res) => {
+  res.status(201).json(await createBackup());
+});
+
+masterRouter.get('/backups/:name', (req, res) => {
+  const file = backupPath(String(req.params.name));
+  if (!file) throw new HttpError(404, 'Cópia não encontrada.');
+  res.download(file, String(req.params.name));
+});
 
 masterRouter.get('/system', (_req, res) => {
   const fileSize = (file: string) => {
