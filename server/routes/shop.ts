@@ -16,6 +16,8 @@ import { registerAgendaRoutes } from './agenda.js';
 import { registerBotRoutes } from './bot.js';
 import { crudRoutes } from './crud.js';
 import { registerFinanceRoutes } from './finance.js';
+import { registerStockRoutes } from './stock.js';
+import { lowStock } from '../stock.js';
 
 /** Painel do dono da barbearia. Tudo aqui é filtrado pela barbearia do usuário logado. */
 export const shopRouter = Router();
@@ -31,6 +33,7 @@ shopRouter.use((req, _res, next) => {
 registerAgendaRoutes(shopRouter);
 registerBotRoutes(shopRouter);
 registerFinanceRoutes(shopRouter);
+registerStockRoutes(shopRouter);
 
 // ---------- marca (o que aparece na landing page)
 
@@ -79,6 +82,10 @@ crudRoutes(shopRouter, {
     duration_min: z.number().int().min(5).max(600).nullish().transform((v) => v ?? null),
     image_url: zUrl,
     active: zBool,
+    // Estoque (produtos): a quantidade muda pelas vendas, entradas e ajustes, não por aqui.
+    track_stock: zBool.optional().default(false),
+    stock_min: z.number().int().min(0).max(100000).nullish().transform((v) => v ?? null),
+    cost_cents: zCents.nullish().transform((v) => v ?? null),
   }),
 });
 
@@ -309,6 +316,7 @@ shopRouter.get('/summary', (req, res) => {
         GROUP BY cu.id ORDER BY stamps DESC LIMIT 5`,
       [shop, since],
     ),
+    lowStock: lowStock(shop),
     // Agenda e robô
     today: dayAgenda(shop, day)
       .filter((a) => a.status === 'scheduled')

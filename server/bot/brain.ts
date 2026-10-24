@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.js';
 import { describeItems, usualConsumption } from '../consumption.js';
+import { availableQty } from '../stock.js';
 import { all, get } from '../db.js';
 import { customerHabit } from '../habits.js';
 import type { HistoryItem } from '../messaging.js';
@@ -64,7 +65,10 @@ export function buildContext(ctx: BotContext): string {
     "SELECT id, name, price_cents FROM catalog_items WHERE barbershop_id = ? AND kind = 'product' AND active = 1 ORDER BY name COLLATE NOCASE",
     [shop.id],
   );
-  if (products.length) lines.push(`Produtos: ${products.map((p) => `${p.name} (produto_id ${p.id}, ${money(p.price_cents)})`).join('; ')}.`);
+  if (products.length) {
+    const left = (id: number) => availableQty(shop.id, id, { now: ctx.now });
+    lines.push(`Produtos: ${products.map((p) => `${p.name} (produto_id ${p.id}, ${money(p.price_cents)}${left(p.id) !== null && left(p.id)! <= 0 ? ', ESGOTADO: não ofereça' : ''})`).join('; ')}.`);
+  }
 
   if (ctx.customer) {
     const c = ctx.customer;

@@ -10,6 +10,8 @@ interface CatalogItem {
   kind: 'service' | 'product';
   name: string;
   price_cents: number;
+  /** Produto com controle de estoque: quanto ainda tem (null = não controla). */
+  available: number | null;
 }
 
 interface CheckoutData {
@@ -207,6 +209,17 @@ export function CheckoutModal({
                     <Trash2 className="size-4" />
                   </button>
                 </div>
+                {(() => {
+                  const left = l.catalog_item_id ? data.catalog.find((c) => c.id === l.catalog_item_id)?.available : null;
+                  if (left == null) return null;
+                  // Mesma linha de produto somada (ex.: 2 linhas de cerveja).
+                  const asked = lines.filter((x) => x.catalog_item_id === l.catalog_item_id).reduce((s, x) => s + x.qty, 0);
+                  return (
+                    <p className={`text-xs ${asked > left ? 'font-medium text-red-600' : 'text-zinc-500'}`}>
+                      {asked > left ? `Estoque do sistema: ${Math.max(left, 0)}. Confira e ajuste o estoque depois.` : `${left} em estoque`}
+                    </p>
+                  );
+                })()}
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
                   <div className="flex items-center rounded-lg ring-1 ring-zinc-200">
                     <button className="p-1.5" onClick={() => update(l.key, { qty: Math.max(1, l.qty - 1) })} aria-label="Menos">
@@ -251,6 +264,7 @@ export function CheckoutModal({
                   .map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} · {money(c.price_cents)}
+                      {c.available != null ? (c.available > 0 ? ` · ${c.available} em estoque` : ' · esgotado') : ''}
                     </option>
                   ))}
               </optgroup>

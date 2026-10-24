@@ -1,4 +1,4 @@
-import { Bot, CalendarDays, Eye, Gift, Handshake, Megaphone, MousePointerClick, Stamp, Trophy, Users } from 'lucide-react';
+import { AlertTriangle, Bot, CalendarDays, Eye, Gift, Handshake, Megaphone, MousePointerClick, Stamp, Trophy, Users } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Card } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -20,6 +20,7 @@ interface SummaryData {
   upcomingWeek: number;
   botMessagesWeek: number;
   bookedByBotWeek: number;
+  lowStock: { id: number; name: string; stock_qty: number; stock_min: number | null }[];
 }
 
 function Stat({ icon, label, value, onClick }: { icon: ReactNode; label: string; value: ReactNode; onClick?: () => void }) {
@@ -45,6 +46,18 @@ export function Summary({ shopName }: { shopName: string }) {
         <h1 className="text-2xl font-bold">Olá, {shopName}!</h1>
         <p className="text-sm text-zinc-500">Como está a sua comunidade.</p>
       </div>
+
+      {data.lowStock.length > 0 && (
+        <button
+          onClick={() => navigate('/painel/estoque')}
+          className="flex w-full items-start gap-2 rounded-xl bg-amber-50 px-4 py-3 text-left text-sm text-amber-900 ring-1 ring-amber-200"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>
+            <b>Estoque acabando:</b> {data.lowStock.map((p) => `${p.name} (${p.stock_qty})`).join(', ')}. <u>Ver estoque</u>
+          </span>
+        </button>
+      )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat icon={<CalendarDays className="size-5" />} label="Horários hoje" value={data.today.length} onClick={() => navigate('/painel/agenda')} />

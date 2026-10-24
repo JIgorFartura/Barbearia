@@ -1,4 +1,5 @@
 import {
+  Boxes,
   Bot as BotIcon,
   CalendarDays,
   CreditCard,
@@ -37,6 +38,7 @@ import { Bot } from './panel/Bot';
 import { Brand } from './panel/Brand';
 import { Counter } from './panel/Counter';
 import { Finance } from './panel/Finance';
+import { Stock } from './panel/Stock';
 import { Subscription } from './panel/Subscription';
 import { Summary } from './panel/Summary';
 
@@ -53,6 +55,7 @@ const SECTIONS = [
   { id: 'barbeiros', label: 'Barbeiros', icon: Users },
   { id: 'servicos', label: 'Serviços', icon: Scissors },
   { id: 'produtos', label: 'Produtos', icon: Package },
+  { id: 'estoque', label: 'Estoque', icon: Boxes },
   { id: 'marca', label: 'Minha marca', icon: Palette },
   { id: 'mensalidade', label: 'Mensalidade', icon: CreditCard },
 ];
@@ -141,6 +144,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       break;
     case 'mensalidade':
       content = <Subscription />;
+      break;
+    case 'estoque':
+      content = <Stock />;
       break;
     case 'agenda':
       content = <Agenda />;
@@ -307,7 +313,18 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
           fields={[
             { key: 'name', label: 'Nome', type: 'text', required: true },
             { key: 'price_cents', label: 'Preço (R$)', type: 'money' },
-            ...(kind === 'service' ? [{ key: 'duration_min', label: 'Duração (minutos)', type: 'number' as const }] : []),
+            ...(kind === 'service'
+              ? [{ key: 'duration_min', label: 'Duração (minutos)', type: 'number' as const }]
+              : [
+                  { key: 'cost_cents', label: 'Custo (R$, opcional)', type: 'money' as const, hint: 'Quanto você paga por unidade.' },
+                  {
+                    key: 'track_stock',
+                    label: 'Controlar estoque',
+                    type: 'checkbox' as const,
+                    hint: 'A venda dá baixa sozinha; lance as compras na tela Estoque.',
+                  },
+                  { key: 'stock_min', label: 'Avisar quando tiver só (unidades)', type: 'number' as const, hint: 'Estoque mínimo para o aviso de reposição.' },
+                ]),
             { key: 'description', label: 'Descrição', type: 'textarea' },
             { key: 'image_url', label: 'Foto', type: 'image' },
             { key: 'active', label: 'Aparece no site', type: 'checkbox' },
@@ -322,6 +339,7 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 <p className="text-sm">
                   {money(r.price_cents)}
                   {r.duration_min ? ` · ${r.duration_min} min` : ''}
+                  {r.track_stock ? <span className={r.stock_qty <= (r.stock_min ?? 0) ? 'text-red-600' : 'text-zinc-500'}> · {r.stock_qty} em estoque</span> : ''}
                 </p>
               </div>
             </div>

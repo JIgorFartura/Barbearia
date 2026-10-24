@@ -1,6 +1,7 @@
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { addStamps, isRunning, type Campaign } from './loyalty.js';
+import { stockBackForSale, stockOutForSale } from './stock.js';
 import { shopNow } from './clock.js';
 import { addDays, daysBetween } from './time.js';
 
@@ -183,6 +184,9 @@ export function createSale(input: SaleInput): SaleResult {
       );
     }
 
+    // Produtos com controle de estoque saem da prateleira.
+    stockOutForSale(shop, saleId, items, input.userId);
+
     const customerName = customerId ? get<{ name: string }>('SELECT name FROM customers WHERE id = ?', [customerId])?.name : null;
     if (total > 0) {
       run(
@@ -208,7 +212,7 @@ export function createSale(input: SaleInput): SaleResult {
 }
 
 /** Cancela a venda: tira a entrada do caixa e os carimbos que ela deu. */
-export function cancelSale(shopId: number, saleId: number): SaleView {
+export function cancelSale(shopId: number, saleId: number, userId: number | null = null): SaleView {
   return tx(() => {
     const sale = get<{ status: string }>('SELECT status FROM sales WHERE id = ? AND barbershop_id = ?', [saleId, shopId]);
     if (!sale) throw new HttpError(404, 'Venda não encontrada.');
@@ -219,6 +223,7 @@ export function cancelSale(shopId: number, saleId: number): SaleView {
     run("UPDATE sales SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [nowIso(), saleId]);
     run('DELETE FROM cash_entries WHERE sale_id = ?', [saleId]);
     run('DELETE FROM loyalty_events WHERE sale_id = ?', [saleId]);
+    stockBackForSale(shopId, saleId, userId);
     return saleView(saleId);
   });
 }

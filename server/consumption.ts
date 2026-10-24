@@ -1,5 +1,6 @@
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
+import { availableQty } from './stock.js';
 import { sendMessage, shopBot } from './messaging.js';
 import { shopNow } from './clock.js';
 import { hourLabel, relativeDay } from './time.js';
@@ -77,11 +78,15 @@ function apptInfo(shopId: number, appointmentId: number): ApptInfo {
   return a;
 }
 
-/** Sugestão para um horário marcado: o consumo de costume, se ainda não foi reservado. */
+/** Sugestão para um horário marcado: o consumo de costume, se ainda não foi reservado (e se tem no estoque). */
 export function suggestionFor(shopId: number, appointmentId: number, now?: Date): { items: Usual[]; barber: string; question: string } | null {
   const a = apptInfo(shopId, appointmentId);
   if (a.status !== 'scheduled' || reservedItems(a.id).length) return null;
-  const items = usualConsumption(a.customer_id);
+  // O robô não oferece o que acabou.
+  const items = usualConsumption(a.customer_id).filter((u) => {
+    const left = availableQty(shopId, u.productId, { exceptAppointmentId: a.id, now });
+    return left == null || left >= u.qty;
+  });
   if (!items.length) return null;
   const when = relativeDay(a.starts_at.slice(0, 10), shopNow(shopId, now).date);
   const day = when === 'hoje' || when === 'amanhã' ? ` ${when}` : '';
@@ -122,9 +127,11 @@ export async function reserveItems(
   if (!items.length) throw new HttpError(400, 'Escolha pelo menos um item.');
   tx(() => {
     for (const i of items) {
-      if (!get("SELECT 1 AS ok FROM catalog_items WHERE id = ? AND barbershop_id = ? AND kind = 'product' AND active = 1", [i.productId, shopId])) {
-        throw new HttpError(404, 'Produto não encontrado.');
-      }
+      const p = get<{ name: string }>("SELECT name FROM catalog_items WHERE id = ? AND barbershop_id = ? AND kind = 'product' AND active = 1", [i.productId, shopId]);
+      if (!p) throw new HttpError(404, 'Produto não encontrado.');
+      // Cliente e robô só separam o que tem; no painel o dono decide.
+      const left = source === 'painel' ? null : availableQty(shopId, i.productId, { exceptAppointmentId: appointmentId, now: opts.now });
+      if (left != null && left < i.qty) throw new HttpError(409, left > 0 ? `Só tem ${left} ${p.name.toLowerCase()} disponível.` : `${p.name} acabou por enquanto. 😕`);
       run('INSERT INTO appointment_items (appointment_id, catalog_item_id, qty, source, created_at) VALUES (?, ?, ?, ?, ?)', [appointmentId, i.productId, i.qty, source, nowIso()]);
     }
     run("UPDATE bot_questions SET status = 'yes' WHERE appointment_id = ? AND status = 'pending'", [appointmentId]);

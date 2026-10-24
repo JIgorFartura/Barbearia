@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { shopId } from '../auth.js';
 import { accessStatus, informPayment, invoice, invoicePix, listInvoices, shopBilling, monthlyPrice } from '../billing.js';
 import { connectionInfo } from '../connection.js';
+import { availableQty } from '../stock.js';
 import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
 import { all, get } from '../db.js';
 import {
@@ -156,7 +157,11 @@ export function registerFinanceRoutes(router: Router): void {
     res.json({
       appointment,
       reserved: appointmentId ? reservedItems(appointmentId) : [],
-      catalog: all('SELECT id, kind, name, price_cents FROM catalog_items WHERE barbershop_id = ? AND active = 1 ORDER BY kind DESC, name COLLATE NOCASE', [shop]),
+      // Produtos com controle de estoque trazem quanto ainda tem (descontado o que está separado).
+      catalog: all<{ id: number; kind: string; name: string; price_cents: number; track_stock: number }>(
+        'SELECT id, kind, name, price_cents, track_stock FROM catalog_items WHERE barbershop_id = ? AND active = 1 ORDER BY kind DESC, name COLLATE NOCASE',
+        [shop],
+      ).map(({ track_stock, ...c }) => ({ ...c, available: track_stock ? availableQty(shop, c.id, { exceptAppointmentId: appointmentId ?? undefined }) : null })),
       barbers: all('SELECT id, name FROM barbers WHERE barbershop_id = ? AND active = 1 ORDER BY name COLLATE NOCASE', [shop]),
     });
   });
@@ -199,7 +204,7 @@ export function registerFinanceRoutes(router: Router): void {
   });
 
   router.post('/finance/sales/:id/cancel', (req, res) => {
-    res.json(cancelSale(shopId(req), idParam(req)));
+    res.json(cancelSale(shopId(req), idParam(req), req.user!.id));
   });
 
   // ---------- comissões e pagamento dos barbeiros

@@ -618,6 +618,28 @@ const MIGRATIONS: (string | Rebuild)[] = [
   -- Data de nascimento (opcional, para o presente de aniversário).
   ALTER TABLE customers ADD COLUMN birth_date TEXT;
 
+  -- Estoque dos produtos: baixa automática na venda, entradas de mercadoria e ajustes.
+  ALTER TABLE catalog_items ADD COLUMN track_stock INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE catalog_items ADD COLUMN stock_qty INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE catalog_items ADD COLUMN stock_min INTEGER;
+  ALTER TABLE catalog_items ADD COLUMN cost_cents INTEGER;
+
+  CREATE TABLE stock_moves (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    catalog_item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+    -- Positivo entra, negativo sai.
+    qty INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('venda', 'cancelamento', 'compra', 'ajuste', 'perda', 'uso')),
+    sale_id INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+    unit_cost_cents INTEGER,
+    notes TEXT,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX stock_moves_item ON stock_moves (catalog_item_id, created_at);
+  CREATE INDEX stock_moves_shop ON stock_moves (barbershop_id, created_at);
+
   -- Conexão do WhatsApp de cada barbearia (conferida a cada 10 minutos): ok | down.
   ALTER TABLE barbershops ADD COLUMN wa_status TEXT;
   ALTER TABLE barbershops ADD COLUMN wa_status_at TEXT;

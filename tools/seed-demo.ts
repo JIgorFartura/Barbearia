@@ -5,6 +5,7 @@ import { get, nowIso, run, tx } from '../server/db.js';
 import { ensureInvoices, savePlatformSettings } from '../server/billing.js';
 import { addEntry, createSale } from '../server/finance.js';
 import { book } from '../server/scheduling.js';
+import { stockEntry } from '../server/stock.js';
 import { addDays, localNow, weekdayOf } from '../server/time.js';
 
 if (get("SELECT 1 AS ok FROM barbershops WHERE slug = 'demo'")) {
@@ -40,6 +41,16 @@ tx(() => {
   item('service', 'Corte + Barba', 7500, 60);
   const beer = item('product', 'Cerveja long neck', 1200, null);
   const pomada = item('product', 'Pomada modeladora', 4500, null);
+  // Estoque: a compra da semana passada entrou no caixa; as vendas abaixo dão baixa sozinhas.
+  run('UPDATE catalog_items SET stock_min = 6 WHERE id IN (?, ?)', [beer, pomada]);
+  stockEntry(
+    shop,
+    [
+      { catalog_item_id: beer, qty: 24, unit_cost_cents: 450 },
+      { catalog_item_id: pomada, qty: 6, unit_cost_cents: 2200 },
+    ],
+    { supplier: 'Distribuidora Sul', cash: { status: 'paid', date: addDays(localNow().date, -7), method: 'pix' }, userId: null },
+  );
 
   const partner = (name: string, category: string, benefit: string) =>
     run('INSERT INTO partners (barbershop_id, name, category, benefit, instagram, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
@@ -132,7 +143,6 @@ tx(() => {
 
   // Gastos: aluguel e estoque pagos; conta de luz a pagar.
   addEntry(shop, { type: 'out', category: 'Aluguel', description: 'Aluguel do salão', amount_cents: 180000, method: 'pix', date: addDays(today, -5), status: 'paid' }, null);
-  addEntry(shop, { type: 'out', category: 'Produtos e estoque', description: 'Cervejas e pomadas', amount_cents: 42000, method: 'pix', date: addDays(today, -7), status: 'paid' }, null);
   addEntry(shop, { type: 'out', category: 'Contas (água, luz, internet)', description: 'Conta de luz', amount_cents: 31500, method: null, date: addDays(today, 3), status: 'pending' }, null);
 
   // Plataforma: plano, PIX do master e um aviso para as barbearias.
