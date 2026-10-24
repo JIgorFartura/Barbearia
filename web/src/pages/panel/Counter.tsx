@@ -1,4 +1,4 @@
-import { CalendarCheck, Gift, Link2, Minus, Plus, Receipt, Repeat, Search, Ticket, Undo2, UserPlus, Users } from 'lucide-react';
+import { CalendarCheck, Download, Gift, Link2, Minus, Plus, Receipt, Repeat, Search, Ticket, Trash2, Undo2, UserPlus, Users } from 'lucide-react';
 import { CheckoutModal } from '../../components/Checkout';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal } from '../../components/ui';
@@ -85,7 +85,20 @@ export function Counter() {
             ))}
           </ul>
         </div>
-        <div>{selected ? <CustomerDetail id={selected} onChange={() => search(q)} /> : <p className="text-sm text-zinc-500">Escolha um cliente na lista.</p>}</div>
+        <div>
+          {selected ? (
+            <CustomerDetail
+              id={selected}
+              onChange={() => search(q)}
+              onRemoved={() => {
+                setSelected(null);
+                search(q);
+              }}
+            />
+          ) : (
+            <p className="text-sm text-zinc-500">Escolha um cliente na lista.</p>
+          )}
+        </div>
       </div>
 
       {creating && (
@@ -103,8 +116,9 @@ export function Counter() {
   );
 }
 
-function CustomerDetail({ id, onChange }: { id: number; onChange: () => void }) {
+function CustomerDetail({ id, onChange, onRemoved }: { id: number; onChange: () => void; onRemoved: () => void }) {
   const [data, setData] = useState<Detail | null>(null);
+  const [removing, setRemoving] = useState(false);
   const [qty, setQty] = useState<Record<number, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -163,7 +177,16 @@ function CustomerDetail({ id, onChange }: { id: number; onChange: () => void }) 
             onChange();
           }}
         />
+        <p className="mt-3 flex flex-wrap gap-4 border-t border-zinc-100 pt-3 text-xs">
+          <a href={`/api/shop/customers/${id}/export`} download className="inline-flex items-center gap-1 font-medium text-zinc-500 hover:text-zinc-900">
+            <Download className="size-3.5" /> Exportar dados (LGPD)
+          </a>
+          <button className="inline-flex items-center gap-1 font-medium text-zinc-500 hover:text-red-600" onClick={() => setRemoving(true)}>
+            <Trash2 className="size-3.5" /> Excluir dados a pedido do cliente
+          </button>
+        </p>
       </Card>
+      {removing && <RemoveCustomerModal id={id} name={data.customer.name} onClose={() => setRemoving(false)} onDone={onRemoved} />}
       {flash && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">{flash}</p>}
       <ErrorText error={error} />
       {data.card.length === 0 && <p className="text-sm text-zinc-500">Nenhuma campanha valendo. Crie uma em Campanhas.</p>}
@@ -397,5 +420,33 @@ function VoucherCheck() {
       )}
       {error && <div className="mt-2"><ErrorText error={error} /></div>}
     </Card>
+  );
+}
+
+/** LGPD: exclusão dos dados pessoais a pedido do cliente (as vendas ficam sem identificação). */
+function RemoveCustomerModal({ id, name, onClose, onDone }: { id: number; name: string; onClose: () => void; onDone: () => void }) {
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <Modal title={`Excluir dados de ${name}`} onClose={onClose}>
+      <div className="space-y-3 text-sm">
+        <p>
+          Apaga nome, celular, mensagens, cartão fidelidade, vouchers e horários futuros. As vendas continuam no caixa, sem identificar o cliente. Use quando o
+          próprio cliente pedir. Não pode ser desfeito.
+        </p>
+        <Field label="Para confirmar, digite EXCLUIR">
+          <Input value={confirm} onChange={(e) => setConfirm(e.target.value.toUpperCase())} />
+        </Field>
+        <ErrorText error={error} />
+        <Button
+          variant="danger"
+          className="w-full"
+          disabled={confirm !== 'EXCLUIR'}
+          onClick={() => api('POST', `/api/shop/customers/${id}/anonymize`, { confirm }).then(onDone, (e) => setError(e.message))}
+        >
+          Excluir dados
+        </Button>
+      </div>
+    </Modal>
   );
 }

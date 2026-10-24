@@ -66,6 +66,13 @@ authRouter.put('/profile', (req, res) => {
   res.json({ ok: true });
 });
 
+/** Aceite dos termos de uso e da política de privacidade (dono e barbeiro, no primeiro acesso). */
+authRouter.post('/accept-terms', (req, res) => {
+  if (!req.user) throw new HttpError(401, 'Faça login para continuar.');
+  run('UPDATE users SET terms_accepted_at = COALESCE(terms_accepted_at, ?) WHERE id = ?', [nowIso(), req.user.id]);
+  res.json({ ok: true });
+});
+
 /** Esqueci minha senha (1): manda o código para o celular do login. */
 authRouter.post('/forgot', async (req, res) => {
   rateLimit(`forgot:${req.ip ?? ''}`, 10, 3600000, 'Muitos pedidos. Tente mais tarde.');

@@ -3,6 +3,7 @@ import { useState, type FormEvent } from 'react';
 import type { Me } from '../App';
 import { Button, ErrorText, Field, Input } from '../components/ui';
 import { api } from '../lib/api';
+import { LegalLinks } from './Legal';
 
 const FEATURES = [
   { icon: Bot, title: 'Robô no WhatsApp', text: 'Cada barbearia dá um nome ao seu robô. Ele agenda, consulta o cartão e entrega vouchers.' },
@@ -41,6 +42,7 @@ export function Home({ me, onLogin }: { me: Me; onLogin: () => void }) {
         </div>
         <div className="lg:pt-16">{me.setupNeeded ? <SetupCard onDone={onLogin} /> : <LoginCard onDone={onLogin} />}</div>
       </div>
+      <LegalLinks className="pb-8 text-zinc-500" />
     </div>
   );
 }

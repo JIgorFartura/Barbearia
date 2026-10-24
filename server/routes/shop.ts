@@ -6,6 +6,7 @@ import { all, get, nowIso, run } from '../db.js';
 import { HttpError, idParam, normalizePhone, parseBody, zBool, zCents, zColor, zDate, zId, zText, zUrl } from '../http.js';
 import { addStamps, customerCard, isRunning, redeemReward, type Campaign } from '../loyalty.js';
 import { issueAccessLink } from '../customerAuth.js';
+import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
 import { customerByPhone } from '../messaging.js';
 import { findVoucher, redeemVoucher, shopVouchers } from '../offers.js';
 import { dayAgenda } from '../scheduling.js';
@@ -186,7 +187,7 @@ shopRouter.get('/customers', (req, res) => {
               (SELECT COALESCE(SUM(qty), 0) FROM loyalty_events e WHERE e.customer_id = c.id AND e.kind = 'earn') AS stamps_total,
               (SELECT MAX(created_at) FROM loyalty_events e WHERE e.customer_id = c.id) AS last_visit
          FROM customers c
-        WHERE c.barbershop_id = :shop
+        WHERE c.barbershop_id = :shop AND c.anonymized_at IS NULL
           AND (:q = '' OR c.name LIKE '%' || :q || '%' OR (:digits <> '' AND c.phone LIKE '%' || :digits || '%'))
         ORDER BY COALESCE(last_visit, c.created_at) DESC
         LIMIT 100`,
@@ -230,6 +231,19 @@ shopRouter.post('/customers/:id/access-link', (req, res) => {
   if (!get('SELECT 1 AS ok FROM customers WHERE id = ? AND barbershop_id = ?', [id, shop])) throw new HttpError(404, 'Cliente não encontrado.');
   const slug = get<{ slug: string }>('SELECT slug FROM barbershops WHERE id = ?', [shop])!.slug;
   res.json({ url: issueAccessLink(id, slug) });
+});
+
+/** LGPD: cópia dos dados do cliente (pedido no balcão). */
+shopRouter.get('/customers/:id/export', (req, res) => {
+  res.setHeader('content-disposition', `attachment; filename="dados-cliente-${idParam(req)}.json"`);
+  res.json(exportCustomerData(shopId(req), idParam(req)));
+});
+
+/** LGPD: exclui os dados pessoais a pedido do cliente. */
+shopRouter.post('/customers/:id/anonymize', (req, res) => {
+  parseBody(z.object({ confirm: z.literal('EXCLUIR', 'Digite EXCLUIR para confirmar.') }), req.body);
+  anonymizeCustomer(shopId(req), idParam(req));
+  res.json({ ok: true });
 });
 
 const zLoyalty = z.object({ campaignId: zId, customerId: zId });

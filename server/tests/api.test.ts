@@ -186,7 +186,7 @@ describe('fluxo completo pela API', () => {
     assert.equal((await visitante('GET', '/api/customer/barbearia-do-ze/me')).status, 401);
     // Celular novo precisa do nome para criar a conta.
     const novo = await visitante('POST', '/api/public/shops/barbearia-do-ze/login/code', { phone: '11977776666' });
-    assert.equal(novo.status, 404);
+    assert.equal(novo.status, 200);
     assert.equal(novo.data.needsName, true);
   });
 

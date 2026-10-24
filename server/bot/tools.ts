@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { askConsumption, describeItems, reserveItems } from '../consumption.js';
+import { config } from '../config.js';
 import { issueAccessLink } from '../customerAuth.js';
 import { all, get, nowIso, run } from '../db.js';
 import { HttpError, normalizePhone } from '../http.js';
@@ -219,15 +220,17 @@ export const TOOLS = {
     run: (ctx, input) => {
       if (ctx.customer) return { ok: true, ja_cadastrado: true, nome: ctx.customer.name };
       const phone = normalizePhone(ctx.phone);
-      const { lastInsertRowid } = run('INSERT INTO customers (barbershop_id, name, phone, wa_id, created_at) VALUES (?, ?, ?, ?, ?)', [
+      // LGPD: o cadastro pelo WhatsApp vem com o aviso da política de privacidade (o robô manda o link).
+      const { lastInsertRowid } = run('INSERT INTO customers (barbershop_id, name, phone, wa_id, privacy_notice_at, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
         ctx.shop.id,
         input.nome,
         phone,
         ctx.waId,
         nowIso(),
+        nowIso(),
       ]);
       ctx.customer = { id: lastInsertRowid, barbershop_id: ctx.shop.id, name: input.nome, phone, wa_id: ctx.waId, reminders_opt_out: 0 };
-      return { ok: true, nome: input.nome };
+      return { ok: true, nome: input.nome, politica_privacidade: `${config.appUrl}/b/${ctx.shop.slug}/privacidade` };
     },
   }),
 

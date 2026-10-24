@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
+import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
 import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
 import { all, get, run } from '../db.js';
 import { customerHabit, lastVisitDate } from '../habits.js';
@@ -36,11 +37,12 @@ function ctx(req: Request): Ctx {
 customerRouter.get('/me', (req, res) => {
   const { shopId, customerId } = ctx(req);
   const customer = get<Record<string, unknown>>(
-    'SELECT id, name, phone, pref_weekday, pref_time, pref_barber_id, pref_service_id, pref_interval_days, reminders_opt_out FROM customers WHERE id = ?',
+    'SELECT id, name, phone, pref_weekday, pref_time, pref_barber_id, pref_service_id, pref_interval_days, reminders_opt_out, birth_date, privacy_accepted_at FROM customers WHERE id = ?',
     [customerId],
   )!;
   res.json({
     customer,
+    privacyAccepted: Boolean(customer.privacy_accepted_at),
     habit: customerHabit(customerId),
     lastVisit: lastVisitDate(customerId),
     upcoming: upcomingFor(customerId).map((a) => ({ ...a, items: reservedItems(a.id) })),
@@ -141,6 +143,30 @@ customerRouter.put('/preferences', (req, res) => {
     ],
   );
   res.json({ ok: true, habit: customerHabit(customerId) });
+});
+
+// ---------- LGPD: aceite, cópia dos dados e exclusão da conta
+
+customerRouter.post('/privacy/accept', (req, res) => {
+  const { customerId } = ctx(req);
+  run('UPDATE customers SET privacy_accepted_at = COALESCE(privacy_accepted_at, ?) WHERE id = ?', [new Date().toISOString(), customerId]);
+  res.json({ ok: true });
+});
+
+/** Baixa tudo o que a barbearia guarda sobre o cliente (arquivo JSON). */
+customerRouter.get('/my-data', (req, res) => {
+  const { shopId, slug, customerId } = ctx(req);
+  res.setHeader('content-disposition', `attachment; filename="meus-dados-${slug}.json"`);
+  res.json(exportCustomerData(shopId, customerId));
+});
+
+/** Exclui a conta: apaga os dados pessoais (as vendas ficam no caixa sem identificação). */
+customerRouter.post('/delete-account', (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  parseBody(z.object({ confirm: z.literal('EXCLUIR', 'Digite EXCLUIR para confirmar.') }), req.body);
+  anonymizeCustomer(shopId, customerId);
+  destroyCustomerSession(req, res, shopId);
+  res.json({ ok: true });
 });
 
 customerRouter.post('/logout', (req, res) => {

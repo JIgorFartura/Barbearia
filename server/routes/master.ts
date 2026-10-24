@@ -21,6 +21,7 @@ import {
 import { llmEnabled } from '../bot/brain.js';
 import { downShops } from '../connection.js';
 import { platformChannel, savePlatformChannel, sendPlatformMessage } from '../platform.js';
+import { legalInfo, saveLegalInfo } from '../privacy.js';
 import { PLATFORM_TEMPLATE_KINDS, TEMPLATES, templateField } from '../templates.js';
 import { PROVIDERS, zEvolutionConfig, zMetaConfig } from '../whatsapp.js';
 import { config } from '../config.js';
@@ -381,6 +382,26 @@ masterRouter.delete('/announcements/:id', (req, res) => {
   const { changes } = run('DELETE FROM announcements WHERE id = ?', [idParam(req)]);
   if (!changes) throw new HttpError(404, 'Aviso não encontrado.');
   res.json({ ok: true });
+});
+
+// ---------- empresa (aparece nos termos de uso e na política de privacidade)
+
+masterRouter.get('/legal', (_req, res) => {
+  res.json(legalInfo());
+});
+
+masterRouter.put('/legal', (req, res) => {
+  const b = parseBody(
+    z.object({
+      company: z.string().trim().min(2, 'Informe o nome da empresa.').max(120),
+      document: z.string().trim().max(30),
+      email: z.string().trim().max(120),
+      address: z.string().trim().max(200),
+    }),
+    req.body,
+  );
+  saveLegalInfo(b);
+  res.json(legalInfo());
 });
 
 // ---------- WhatsApp da plataforma (avisos aos donos e "esqueci minha senha")

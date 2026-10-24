@@ -26,7 +26,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
 import { CrudPage, type Row } from '../components/CrudPage';
-import { Badge } from '../components/ui';
+import { Badge, Button, ErrorText } from '../components/ui';
 import { api } from '../lib/api';
 import { date, money } from '../lib/format';
 import { navigate, usePath } from '../lib/router';
@@ -339,6 +339,8 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   // Espera saber se o acesso está liberado antes de abrir qualquer tela.
   if (!status) return null;
+  // Primeiro acesso do dono: aceite dos termos de uso e da política de privacidade.
+  if (!acting && !me.user?.termsAccepted) return <TermsGate onAccepted={onLogout} onLogout={() => api('POST', '/api/auth/logout').then(onLogout)} />;
   if (!status.active && !acting) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-6">
@@ -475,6 +477,41 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
             ))}
           {content}
         </main>
+      </div>
+    </div>
+  );
+}
+
+/** Aceite dos termos de uso e da política de privacidade (uma vez por login). */
+function TermsGate({ onAccepted, onLogout }: { onAccepted: () => void; onLogout: () => void }) {
+  const [checked, setChecked] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-6">
+      <div className="max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
+        <p className="text-lg font-bold">Antes de começar</p>
+        <p className="text-sm text-zinc-600">
+          Leia os{' '}
+          <a href="/termos" target="_blank" rel="noreferrer" className="font-medium text-zinc-900 underline">
+            termos de uso
+          </a>{' '}
+          e a{' '}
+          <a href="/privacidade" target="_blank" rel="noreferrer" className="font-medium text-zinc-900 underline">
+            política de privacidade
+          </a>
+          . Pela LGPD, a barbearia é a responsável pelos dados dos clientes dela, e o sistema cuida deles em nome da barbearia.
+        </p>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 size-4 accent-zinc-900" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+          Li e aceito os termos de uso e a política de privacidade.
+        </label>
+        <ErrorText error={error} />
+        <Button className="w-full" disabled={!checked} onClick={() => api('POST', '/api/auth/accept-terms').then(onAccepted, (e) => setError(e.message))}>
+          Continuar
+        </Button>
+        <button className="w-full text-center text-sm text-zinc-500 hover:text-zinc-900" onClick={onLogout}>
+          Sair
+        </button>
       </div>
     </div>
   );

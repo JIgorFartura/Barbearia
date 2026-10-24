@@ -1,5 +1,6 @@
 import { dailyBackup } from './backup.js';
 import { checkConnections } from './connection.js';
+import { purgeOldData } from './privacy.js';
 import { accessStatus, ensureInvoices } from './billing.js';
 import { config } from './config.js';
 import { askConsumption } from './consumption.js';
@@ -191,7 +192,10 @@ export function awayCustomers(shopId: number, now: Date = new Date()): AwayCusto
   const shop = shopBot(shopId);
   const today = shopNow(shopId, now).date;
   const out: AwayCustomer[] = [];
-  for (const c of all<CustomerLite & { reminders_opt_out: number }>('SELECT id, name, phone, wa_id, reminders_opt_out FROM customers WHERE barbershop_id = ?', [shopId])) {
+  for (const c of all<CustomerLite & { reminders_opt_out: number }>(
+    'SELECT id, name, phone, wa_id, reminders_opt_out FROM customers WHERE barbershop_id = ? AND anonymized_at IS NULL',
+    [shopId],
+  )) {
     const last = lastVisitDate(c.id, now);
     if (!last) continue;
     const days = daysBetween(last, today);
@@ -271,7 +275,9 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
       automationStatus.lastInvoices = ensureInvoices(now);
     }
     // Cópia de segurança do dia (a partir das 3h); uma falha aqui não para os lembretes.
-    await dailyBackup(now).catch((err) => console.error('[backup]', err));
+    const backedUp = await dailyBackup(now).catch((err) => console.error('[backup]', err));
+    // Uma vez por dia, junto da cópia: apaga o que não precisa mais ser guardado (LGPD).
+    if (backedUp) purgeOldData(now);
     // Conexão do WhatsApp de cada barbearia (avisa o dono se cair).
     if (config.automations) await checkConnections(now).catch((err) => console.error('[conexão]', err));
     for (const { id } of all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1')) {

@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarCheck, CalendarX, Clock, Gift, History, LogOut, Receipt, Repeat, Scissors, Ticket } from 'lucide-react';
+import { ArrowLeft, CalendarCheck, CalendarX, Clock, Download, Gift, History, LogOut, Receipt, Repeat, Scissors, ShieldCheck, Ticket, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { StampCard, type Progress } from '../components/StampCard';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
@@ -73,7 +73,10 @@ interface MeData {
     pref_service_id: number | null;
     pref_interval_days: number | null;
     reminders_opt_out: number;
+    birth_date: string | null;
   };
+  /** Já aceitou a política de privacidade da barbearia. */
+  privacyAccepted: boolean;
   habit: Habit | null;
   upcoming: Appointment[];
   history: Appointment[];
@@ -152,6 +155,7 @@ function Login({ slug, brand, onDone }: { slug: string; brand: Brand; onDone: ()
   const [phoneValue, setPhone] = useState('');
   const [name, setName] = useState('');
   const [needsName, setNeedsName] = useState(false);
+  const [accept, setAccept] = useState(false);
   const [code, setCode] = useState('');
   const [demoCode, setDemoCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -162,11 +166,19 @@ function Login({ slug, brand, onDone }: { slug: string; brand: Brand; onDone: ()
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ demoCode?: string }>('POST', `/api/public/shops/${slug}/login/code`, { phone: phoneValue, name: needsName ? name : undefined });
+      const r = await api<{ demoCode?: string; needsName?: boolean }>('POST', `/api/public/shops/${slug}/login/code`, {
+        phone: phoneValue,
+        name: needsName ? name : undefined,
+        accept: needsName ? accept : undefined,
+      });
+      // Número novo: pede o nome e o aceite da política para criar a conta.
+      if (r.needsName) {
+        setNeedsName(true);
+        return;
+      }
       setDemoCode(r.demoCode ?? null);
       setStep('code');
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404 && !needsName) setNeedsName(true);
       setError((err as Error).message);
     } finally {
       setBusy(false);
@@ -203,11 +215,23 @@ function Login({ slug, brand, onDone }: { slug: string; brand: Brand; onDone: ()
             <Input type="tel" inputMode="tel" autoComplete="tel" required placeholder="(11) 98888-7777" value={phoneValue} onChange={(e) => setPhone(e.target.value)} />
           </Field>
           {needsName && (
-            <Field label="Seu nome" hint="Primeira vez por aqui: vamos criar sua conta.">
-              <Input required autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-            </Field>
+            <>
+              <Field label="Seu nome" hint="Primeira vez por aqui: vamos criar sua conta.">
+                <Input required autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+              </Field>
+              <label className="flex items-start gap-2 text-sm text-zinc-600">
+                <input type="checkbox" required className="mt-0.5 size-4 shrink-0 accent-zinc-900" checked={accept} onChange={(e) => setAccept(e.target.checked)} />
+                <span>
+                  Li e aceito a{' '}
+                  <a href={`/b/${slug}/privacidade`} target="_blank" rel="noreferrer" className="font-medium text-zinc-900 underline">
+                    política de privacidade
+                  </a>{' '}
+                  da {brand.name}.
+                </span>
+              </label>
+            </>
           )}
-          {!(needsName && error?.startsWith('Primeira vez')) && <ErrorText error={error} />}
+          <ErrorText error={error} />
           <Button type="submit" loading={busy} className="w-full" style={accentButton}>
             {brand.connected ? 'Receber código no WhatsApp' : 'Continuar'}
           </Button>
@@ -269,6 +293,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
   const [booking, setBooking] = useState(false);
   const [prefs, setPrefs] = useState(false);
   const [voucher, setVoucher] = useState<Voucher | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const accent = { background: brand.accent_color, color: '#09090b' };
   const habit = me.habit;
@@ -299,6 +324,23 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
         <p className="text-sm text-zinc-500">Bem-vindo à comunidade {brand.name}.</p>
       </div>
       <ErrorText error={error} />
+      {!me.privacyAccepted && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-sky-50 px-4 py-3 text-sm text-sky-950 ring-1 ring-sky-200">
+          <p className="flex items-start gap-2">
+            <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+            <span>
+              Veja como a {brand.name} cuida dos seus dados na{' '}
+              <a href={`/b/${slug}/privacidade`} target="_blank" rel="noreferrer" className="font-medium underline">
+                política de privacidade
+              </a>
+              .
+            </span>
+          </p>
+          <Button className="!py-1.5" style={accent} onClick={() => api('POST', `/api/customer/${slug}/privacy/accept`).then(reload, (e) => setError(e.message))}>
+            Li e aceito
+          </Button>
+        </div>
+      )}
 
       <Section
         icon={<CalendarCheck />}
@@ -436,6 +478,29 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
         </Section>
       )}
 
+      <Section icon={<ShieldCheck />} title="Meus dados">
+        <p className="text-sm text-zinc-500">
+          Seus dados seguem a{' '}
+          <a href={`/b/${slug}/privacidade`} target="_blank" rel="noreferrer" className="font-medium text-zinc-700 underline">
+            política de privacidade
+          </a>{' '}
+          da {brand.name}.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a
+            href={`/api/customer/${slug}/my-data`}
+            download
+            className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-zinc-700 ring-1 ring-zinc-200 hover:bg-zinc-100"
+          >
+            <Download className="size-4" /> Baixar meus dados
+          </a>
+          <Button variant="danger" onClick={() => setDeleting(true)}>
+            <Trash2 className="size-4" /> Excluir minha conta
+          </Button>
+        </div>
+      </Section>
+
+      {deleting && <DeleteAccountModal slug={slug} shopName={brand.name} onClose={() => setDeleting(false)} />}
       {booking && (
         <BookingModal
           slug={slug}
@@ -474,6 +539,44 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
         </Modal>
       )}
     </div>
+  );
+}
+
+/** Exclui a conta: apaga os dados pessoais (a barbearia mantém só as vendas, sem identificação). */
+function DeleteAccountModal({ slug, shopName, onClose }: { slug: string; shopName: string; onClose: () => void }) {
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal title="Excluir minha conta" onClose={onClose}>
+      <div className="space-y-3 text-sm">
+        <p>
+          Vamos apagar seu nome, celular, mensagens, cartão fidelidade, vouchers e horários futuros na {shopName}. As compras ficam no caixa da barbearia, sem
+          identificar você, porque a lei exige. Isso não pode ser desfeito.
+        </p>
+        <Field label="Para confirmar, digite EXCLUIR">
+          <Input value={confirm} onChange={(e) => setConfirm(e.target.value.toUpperCase())} />
+        </Field>
+        <ErrorText error={error} />
+        <Button
+          variant="danger"
+          className="w-full"
+          loading={busy}
+          disabled={confirm !== 'EXCLUIR'}
+          onClick={() => {
+            setBusy(true);
+            api('POST', `/api/customer/${slug}/delete-account`, { confirm })
+              .then(() => location.assign(`/b/${slug}`))
+              .catch((e) => {
+                setError(e.message);
+                setBusy(false);
+              });
+          }}
+        >
+          Excluir definitivamente
+        </Button>
+      </div>
+    </Modal>
   );
 }
 

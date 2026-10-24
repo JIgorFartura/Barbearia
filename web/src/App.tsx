@@ -3,6 +3,7 @@ import { api } from './lib/api';
 import { usePath } from './lib/router';
 import { CustomerArea } from './pages/CustomerArea';
 import { Home } from './pages/Home';
+import { PrivacyPage, ShopPrivacyPage, TermsPage } from './pages/Legal';
 import { Master } from './pages/Master';
 import { Panel } from './pages/Panel';
 import { ShopLanding } from './pages/ShopLanding';
@@ -31,9 +32,14 @@ export function App() {
     refresh();
   }, [refresh]);
 
-  // Site da barbearia (/b/barbearia-do-ze) e área do cliente (/b/barbearia-do-ze/conta).
-  const shopMatch = /^\/b\/([a-z0-9-]+)(\/conta)?\/?$/.exec(path);
-  if (shopMatch) return shopMatch[2] ? <CustomerArea slug={shopMatch[1]} /> : <ShopLanding slug={shopMatch[1]} />;
+  // Site da barbearia (/b/barbearia-do-ze), área do cliente (/conta) e política de privacidade (/privacidade).
+  const shopMatch = /^\/b\/([a-z0-9-]+)(\/conta|\/privacidade)?\/?$/.exec(path);
+  if (shopMatch) {
+    if (shopMatch[2] === '/privacidade') return <ShopPrivacyPage slug={shopMatch[1]} />;
+    return shopMatch[2] ? <CustomerArea slug={shopMatch[1]} /> : <ShopLanding slug={shopMatch[1]} />;
+  }
+  if (path === '/termos') return <TermsPage />;
+  if (path === '/privacidade') return <PrivacyPage />;
 
   if (!me) return null;
   // Master "dentro" de uma barbearia usa o mesmo painel do dono.

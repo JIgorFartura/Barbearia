@@ -6,7 +6,9 @@ import { checkLoginCode, consumeAccessLink, createCustomerSession, issueLoginCod
 import { all, get, nowIso, run } from '../db.js';
 import { HttpError, idParam, normalizePhone, parseBody, rateLimit } from '../http.js';
 import { isRunning, type Campaign } from '../loyalty.js';
+import { llmEnabled } from '../bot/brain.js';
 import { customerByPhone, sendMessage, shopBot } from '../messaging.js';
+import { legalInfo } from '../privacy.js';
 
 /** Dados da landing page de cada barbearia (/b/:slug) e login da área do cliente — sem login. */
 export const publicRouter = Router();
@@ -72,6 +74,17 @@ publicRouter.get('/shops/:slug/brand', (req, res) => {
   res.json({ ...profile, connected: shopBot(id).wa_provider !== 'simulador', loggedIn: Boolean(sessionCustomer(req, id)) });
 });
 
+/** Dados da empresa para os termos de uso e a política de privacidade da plataforma. */
+publicRouter.get('/legal', (_req, res) => {
+  res.json(legalInfo());
+});
+
+/** Política de privacidade da barbearia (controladora dos dados dos clientes dela). */
+publicRouter.get('/shops/:slug/privacy', (req, res) => {
+  const { id, name, address, whatsapp, instagram, bot_name } = shopBySlug(String(req.params.slug));
+  res.json({ shop: { name, address, whatsapp, instagram, bot_name }, legal: legalInfo(), ai: llmEnabled(), whatsapp: shopBot(id).wa_provider !== 'simulador' });
+});
+
 /** Clique no anúncio: conta e redireciona para o link do anunciante (validado no cadastro). */
 publicRouter.get('/ads/:id/click', (req, res) => {
   const ad = get<{ link_url: string | null }>('SELECT link_url FROM ads WHERE id = ? AND active = 1', [idParam(req)]);
@@ -91,15 +104,18 @@ const ip = (req: Request) => req.ip ?? '';
 publicRouter.post('/shops/:slug/login/code', async (req, res) => {
   rateLimit(`code:${ip(req)}`, 10, 3600000, 'Muitos pedidos de código. Tente mais tarde.');
   const { id } = shopBySlug(String(req.params.slug));
-  const body = parseBody(z.object({ phone: z.string().max(30), name: z.string().trim().max(80).optional() }), req.body);
+  const body = parseBody(z.object({ phone: z.string().max(30), name: z.string().trim().max(80).optional(), accept: z.boolean().optional() }), req.body);
   const phone = normalizePhone(body.phone);
   let customer = customerByPhone(id, phone);
   if (!customer) {
     if (!body.name || body.name.length < 2) {
-      res.status(404).json({ error: 'Primeira vez por aqui? Informe seu nome para criar sua conta.', needsName: true });
+      // Número novo: a tela pede o nome (e o aceite da política) para criar a conta.
+      res.json({ needsName: true });
       return;
     }
-    run('INSERT INTO customers (barbershop_id, name, phone, created_at) VALUES (?, ?, ?, ?)', [id, body.name, phone, nowIso()]);
+    // LGPD: a conta só nasce com o aceite da política de privacidade da barbearia.
+    if (!body.accept) throw new HttpError(400, 'Para criar sua conta, leia e aceite a política de privacidade.');
+    run('INSERT INTO customers (barbershop_id, name, phone, privacy_accepted_at, created_at) VALUES (?, ?, ?, ?, ?)', [id, body.name, phone, nowIso(), nowIso()]);
     customer = customerByPhone(id, phone)!;
   }
   const shop = shopBot(id);

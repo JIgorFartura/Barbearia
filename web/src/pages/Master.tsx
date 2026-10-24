@@ -15,6 +15,7 @@ import {
   Plus,
   Scissors,
   Server,
+  ShieldCheck,
   Store,
   Ticket,
   Smartphone,
@@ -1143,6 +1144,79 @@ function BackupCard() {
   );
 }
 
+interface LegalInfo {
+  company: string;
+  document: string;
+  email: string;
+  address: string;
+}
+
+/** Dados da empresa que aparecem nos termos de uso e nas políticas de privacidade. */
+function LegalCard() {
+  const [form, setForm] = useState<LegalInfo | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<LegalInfo>('GET', '/api/master/legal').then(setForm, (e) => setError(e.message));
+  }, []);
+  if (!form) return <ErrorText error={error} />;
+  const set = (k: keyof LegalInfo, v: string) => {
+    setSaved(false);
+    setForm({ ...form, [k]: v });
+  };
+  return (
+    <Card className="space-y-3 text-sm">
+      <div>
+        <p className="flex items-center gap-2 font-semibold">
+          <ShieldCheck className="size-4" /> Termos e privacidade (LGPD)
+        </p>
+        <p className="text-zinc-500">
+          Seus dados aparecem nos{' '}
+          <a href="/termos" target="_blank" rel="noreferrer" className="underline">
+            termos de uso
+          </a>
+          , na{' '}
+          <a href="/privacidade" target="_blank" rel="noreferrer" className="underline">
+            política de privacidade
+          </a>{' '}
+          e na política de cada barbearia. Os textos são um modelo: revise com um advogado.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Empresa (razão social ou nome)">
+          <Input value={form.company} onChange={(e) => set('company', e.target.value)} />
+        </Field>
+        <Field label="CNPJ ou CPF">
+          <Input value={form.document} onChange={(e) => set('document', e.target.value)} />
+        </Field>
+        <Field label="E-mail do encarregado de dados">
+          <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
+        </Field>
+        <Field label="Cidade / endereço">
+          <Input value={form.address} onChange={(e) => set('address', e.target.value)} />
+        </Field>
+      </div>
+      <div className="flex items-center gap-3">
+        <Button
+          onClick={() =>
+            api<LegalInfo>('PUT', '/api/master/legal', form).then(
+              (d) => {
+                setForm(d);
+                setSaved(true);
+              },
+              (e) => setError(e.message),
+            )
+          }
+        >
+          Salvar
+        </Button>
+        {saved && <span className="text-emerald-700">Salvo!</span>}
+      </div>
+      <ErrorText error={error} />
+    </Card>
+  );
+}
+
 interface PlatformWa {
   provider: 'simulador' | 'meta' | 'evolution';
   config: Record<string, string>;
@@ -1346,6 +1420,7 @@ function SystemTab() {
           </Card>
           <BackupCard />
           <PlatformWhatsAppCard />
+          <LegalCard />
         </div>
       )}
 

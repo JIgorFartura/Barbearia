@@ -221,6 +221,11 @@ export function ShopLanding({ slug }: { slug: string }) {
             </a>
           )}
         </div>
+        <p className="pb-6 text-center text-xs opacity-70">
+          <a href={`/b/${slug}/privacidade`} className="hover:underline">
+            Política de privacidade
+          </a>
+        </p>
       </footer>
     </div>
   );

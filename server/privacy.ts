@@ -1,0 +1,116 @@
+import { shopNow } from './clock.js';
+import { all, get, nowIso, run, tx } from './db.js';
+import { HttpError } from './http.js';
+
+/**
+ * LGPD. A barbearia é a controladora dos dados dos clientes dela; a plataforma é a operadora.
+ * Aqui ficam os dados da empresa que aparecem nos termos, a exportação e a exclusão (anonimização)
+ * dos dados de um cliente e a limpeza periódica do que não precisa ser guardado.
+ */
+
+export interface LegalInfo {
+  company: string;
+  document: string;
+  email: string;
+  address: string;
+}
+
+const LEGAL_KEYS: Record<keyof LegalInfo, string> = { company: 'legal_company', document: 'legal_document', email: 'legal_email', address: 'legal_address' };
+
+export function legalInfo(): LegalInfo {
+  const rows = all<{ key: string; value: string }>("SELECT key, value FROM platform_settings WHERE key LIKE 'legal_%'");
+  const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return {
+    company: map.legal_company || 'Sistema Barbearia',
+    document: map.legal_document ?? '',
+    email: map.legal_email ?? '',
+    address: map.legal_address ?? '',
+  };
+}
+
+export function saveLegalInfo(info: LegalInfo): void {
+  tx(() => {
+    for (const [field, key] of Object.entries(LEGAL_KEYS)) {
+      run('INSERT INTO platform_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, info[field as keyof LegalInfo]]);
+    }
+  });
+}
+
+function assertCustomer(shopId: number, customerId: number): void {
+  if (!get('SELECT 1 AS ok FROM customers WHERE id = ? AND barbershop_id = ? AND anonymized_at IS NULL', [customerId, shopId])) {
+    throw new HttpError(404, 'Cliente não encontrado.');
+  }
+}
+
+/** Tudo o que a barbearia guarda sobre o cliente (direito de acesso e portabilidade). */
+export function exportCustomerData(shopId: number, customerId: number) {
+  assertCustomer(shopId, customerId);
+  const shop = get<{ name: string }>('SELECT name FROM barbershops WHERE id = ?', [shopId])!;
+  return {
+    gerado_em: nowIso(),
+    barbearia: shop.name,
+    cliente: get(
+      `SELECT name AS nome, phone AS celular, birth_date AS nascimento, created_at AS cadastro, pref_weekday AS dia_costume, pref_time AS hora_costume,
+              reminders_opt_out AS nao_quer_lembretes, privacy_accepted_at AS aceitou_privacidade
+         FROM customers WHERE id = ?`,
+      [customerId],
+    ),
+    horarios: all(
+      `SELECT a.starts_at AS quando, b.name AS barbeiro, a.service_name AS servico, a.price_cents AS valor_centavos, a.status AS situacao
+         FROM appointments a JOIN barbers b ON b.id = a.barber_id WHERE a.customer_id = ? ORDER BY a.starts_at DESC`,
+      [customerId],
+    ),
+    compras: all<{ id: number; date: string; total_cents: number }>("SELECT id, date, total_cents FROM sales WHERE customer_id = ? AND status = 'closed' ORDER BY date DESC", [
+      customerId,
+    ]).map((s) => ({
+      data: s.date,
+      total_centavos: s.total_cents,
+      itens: all('SELECT name AS item, qty AS quantidade, total_cents AS valor_centavos FROM sale_items WHERE sale_id = ?', [s.id]),
+    })),
+    fidelidade: all(
+      `SELECT c.name AS campanha, e.kind AS tipo, e.qty AS quantidade, e.created_at AS quando
+         FROM loyalty_events e JOIN campaigns c ON c.id = e.campaign_id WHERE e.customer_id = ? ORDER BY e.created_at DESC`,
+      [customerId],
+    ),
+    vouchers: all(
+      'SELECT v.code AS codigo, o.title AS beneficio, v.status AS situacao, v.expires_on AS validade FROM vouchers v JOIN offers o ON o.id = v.offer_id WHERE v.customer_id = ?',
+      [customerId],
+    ),
+    mensagens: all("SELECT direction AS sentido, body AS texto, created_at AS quando FROM messages WHERE customer_id = ? AND kind <> 'codigo' ORDER BY id", [customerId]),
+  };
+}
+
+/**
+ * Exclui os dados pessoais do cliente: apaga mensagens, cartão, vouchers, ofertas e sessões, cancela os
+ * horários futuros e tira nome e celular do cadastro. As vendas continuam no caixa (obrigação fiscal),
+ * mas sem identificar a pessoa.
+ */
+export function anonymizeCustomer(shopId: number, customerId: number, now: Date = new Date()): void {
+  assertCustomer(shopId, customerId);
+  const phone = get<{ phone: string }>('SELECT phone FROM customers WHERE id = ?', [customerId])!.phone;
+  tx(() => {
+    const stamp = shopNow(shopId, now).stamp;
+    run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE customer_id = ? AND status = 'scheduled' AND starts_at >= ?", [nowIso(), customerId, stamp]);
+    run('DELETE FROM messages WHERE barbershop_id = ? AND (customer_id = ? OR phone = ?)', [shopId, customerId, phone]);
+    for (const table of ['loyalty_events', 'vouchers', 'bot_offers', 'bot_questions', 'customer_codes', 'customer_sessions']) {
+      run(`DELETE FROM ${table} WHERE customer_id = ?`, [customerId]);
+    }
+    run(
+      `UPDATE customers SET name = 'Cliente removido', phone = ?, wa_id = NULL, pref_weekday = NULL, pref_time = NULL, pref_barber_id = NULL,
+              pref_service_id = NULL, pref_interval_days = NULL, reminders_opt_out = 1, birth_date = NULL, anonymized_at = ? WHERE id = ?`,
+      [`removido-${customerId}`, nowIso(), customerId],
+    );
+  });
+}
+
+/** Limpeza diária: o que não precisa mais ser guardado (mensagens antigas, códigos usados, sessões vencidas). */
+export function purgeOldData(now: Date = new Date()): { messages: number; codes: number } {
+  const daysAgo = (d: number) => new Date(now.getTime() - d * 86400000).toISOString();
+  const messages = run('DELETE FROM messages WHERE created_at < ?', [daysAgo(365)]).changes + run('DELETE FROM platform_messages WHERE created_at < ?', [daysAgo(365)]).changes;
+  const codes =
+    run('DELETE FROM customer_codes WHERE created_at < ?', [daysAgo(30)]).changes + run('DELETE FROM password_codes WHERE created_at < ?', [daysAgo(30)]).changes;
+  const iso = now.toISOString();
+  run('DELETE FROM customer_sessions WHERE expires_at < ?', [iso]);
+  run('DELETE FROM sessions WHERE expires_at < ?', [iso]);
+  return { messages, codes };
+}

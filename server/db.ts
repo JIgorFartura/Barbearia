@@ -611,6 +611,13 @@ const MIGRATIONS: (string | Rebuild)[] = [
   );
   CREATE INDEX password_codes_user ON password_codes (user_id, created_at);
 
+  -- LGPD: aceite da política de privacidade (área do cliente), aviso dado pelo robô e conta excluída.
+  ALTER TABLE customers ADD COLUMN privacy_accepted_at TEXT;
+  ALTER TABLE customers ADD COLUMN privacy_notice_at TEXT;
+  ALTER TABLE customers ADD COLUMN anonymized_at TEXT;
+  -- Data de nascimento (opcional, para o presente de aniversário).
+  ALTER TABLE customers ADD COLUMN birth_date TEXT;
+
   -- Conexão do WhatsApp de cada barbearia (conferida a cada 10 minutos): ok | down.
   ALTER TABLE barbershops ADD COLUMN wa_status TEXT;
   ALTER TABLE barbershops ADD COLUMN wa_status_at TEXT;
