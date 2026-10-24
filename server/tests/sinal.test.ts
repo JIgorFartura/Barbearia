@@ -84,6 +84,11 @@ describe('sinal via PIX para segurar o horário', () => {
     assert.match(r.data.deposit.pix.payload, /540520\.00/);
     const me = (await c('GET', '/api/customer/navalha/me')).data;
     assert.equal(me.upcoming[0].deposit.id, r.data.deposit.id);
+    // O pedido do sinal também vai pelo WhatsApp, com o PIX numa mensagem separada.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const sent = all<{ body: string }>("SELECT body FROM messages WHERE customer_id = ? AND kind = 'sinal' ORDER BY id", [joao]);
+    assert.match(sent[0].body, /Seu horário na Navalha de Ouro .* está reservado\. Para confirmar, pague o sinal de R\$\s20,00/);
+    assert.equal(sent[1].body, r.data.deposit.pix.payload);
     const claimed = await c('POST', `/api/customer/navalha/deposits/${r.data.deposit.id}/claim`);
     assert.equal(claimed.data.claimed, true);
     assert.equal(claimed.data.expires_local, null, 'avisou que pagou: não expira mais');

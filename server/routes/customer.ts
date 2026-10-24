@@ -1,7 +1,8 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { charge, chargePix, claimCharge } from '../charges.js';
-import { appointmentDeposit, depositPublic, requireDeposit } from '../deposits.js';
+import { appointmentDeposit, depositPublic, requireDeposit, sendDepositRequest } from '../deposits.js';
+import { shopBot } from '../messaging.js';
 import { birthdayKey, customerReferral, growthSettings } from '../growth.js';
 import { cancelMembership, customerMembership, listPlans, subscribe } from '../club.js';
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
@@ -95,8 +96,9 @@ customerRouter.post('/appointments', async (req, res) => {
     req.body,
   );
   const appointment = book({ shopId, customerId, barberId: body.barber_id, serviceId: body.service_id, date: body.date, time: body.time, source: 'cliente' });
-  // Sinal via PIX para segurar o horário (se a barbearia cobra).
+  // Sinal via PIX para segurar o horário (se a barbearia cobra): na tela e também pelo WhatsApp.
   const deposit = requireDeposit(shopId, appointment.id);
+  if (deposit?.status === 'open') void sendDepositRequest(shopBot(shopId), deposit);
   res.status(201).json({
     ...appointment,
     // Mesma pergunta do robô: "posso avisar o Paulo da sua cerveja?"

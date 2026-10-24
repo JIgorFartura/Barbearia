@@ -5,42 +5,53 @@ site com a sua marca** (logo, cores, fotos, contatos), um **robô no WhatsApp co
 escolher** e um **painel só dela**.
 
 A ideia: o cliente não vive só o corte, vive uma **experiência de comunidade**: campanhas de
-fidelidade, benefícios com voucher, comércios parceiros e um robô que lembra dele.
+fidelidade, benefícios com voucher, clube de assinatura, indicação de amigos, presente de
+aniversário, comércios parceiros e um robô que lembra dele (até da cerveja de sempre).
 
 | Área do cliente (celular) | Robô no WhatsApp (simulador do painel) |
 |---|---|
 | <img src="docs/img/area-cliente.png" width="260" alt="Área do cliente"> | <img src="docs/img/robo-simulador.png" width="520" alt="Simulador do robô"> |
 
-| Agenda | Lembretes e recontato | Painel master |
+| Primeiros passos | Agenda | Fechar atendimento |
 |---|---|---|
-| <img src="docs/img/agenda.png" width="300" alt="Agenda"> | <img src="docs/img/lembretes.png" width="300" alt="Lembretes"> | <img src="docs/img/master.png" width="300" alt="Painel master"> |
+| <img src="docs/img/primeiros-passos.png" width="300" alt="Primeiros passos"> | <img src="docs/img/agenda.png" width="300" alt="Agenda"> | <img src="docs/img/fechar-atendimento.png" width="300" alt="Fechar atendimento"> |
 
-| Financeiro da barbearia | Fechar atendimento | O robô lembra da cerveja |
+| Clube de assinatura | Avaliações | Indicação e aniversário |
 |---|---|---|
-| <img src="docs/img/financeiro.png" width="300" alt="Financeiro"> | <img src="docs/img/fechar-atendimento.png" width="300" alt="Fechar atendimento"> | <img src="docs/img/pergunta-cerveja.png" width="160" alt="Pergunta da cerveja"> |
+| <img src="docs/img/clube.png" width="300" alt="Clube de assinatura"> | <img src="docs/img/avaliacoes.png" width="300" alt="Avaliações"> | <img src="docs/img/indicacao.png" width="300" alt="Indicação e aniversário"> |
 
-| Mensalidade (barbearia em atraso) | Mensalidades no master |
-|---|---|
-| <img src="docs/img/mensalidade.png" width="420" alt="Mensalidade"> | <img src="docs/img/master-financeiro.png" width="420" alt="Financeiro do master"> |
+| Sinal via PIX (cliente) | App do barbeiro | Financeiro | Estoque |
+|---|---|---|---|
+| <img src="docs/img/sinal-cliente.png" width="180" alt="Sinal via PIX"> | <img src="docs/img/barbeiro.png" width="180" alt="App do barbeiro"> | <img src="docs/img/financeiro.png" width="300" alt="Financeiro"> | <img src="docs/img/estoque.png" width="300" alt="Estoque"> |
 
-## Três áreas logadas
+| Painel master | Pronto para o piloto? | Mensalidades no master |
+|---|---|---|
+| <img src="docs/img/master.png" width="300" alt="Painel master"> | <img src="docs/img/master-piloto.png" width="300" alt="Checklist do piloto"> | <img src="docs/img/master-financeiro.png" width="300" alt="Financeiro do master"> |
 
-- **Master** (dono da plataforma), em três abas:
-  - *Barbearias*: cria a barbearia e **libera o acesso** (login do dono, plano, valor, dia de
-    vencimento e dias grátis; no fim aparece a mensagem pronta com o link e a senha para mandar
-    pelo WhatsApp), troca senha, suspende e **entra no painel de qualquer barbearia** para operar
-    como o dono (com uma faixa avisando).
-  - *Financeiro*: as **mensalidades** das barbearias (veja abaixo), planos, chave PIX e regras.
-  - *Sistema*: versão, servidor, banco, automações, falhas de envio do WhatsApp e **avisos de
-    atualização** que aparecem no topo do painel de todas as barbearias.
-- **Dono da barbearia**: agenda, barbeiros, **financeiro**, robô, marca, catálogo, campanhas,
-  benefícios, parceiros, anúncios, clientes e a própria **mensalidade**. Nunca vê dados de outra
-  barbearia.
+## Quatro perfis
+
+- **Master** (dono da plataforma) cuida **só do controle geral**: cria a barbearia e entrega o
+  acesso ao dono (plano, valor, dia de vencimento, dias grátis e a mensagem pronta com o link e a
+  senha), troca a senha e o celular do dono, suspende ou reativa, acompanha as **mensalidades**,
+  configura o **Asaas**, o **WhatsApp da plataforma**, os **termos e a política de privacidade**,
+  as **cópias de segurança** e os **avisos** que aparecem no painel de todas as barbearias. A aba
+  *Sistema* tem o checklist **"Pronto para o piloto?"**. O master **não vê** agenda, barbeiros,
+  clientes nem conversas (são da barbearia): a API recusa o master em qualquer rota do painel.
+- **Dono da barbearia**: agenda, balcão, financeiro, estoque, robô, avaliações, clube de
+  assinatura, campanhas, benefícios, indicação e aniversário, parceiros, anúncios, barbeiros,
+  serviços, produtos, marca e a própria mensalidade. Nunca vê dados de outra barbearia.
+- **Barbeiro** (o dono libera em *Barbeiros → Acesso ao sistema*): entra pelo **celular** ou
+  e-mail e vê só a **própria agenda**, fecha os **próprios atendimentos** (se o dono permitir),
+  marca falta e acompanha **Meus ganhos** (comissão a receber, extrato e pagamentos) e a nota que
+  os clientes dão para ele. Não vê caixa, comissão dos colegas nem configurações.
 - **Cliente** (`/b/<endereço>/conta`): entra pelo celular com um **código enviado pelo robô no
-  WhatsApp** (ou pelo link que o robô manda) e fica logado por 180 dias. Só interage com o que é
-  dele e o beneficia: agenda e cancela horários, vê o cartão fidelidade, pega vouchers, informa o
-  horário de costume e vê **as próprias compras**. Nunca vê caixa, comissões ou outros clientes
-  (o robô também não fala disso).
+  WhatsApp** (ou pelo link que o robô manda) e fica logado por 180 dias. Agenda e cancela, paga o
+  **sinal**, assina o **clube**, vê o cartão fidelidade, pega vouchers, manda o **link de
+  indicação**, informa o **aniversário** e o horário de costume, vê as próprias compras, **baixa
+  os próprios dados** e pode **excluir a conta** (LGPD).
+
+Todos (menos o cliente) têm **Minha conta** (nome, celular, senha) e **"Esqueci minha senha"**
+com código pelo WhatsApp da plataforma.
 
 ## O robô do WhatsApp
 
@@ -51,19 +62,22 @@ conversa naturalmente:
 - *"João, olha na agenda do Paulo se tem vaga sexta às 19h"* → mostra os horários livres do Paulo
   (nunca quem marcou) e marca se o cliente pedir.
 - *"Cancela meu horário"*, *"me manda o link da minha área"*, *"quero o voucher da cerveja"*,
-  *"costumo vir às sextas, 7 da noite"* → cancela, manda o link, gera o voucher, salva o costume.
-- Número desconhecido → pergunta o nome e cadastra.
+  *"costumo vir às sextas, 7 da noite"*, *"meu aniversário é 12 de março"*, *"me passa meu link
+  de indicação"* → faz na hora.
+- Número desconhecido → pergunta o nome, cadastra (com o aviso da política de privacidade) e
+  aceita o **código de quem indicou**.
+- *"Paguei"* → avisa a barbearia do PIX do sinal ou da mensalidade do clube.
 
 **Ele aprende o consumo de cada cliente.** Se o João toma 1 cerveja em pelo menos metade das
-visitas, ao confirmar o horário (pelo robô, pelo site ou no lembrete) vem a pergunta: *"Posso
-avisar o Paulo que você vai querer 1 cerveja long neck hoje, pra ele deixar separado? 🍺"*. Com
-SIM, o barbeiro recebe o aviso no WhatsApp (se tiver celular cadastrado), a agenda mostra
-**🍺 Separar: 1 cerveja long neck** e, ao fechar o atendimento, a cerveja já entra na comanda.
+visitas, ao confirmar o horário vem a pergunta: *"Posso avisar o Paulo que você vai querer 1
+cerveja long neck hoje, pra ele deixar separado? 🍺"*. Com SIM, o barbeiro recebe o aviso, a
+agenda mostra **🍺 Separar** e, ao fechar o atendimento, a cerveja já entra na comanda. Produto
+esgotado no estoque não é oferecido.
 
 Por baixo, o robô usa o **Claude** (Anthropic) com ferramentas que só enxergam a barbearia e o
 celular da conversa. Respostas certeiras não passam pela IA: **SIM/NÃO** para um horário oferecido,
-**CANCELAR** (desmarca o próximo horário), **PARAR/VOLTAR** (desliga/religa as mensagens
-automáticas). **Sem chave da Anthropic**, o robô responde por menu (CARTÃO, HORÁRIOS, CANCELAR).
+**CANCELAR**, **PARAR/VOLTAR**, **PAGUEI** e a **nota de 1 a 5** da avaliação. **Sem chave da
+Anthropic**, o robô responde por menu (CARTÃO, HORÁRIOS, CANCELAR).
 
 Canais (um por barbearia):
 
@@ -71,81 +85,122 @@ Canais (um por barbearia):
 |---|---|
 | **Simulador** | Padrão. Nada sai pelo WhatsApp; as conversas ficam no painel. Ótimo para testar e apresentar. |
 | **Evolution API** | Conecta o WhatsApp da barbearia por QR Code (serviço próprio ou contratado). Mais simples de começar; não é a API oficial. |
-| **WhatsApp oficial (Meta)** | Cloud API do WhatsApp Business. Exige conta verificada. Mensagens automáticas fora da janela de 24h só saem com um **modelo aprovado** pela Meta (configure o nome do modelo, com uma variável `{{1}}`). |
+| **WhatsApp oficial (Meta)** | Cloud API do WhatsApp Business. Exige conta verificada. Fora da janela de 24h, só saem **modelos aprovados** pela Meta: o painel lista um modelo por tipo de mensagem (lembrete, costume, sumido, código, avaliação, aniversário, indicação, sinal, clube...) com o texto sugerido e as variáveis. |
 
-O painel mostra a URL do webhook de cada barbearia (com um segredo próprio) para colar na Meta ou
-na Evolution, e tem um botão de **envio de teste**.
+O painel mostra a URL do webhook de cada barbearia (com um segredo próprio), tem **envio de
+teste** e confere a **conexão a cada 10 minutos**: se o WhatsApp cair, o dono recebe um aviso
+pelo WhatsApp da plataforma (e o painel mostra uma faixa vermelha).
 
-## Lembretes e recontato (automáticos)
+## Mensagens automáticas
 
-- **Lembrete do horário**: todo agendamento (site, WhatsApp ou balcão) recebe um aviso X horas
-  antes (padrão 24h), com a opção de responder CANCELAR.
-- **Horário de costume**: o sistema **descobre pelo histórico** o dia, a hora, o barbeiro e o ritmo
-  de cada cliente (ex.: sextas às 17h com o Paulo, toda semana) — ou usa o que o cliente informou.
-  No dia escolhido (padrão: segunda às 9h), o robô oferece: *"Separei sexta, 31/10 às 17h com o
-  Paulo. Responda SIM para confirmar"*. Se o horário estiver ocupado, oferece o mais próximo.
-  Respeita o ritmo de cada um (quem vem a cada 15 dias não recebe toda semana) — ideal para planos
-  mensais.
-- **Cliente sumido**: quem não vem há N dias (padrão 30) recebe *"Faz 35 dias que você não
-  aparece... aconteceu alguma coisa?"*, com sugestão de horário. Uma vez por ausência; a aba
-  *Sumidos* lista todos e permite chamar na hora.
+Só das 8h às 21h (no fuso de cada barbearia), cada uma uma única vez, e quem responde PARAR deixa
+de receber as de marketing.
 
-Regras: só das 8h às 21h, cada mensagem uma única vez, e quem responde PARAR deixa de receber as
-automáticas (o lembrete do horário marcado continua).
+- **Lembrete do horário** X horas antes (padrão 24h), com a opção de responder CANCELAR.
+- **Horário de costume**: o sistema descobre pelo histórico o dia, a hora, o barbeiro e o ritmo de
+  cada cliente e, no dia escolhido (padrão: segunda às 9h), oferece o horário de sempre.
+- **Cliente sumido** depois de N dias (padrão 30), com sugestão de horário.
+- **Avaliação depois do corte** (padrão 2h depois; no máximo uma por cliente a cada 30 dias).
+- **Presente de aniversário** no dia, com voucher.
+- **Mensalidade do clube** 3 dias antes de vencer (com o PIX em mensagem separada, fácil de
+  copiar) e um lembrete se atrasar.
+- **Pedido do sinal** logo depois de marcar pelo site (com o PIX) e o aviso de **vaga liberada**
+  quando o sinal não é pago no prazo (esses dois saem a qualquer hora: são resposta ao pedido do
+  cliente).
 
-## Financeiro da barbearia
+## Agenda, sinal e barbeiros
 
-Tudo ligado: o atendimento fechado na agenda vira dinheiro no caixa, comissão do barbeiro e
-carimbo no cartão fidelidade, de uma vez.
+- **Agenda** por barbeiro, encaixe pelo balcão, falta, cancelamento e **fechar o atendimento**.
+- **Sinal via PIX** (botão *Sinal* na agenda): sem sinal, só de quem já faltou (últimos 6 meses)
+  ou de todos que marcam pelo site/WhatsApp. O horário fica **segurado** esperando o PIX (QR Code
+  e copia e cola direto na chave da barbearia); sem pagamento no prazo, a vaga é liberada sozinha.
+  O sinal é **abatido no fechamento**. Cancelou com antecedência (ou a barbearia cancelou): vira
+  **crédito** para o próximo horário (o dono pode devolver). Em cima da hora ou falta: fica com a
+  barbearia. Assinantes do clube não pagam sinal.
+- **Barbeiros**: expediente com pausas, folgas, bloqueios, comissão (por serviço, inclusive valor
+  fixo) e acesso ao sistema.
 
-- **Fechar atendimento** (botão *Fechar* na agenda): a comanda já vem com o serviço e o que o
-  cliente pediu para separar; dá para somar produtos, mudar quem atendeu, dar desconto e escolher
-  a forma de pagamento (PIX, dinheiro, débito, crédito). Vendas sem horário marcado saem pelo
-  *Financeiro → Vendas* ou pelo *Balcão*.
-- **Caixa**: entradas e saídas do período, saldo, lançamentos manuais (aluguel, luz, compras de
-  produtos...) e **contas a pagar** com vencimento. As vendas, as comissões pagas e a mensalidade
-  do sistema entram sozinhas.
-- **Comissões**: cada barbeiro tem % nos serviços, % na venda de produtos e, se quiser, regras por
-  serviço (ex.: corte R$ 25,00 fixo, barba 60%). A comissão é calculada **sobre o valor com
-  desconto**. Em *Comissões* aparece quanto cada um tem a receber, o extrato e o botão *Pagar
-  comissão*, que vira uma saída no caixa.
-- **Resumo**: faturamento, gastos, resultado, ticket médio, contas a pagar, gráfico de entradas e
-  saídas por dia, faturamento e comissão por barbeiro, formas de pagamento, mais vendidos e gastos
-  por categoria.
-- **Carimbo automático**: na campanha, escolha o produto ou serviço que dá carimbo (ex.: a cerveja
-  no *Clube da Cerveja*). Fechou a venda, o carimbo entra no cartão do cliente. Cancelar a venda
-  desfaz caixa, comissão e carimbo (se a comissão ainda não foi paga).
+## Clube de assinatura
+
+O cliente paga um valor fixo por mês e usa os serviços do plano **sem pagar na hora**, até o
+limite do mês (ou à vontade). Ele assina pela **área do cliente** (ou o dono adiciona no balcão)
+e paga por **PIX direto na chave da barbearia**; avisa com *Já paguei* (ou *paguei* no WhatsApp)
+e o dono confere no banco e confirma pelo aviso no topo do painel, e só então entra no caixa. Na
+comanda, o que o plano cobre já sai por **R$ 0**, e a comissão do barbeiro é calculada sobre o
+preço normal (na % que o dono escolher). Atrasou, os benefícios pausam até o pagamento. Os planos
+aparecem no site da barbearia.
+
+## Financeiro e estoque
+
+- **Fechar atendimento**: a comanda já vem com o serviço, o que o cliente pediu para separar, o
+  que o clube cobre e o sinal pago; dá para somar produtos, mudar quem atendeu, dar desconto e
+  escolher a forma de pagamento.
+- **Caixa** (entradas, saídas, contas a pagar), **comissões** (a receber, extrato e *Pagar
+  comissão*), **resumo** com gráfico, faturamento por barbeiro, formas de pagamento e gastos.
+- **Carimbo automático**: o produto ou serviço ligado a uma campanha vira carimbo no cartão.
+- **Estoque**: entrada de mercadoria (com lançamento no caixa), contagem, perda, consumo interno,
+  baixa automática na venda (volta no cancelamento), reservado para os horários marcados e aviso
+  de **estoque acabando** no resumo.
+
+## Avaliações, indicação e aniversário
+
+- **Avaliações**: depois do atendimento o robô pede uma nota de 1 a 5. Nota 4 ou 5 recebe o
+  **link para avaliar no Google**; nota baixa, o robô pergunta o que melhorar e o comentário chega
+  no **WhatsApp do dono**. O painel mostra a média, a nota por barbeiro e os comentários (com
+  botão para chamar o cliente).
+- **Indique um amigo**: cada cliente tem um link; quem chega por ele vê *"Fulano te indicou"* e
+  pode ganhar um presente de boas-vindas; quem indicou ganha o prêmio quando o amigo **vem pela
+  primeira vez** (venda fechada) e recebe o código pelo WhatsApp.
+- **Aniversário**: o cliente informa dia e mês; no dia, ganha o presente (29/02 cai em 28/02 nos
+  outros anos).
+- Os prêmios são **vouchers** (validados no Balcão como qualquer benefício), fora da lista de
+  benefícios comuns.
 
 ## Mensalidades da plataforma
 
-- O master define **planos** (ou um valor próprio por barbearia), o **dia de vencimento** e os
-  **dias grátis** de teste. As faturas do mês são geradas sozinhas; dá para gerar na mão ou criar
-  uma **cobrança avulsa** (ex.: implantação).
-- A barbearia vê a fatura em *Mensalidade* com **QR Code PIX e copia e cola** (chave PIX do master,
-  com o valor certo) e avisa no botão *Já paguei*. O master confere e clica em *Confirmar
-  pagamento*; a mensalidade paga entra como saída no caixa da barbearia.
-- **Carência** (padrão 5 dias depois do vencimento): o painel avisa antes. Passou disso, o acesso
-  fica **suspenso**: o painel só abre a tela da mensalidade, o robô responde só pelo menu (sem IA)
-  e as mensagens automáticas param. O **site e a área do cliente continuam no ar**.
-- O master pode **liberar o acesso até uma data** (ex.: prometeu pagar sexta) ou **suspender** a
-  barbearia de vez.
+- O master define **planos** (ou um valor por barbearia), o **dia de vencimento** e os **dias
+  grátis**. As faturas são geradas sozinhas; dá para criar uma **cobrança avulsa**.
+- **Com o Asaas** (opcional, aba *Financeiro* do master): cada fatura vira uma cobrança PIX com
+  QR Code próprio; quando o PIX cai, o Asaas avisa (webhook com token) e a fatura é **baixada
+  sozinha**. Com a nota fiscal ligada, o Asaas emite a **NFS-e** de cada mensalidade paga (link no
+  painel do dono e do master). O dono informa CPF/CNPJ e nome na tela *Mensalidade*.
+- **Sem o Asaas**: PIX copia e cola com a chave do master e confirmação manual (*Já paguei* →
+  *Confirmar pagamento*).
+- **Lembrete** pelo WhatsApp da plataforma antes de vencer e depois de vencida.
+- **Carência** (padrão 5 dias): passou disso, o painel só abre a tela da mensalidade, o robô
+  responde só pelo menu e as automáticas param. O **site e a área do cliente continuam no ar**.
+  O master pode **liberar até uma data** ou **suspender**.
 
-## Tudo o que já funciona
+## Privacidade (LGPD) e segurança
 
-| Módulo | O que faz |
-|---|---|
-| **Site da barbearia** (`/b/<endereço>`) | Mesmo modelo para todas, com a marca de cada uma: serviços, produtos, campanhas, parceiros, anúncios, botões de agendar e de falar com o robô. |
-| **Agenda** | Coluna por barbeiro, horários do dia, encaixe pelo balcão, cancelar, marcar falta e **fechar o atendimento** (venda). Mostra o que separar para cada cliente. |
-| **Barbeiros** | Expediente por dia da semana (com pausa), folgas, bloqueios, comissão e celular (para os avisos do robô). |
-| **Financeiro** | Resumo, caixa, contas a pagar, vendas e comissões. |
-| **Mensalidade** | Fatura da plataforma com PIX, histórico e situação do acesso. |
-| **Robô WhatsApp** | Nome, jeito de falar, intervalo da agenda, lembretes, conexão com o WhatsApp, simulador, conversas e clientes sumidos. |
-| **Área do cliente** | Login por código no WhatsApp, agendamento (com a pergunta do consumo de costume), cancelamento, cartão fidelidade, vouchers, compras, histórico e horário de costume. |
-| **Benefícios** | Descontos e brindes com quantidade, limite por cliente e validade. O cliente pega o voucher (código único) e o balcão dá baixa. |
-| **Campanhas de fidelidade** | "Junte N, ganhe 1": *tomou 5 cervejas, ganhou um copo*. |
-| **Balcão** | Lança consumo, registra venda, entrega prêmios, valida vouchers, mostra o costume e os próximos horários do cliente e gera o link de acesso dele. |
-| **Parceiros e anúncios** | Comércios do bairro com benefício para membros; espaço de propaganda vendido no site com visualizações e cliques. |
-| **Resumo** | Horários do dia e da semana, marcações feitas pelo robô, mensagens, carimbos, prêmios, anúncios. |
+- Termos de uso, política de privacidade da plataforma e **política de cada barbearia**
+  (publicada no site dela). A conta do cliente só nasce com o **aceite**; o dono aceita os termos
+  no primeiro acesso.
+- O cliente **baixa os próprios dados** e **exclui a conta**; o dono faz o mesmo pelo Balcão
+  (as vendas ficam no caixa sem identificar a pessoa).
+- Limpeza automática: mensagens com mais de 1 ano, códigos com mais de 30 dias, sessões vencidas.
+- Cada barbearia só enxerga o que é dela; o barbeiro só o que é dele; o master só a plataforma.
+- **Cópia de segurança** todo dia às 3h (guarda as últimas 14), com envio opcional para um
+  armazenamento compatível com S3 (Cloudflare R2, Backblaze B2, AWS S3...) e criptografia
+  opcional (AES-256-GCM).
+
+## Antes da primeira barbearia de verdade (piloto)
+
+O master tem o checklist **"Pronto para o piloto?"** na aba *Sistema*:
+
+1. `PUBLIC_URL` com **https** (links da área do cliente, webhooks e login seguro).
+2. `DEMO_LOGIN_CODES=0` (senão o código de acesso aparece na tela).
+3. **Cópia de segurança fora do servidor** (`BACKUP_S3_...`) funcionando; recomendado
+   `BACKUP_PASSWORD` (guarde a senha fora do servidor).
+4. **WhatsApp da plataforma** conectado (senha esquecida, lembrete da mensalidade, alerta de
+   WhatsApp desconectado) e o **seu celular** em *Minha conta*.
+5. **Dados da empresa** nos termos e na política (nome, CNPJ, e-mail).
+6. **Recebimento das mensalidades**: chave PIX ou Asaas.
+7. Recomendado: `ANTHROPIC_API_KEY` para o robô conversar com IA.
+
+Na barbearia, o resumo do painel mostra os **Primeiros passos** (marca, barbeiros, serviços,
+WhatsApp conectado, celular do dono, primeiro cliente, primeiro atendimento fechado, chave PIX e
+link do Google).
 
 ## Rodar no computador
 
@@ -158,67 +213,82 @@ npm run dev    # interface em http://localhost:5173 (API na porta 3000)
 ```
 
 - Primeiro acesso em `http://localhost:5173`: crie o login **master**.
-- Demonstração: site em `/b/demo`; painel do dono `demo@barbearia.com` / `demo12345`; área do
-  cliente em `/b/demo/conta` com o celular `(11) 99999-0000` (sem WhatsApp conectado, o código
-  aparece na tela em desenvolvimento). A demo já tem vendas, despesas, comissões (Paulo: 40% nos
-  serviços, barba R$ 15,00 fixo, 10% nos produtos), o plano *Comunidade* e o João, que toma uma
-  cerveja toda sexta: marque um horário para ele e veja a pergunta da cerveja.
+- Demonstração:
+  - site em `/b/demo`;
+  - painel do dono `demo@barbearia.com` / `demo12345`;
+  - barbeiro Paulo `(11) 95555-4444` / `paulo1234`;
+  - área do cliente em `/b/demo/conta` com o celular `(11) 99999-0000` (João). Sem WhatsApp
+    conectado, o código aparece na tela em desenvolvimento.
+  - A demo já tem vendas, despesas, comissões, estoque, um plano do clube (o Pedro é assinante),
+    avaliações, uma indicação (o Pedro veio pelo João) e o aniversário do João chegando. O João
+    toma uma cerveja toda sexta: marque um horário para ele e veja a pergunta da cerveja.
 - Para o robô conversar com IA: `ANTHROPIC_API_KEY=... npm run dev`. Teste pela aba
   *Robô WhatsApp → Simulador*.
 
 Outros comandos: `npm test` (agenda, costume, automações, robô, webhooks, área do cliente,
-vouchers, financeiro, comissões, consumo, mensalidades e bloqueio, PIX, isolamento entre
-barbearias), `npm run typecheck`, `npm run build && npm start`.
+vouchers, financeiro, comissões, consumo, estoque, clube, sinal, avaliações, indicação,
+aniversário, mensalidades, Asaas, LGPD, cópia de segurança, acesso do barbeiro, limites do master,
+isolamento entre barbearias), `npm run typecheck`, `npm run build && npm start`.
 
 ## Hospedar
 
 ```bash
-cp .env.example .env      # ajuste PUBLIC_URL, DOMAIN e ANTHROPIC_API_KEY
+cp .env.example .env      # ajuste PUBLIC_URL, DOMAIN, ANTHROPIC_API_KEY e as cópias de segurança
 docker compose --profile https up -d --build
 ```
 
 O banco (SQLite) e as imagens ficam no volume `app-data` (`/data`). As automações rodam dentro do
-próprio servidor, a cada minuto. O `PUBLIC_URL` precisa ser o endereço público com HTTPS: é dele que
-saem as URLs de webhook e os links da área do cliente.
+próprio servidor, a cada minuto. Todas as variáveis estão comentadas no `.env.example`.
 
-**Custo da IA:** cada mensagem respondida pelo robô consome tokens da Anthropic (o painel master
-mostra o consumo por barbearia nos últimos 30 dias). O padrão é o modelo mais capaz
-(`claude-opus-5-5`) com esforço baixo; dá para trocar com `BOT_MODEL` e `BOT_EFFORT`. As
-respostas SIM/NÃO/CANCELAR/PARAR e todas as mensagens automáticas não usam IA.
+**Restaurar uma cópia de segurança** (com o sistema parado):
+
+```bash
+npm run restore -- barbearia-AAAA-MM-DD-HHMMSS.db.gz          # cópia local
+npm run restore -- barbearia-AAAA-MM-DD-HHMMSS.db.gz.enc      # cópia criptografada (pede BACKUP_PASSWORD)
+npm run restore -- <arquivo> --forcar                          # substitui o banco atual
+```
+
+**Custo da IA:** cada mensagem respondida pelo robô consome tokens da Anthropic (o master vê o
+consumo por barbearia nos últimos 30 dias). O padrão é o `claude-opus-5-5` com esforço baixo; dá
+para trocar com `BOT_MODEL` e `BOT_EFFORT`. As respostas rápidas (SIM/NÃO/CANCELAR/PARAR/PAGUEI,
+nota da avaliação) e todas as mensagens automáticas não usam IA.
 
 ## Como o código está organizado
 
 ```
 server/
   db.ts             tabelas e migrações (SQLite nativo do Node)
+  clock.ts, time.ts relógio de cada barbearia (fuso) e datas
   scheduling.ts     horários livres, marcação sem conflito, cancelamento
   habits.ts         descobre o horário de costume e o ritmo de cada cliente
-  automations.ts    lembrete, oferta semanal e recontato (roda a cada minuto)
+  automations.ts    tudo que roda sozinho (a cada minuto)
   bot/              robô: tools.ts (ferramentas), brain.ts (Claude), inbound.ts (respostas rápidas e menu)
-  whatsapp.ts       Meta Cloud API e Evolution API (envio, webhooks, assinatura)
-  messaging.ts      envio + histórico de mensagens
-  customerAuth.ts   login do cliente (código de 6 dígitos e link de acesso)
-  offers.ts         benefícios e vouchers
-  loyalty.ts        cartão fidelidade
+  whatsapp.ts       Meta Cloud API e Evolution API (envio, webhooks, conexão)
+  templates.ts      modelos da Meta por tipo de mensagem
+  messaging.ts      envio + histórico; platform.ts: WhatsApp da plataforma
+  connection.ts     confere a conexão do WhatsApp e avisa o dono
   finance.ts        vendas, caixa, comissões, pagamentos aos barbeiros e relatórios
-  consumption.ts    consumo de costume do cliente e itens separados para o horário
-  billing.ts        mensalidades: faturas, carência, bloqueio e liberação
-  pix.ts            PIX copia e cola (BR Code com CRC)
-  routes/           master, painel (shop, agenda, bot, finance), cliente, público, webhooks
+  stock.ts          estoque; consumption.ts: consumo de costume e itens separados
+  charges.ts        cobranças PIX da barbearia (clube e sinal) e confirmação
+  club.ts           clube de assinatura; deposits.ts: sinal; reviews.ts: avaliações
+  growth.ts         indique um amigo e aniversário; offers.ts: benefícios e vouchers
+  billing.ts        mensalidades da plataforma; asaas.ts: Asaas; invoiceReminders.ts
+  privacy.ts        LGPD; backup.ts: cópias de segurança; passwordReset.ts
+  routes/           master, painel (shop, agenda, bot, finance, stock, club), barbeiro, cliente, público, webhooks
 web/src/
   pages/ShopLanding.tsx   site da barbearia
-  pages/CustomerArea.tsx  área do cliente
-  pages/Panel.tsx         painel do dono (pages/panel/*: Finance, Subscription, Agenda...)
+  pages/CustomerArea.tsx  área do cliente (+ CustomerClub, CustomerDeposit, CustomerGrowth)
+  pages/Panel.tsx         painel do dono (pages/panel/*)
+  pages/BarberApp.tsx     app do barbeiro
+  pages/Master.tsx        painel master (pages/master/*)
   components/Checkout.tsx fechar atendimento / nova venda
-  pages/Master.tsx        painel master
+tools/                    seed-demo.ts (demonstração), restore-backup.ts (restaurar cópia)
 ```
 
-## Próximos passos sugeridos
+## O que só dá para conferir com contas de verdade
 
-1. **Confirmação automática do PIX** da mensalidade por um gateway (Asaas, Mercado Pago, Efí): hoje
-   o master confere e confirma.
-2. **Planos de assinatura para o cliente final** (ex.: cortes ilimitados) com cobrança recorrente.
-3. **Estoque de produtos** com baixa automática na venda e aviso de reposição.
-4. **Login de barbeiro** (cada um vê a própria agenda e as próprias comissões).
-5. **Níveis da comunidade** (Bronze, Prata, Ouro), **domínio próprio por barbearia** e relatório de
-   anúncios para o parceiro.
+Tudo acima tem teste automático e foi conferido no navegador com dados de demonstração. Ainda
+precisam ser conferidos com as contas reais, no piloto: o envio pelo **WhatsApp oficial (Meta)**
+e pela **Evolution** com os modelos aprovados, a **cobrança e a nota fiscal no Asaas** (testado
+com um simulador da API), o envio da cópia de segurança para o seu **armazenamento S3** e o
+**PIX** pago de verdade num aplicativo de banco.

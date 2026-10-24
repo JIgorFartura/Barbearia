@@ -148,6 +148,32 @@ export function depositMessage(shop: { id: number; name: string }, c: ChargeView
   };
 }
 
+/**
+ * Marcou pelo site: o pedido do sinal também vai pelo WhatsApp (o PIX numa mensagem separada, fácil
+ * de copiar; na API oficial fora da janela de 24h, vai o modelo aprovado com o PIX dentro).
+ */
+export async function sendDepositRequest(shop: ShopBot, c: ChargeView): Promise<boolean> {
+  if (c.status !== 'open' || c.claimed_at || !c.appointment_id) return false;
+  const payload = chargePayload(c);
+  const a = get<{ starts_at: string }>('SELECT starts_at FROM appointments WHERE id = ?', [c.appointment_id]);
+  if (!payload || !a) return false;
+  const first = firstName(c.customer_name);
+  const until = c.expires_at ? hourLabel(isoToLocal(c.expires_at, shopTz(shop.id)).slice(11, 16)) : null;
+  const viaTemplate = sendsTemplate(shop, c.phone);
+  const r = await sendMessage({
+    shop,
+    customerId: c.customer_id,
+    phone: c.phone,
+    waId: c.wa_id,
+    kind: 'sinal',
+    text: `Oi, ${first}! Seu horário na ${shop.name} (${when(a.starts_at)}) está reservado. Para confirmar, pague o sinal de ${money(c.amount_cents)} pelo PIX${until ? ` até as ${until}` : ''}; o código vai na próxima mensagem. Depois de pagar, é só responder *paguei*.`,
+    template: { kind: 'sinal', params: [first, shop.name, when(a.starts_at), money(c.amount_cents), payload] },
+  });
+  if (r.status === 'failed') return false;
+  if (!viaTemplate) await sendMessage({ shop, customerId: c.customer_id, phone: c.phone, waId: c.wa_id, kind: 'sinal', text: payload });
+  return true;
+}
+
 /** Vaga segurada e o sinal não veio: libera o horário e avisa o cliente. */
 export async function expireDeposits(shop: ShopBot, now: Date): Promise<number> {
   const due = all<{ id: number }>(

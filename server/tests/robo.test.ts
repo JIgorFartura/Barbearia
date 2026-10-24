@@ -476,5 +476,14 @@ describe('master', () => {
     }
     assert.equal((await master('POST', `/api/master/shops/${shopId}/enter`)).status, 404, 'não existe mais "entrar no painel"');
     assert.equal((await master('GET', '/api/auth/me')).data.shop, null);
+
+    // Pronto para o piloto: o que falta antes da primeira barbearia de verdade.
+    const ready = (await master('GET', '/api/master/readiness')).data as { id: string; done: boolean }[];
+    assert.deepEqual(
+      ready.map((i) => i.id),
+      ['https', 'demo', 'backup', 'backup_password', 'whatsapp', 'phone', 'legal', 'billing', 'ai'],
+    );
+    assert.equal(ready.find((i) => i.id === 'https')!.done, false, 'sem PUBLIC_URL com https');
+    assert.equal(ready.find((i) => i.id === 'whatsapp')!.done, false, 'WhatsApp da plataforma no simulador');
   });
 });

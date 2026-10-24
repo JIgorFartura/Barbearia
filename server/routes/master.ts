@@ -539,6 +539,59 @@ masterRouter.get('/backups/:name', (req, res) => {
   res.download(file, String(req.params.name));
 });
 
+/**
+ * Pronto para o piloto? O que precisa estar certo antes da primeira barbearia de verdade.
+ * Os opcionais (recomendados) não travam o "tudo pronto".
+ */
+masterRouter.get('/readiness', (req, res) => {
+  const backup = backupStatus();
+  const legal = legalInfo();
+  const settings = platformSettings();
+  const lastBackupHours = backup.at ? (Date.now() - new Date(backup.at).getTime()) / 3600000 : null;
+  const me = get<{ phone: string | null }>('SELECT phone FROM users WHERE id = ?', [req.user!.id]);
+  res.json([
+    {
+      id: 'https',
+      label: 'Endereço público com HTTPS (PUBLIC_URL)',
+      done: /^https:\/\//.test(config.publicUrl) && !/localhost|127\.0\.0\.1/.test(config.publicUrl),
+      hint: 'Os links da área do cliente, os webhooks e o login seguro dependem dele.',
+    },
+    {
+      id: 'demo',
+      label: 'Código de acesso na tela desligado (DEMO_LOGIN_CODES=0)',
+      done: !config.demoLoginCodes,
+      hint: 'Ligado, qualquer pessoa entra na área de um cliente sabendo o celular dele.',
+    },
+    {
+      id: 'backup',
+      label: 'Cópia de segurança fora do servidor (BACKUP_S3_...) funcionando',
+      done: Boolean(remoteConfig()) && backup.remote === 'ok' && lastBackupHours != null && lastBackupHours < 30,
+      hint: 'Sem ela, se o servidor quebrar, os dados das barbearias se perdem.',
+    },
+    { id: 'backup_password', label: 'Cópia criptografada (BACKUP_PASSWORD)', done: Boolean(process.env.BACKUP_PASSWORD), hint: 'Guarde a senha fora do servidor.', optional: true },
+    {
+      id: 'whatsapp',
+      label: 'WhatsApp da plataforma conectado (aba Sistema)',
+      done: platformChannel().provider !== 'simulador',
+      hint: 'É por ele que saem o "esqueci minha senha", os lembretes da mensalidade e o aviso de WhatsApp desconectado.',
+    },
+    { id: 'phone', label: 'Seu celular cadastrado em Minha conta', done: Boolean(me?.phone), hint: 'Para receber os alertas da plataforma.' },
+    {
+      id: 'legal',
+      label: 'Dados da empresa nos termos e na política de privacidade',
+      done: Boolean(legal.company && legal.document && legal.email),
+      hint: 'Nome, CNPJ e e-mail de contato (aba Sistema).',
+    },
+    {
+      id: 'billing',
+      label: 'Recebimento das mensalidades (chave PIX ou Asaas)',
+      done: Boolean(settings.pix_key) || Boolean(asaasSettings().apiKey),
+      hint: 'Aba Financeiro.',
+    },
+    { id: 'ai', label: 'Inteligência artificial do robô (ANTHROPIC_API_KEY)', done: llmEnabled(), hint: 'Sem ela, o robô responde por menu.', optional: true },
+  ]);
+});
+
 masterRouter.get('/system', (_req, res) => {
   const fileSize = (file: string) => {
     try {

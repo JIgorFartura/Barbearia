@@ -3,11 +3,13 @@ import {
   Bot,
   CalendarDays,
   CheckCircle2,
+  Circle,
   Copy,
   CreditCard,
   DatabaseBackup,
   ExternalLink,
   KeyRound,
+  ListChecks,
   LogOut,
   Megaphone,
   Plus,
@@ -1378,6 +1380,51 @@ interface Announcement {
   created_at: string;
 }
 
+interface ReadinessItem {
+  id: string;
+  label: string;
+  done: boolean;
+  hint: string;
+  optional?: boolean;
+}
+
+/** Pronto para o piloto? O que precisa estar certo antes da primeira barbearia de verdade. */
+function ReadinessCard() {
+  const [items, setItems] = useState<ReadinessItem[] | null>(null);
+  useEffect(() => {
+    api<ReadinessItem[]>('GET', '/api/master/readiness').then(setItems);
+  }, []);
+  if (!items) return null;
+  const required = items.filter((i) => !i.optional);
+  const done = required.filter((i) => i.done).length;
+  return (
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 font-semibold">
+          <ListChecks className="size-4" /> Pronto para o piloto?
+        </p>
+        <Badge tone={done === required.length ? 'green' : 'gold'}>
+          {done === required.length ? 'Tudo pronto' : `${done} de ${required.length} prontos`}
+        </Badge>
+      </div>
+      <ul className="grid gap-2 text-sm md:grid-cols-2">
+        {items.map((i) => (
+          <li key={i.id} className="flex items-start gap-2">
+            {i.done ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" /> : <Circle className="mt-0.5 size-4 shrink-0 text-zinc-300" />}
+            <span>
+              <span className={i.done ? 'text-zinc-500' : 'font-medium'}>
+                {i.label}
+                {i.optional && <span className="font-normal text-zinc-400"> (recomendado)</span>}
+              </span>
+              {!i.done && <span className="block text-xs text-zinc-500">{i.hint}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function SystemTab() {
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [list, setList] = useState<Announcement[]>([]);
@@ -1391,6 +1438,7 @@ function SystemTab() {
 
   return (
     <>
+      <ReadinessCard />
       {info && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card className="space-y-1.5 text-sm">
