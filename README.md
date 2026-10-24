@@ -186,13 +186,14 @@ Com o Asaas ligado, a plataforma também recebe **com cartão** e mostra tudo ao
 - **Barbearias**: a mensalidade pode ser paga com cartão de crédito, boleto ou PIX (tela
   *Mensalidade*), com baixa automática.
 - **Clientes das barbearias**: na área do cliente aparece **Pagar com cartão** na mensalidade do
-  clube (cartão, boleto ou PIX) e no sinal do horário (só cartão, que cai na hora). O pagamento é
+  clube (cartão, boleto ou PIX) e no sinal do horário (só cartão, aprovado na hora). O pagamento é
   feito na **página segura do Asaas**: o sistema nunca recebe nem guarda dados de cartão. Na
   primeira vez o cliente informa o **CPF**, que vai só para o Asaas (o banco exige) e não fica no
   sistema.
-- **Repasse automático (split)**: o pagamento entra na conta Asaas da plataforma e é repassado na
-  hora para a **conta Asaas da barbearia**, descontada a **taxa da plataforma** (de 0% a 30%,
-  definida pelo master, sobre o valor líquido depois da taxa do Asaas).
+- **Repasse automático (split)**: o pagamento entra na conta Asaas da plataforma e é repassado
+  sozinho para a **conta Asaas da barbearia** quando o Asaas libera o dinheiro (no cartão, no prazo
+  do cartão), descontada a **taxa da plataforma** (de 0% a 30%, definida pelo master, sobre o valor
+  líquido depois da taxa do Asaas).
 - **Baixa automática**: quando o Asaas avisa, a mensalidade do clube ou o sinal fica pago, entra
   no caixa da barbearia e as **taxas** (do Asaas e da plataforma) saem como despesa, para o saldo
   bater com o que caiu na conta. Os avisos repetidos não duplicam nada. Pago depois de a vaga ser

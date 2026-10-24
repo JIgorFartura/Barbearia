@@ -171,7 +171,8 @@ export function AsaasCard() {
             <span className="font-medium">Liberar pagamento com cartão para os clientes das barbearias</span>
             <span className="block text-xs text-zinc-500">
               Mensalidade do clube (cartão, boleto ou PIX) e sinal do horário (cartão), numa página segura do Asaas, sem passar dados de cartão pelo sistema. O
-              valor cai na sua conta Asaas e é repassado na hora para a conta Asaas da barbearia (cada uma informa o Wallet ID dela na tela Clube).
+              valor cai na sua conta Asaas e é repassado sozinho para a conta Asaas da barbearia quando o Asaas libera o dinheiro (cada uma informa o Wallet ID
+              dela na tela Clube).
             </span>
           </span>
         </label>
