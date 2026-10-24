@@ -126,15 +126,30 @@ tx(() => {
   const today = localNow().date;
   let friday = addDays(today, -1);
   while (weekdayOf(friday) !== 5) friday = addDays(friday, -1);
+  let lastVisit = 0;
   for (const weeks of [2, 1, 0]) {
     const date = addDays(friday, -7 * weeks);
     const a = book({ shopId: shop, customerId: joao, barberId: paulo, serviceId: corte, date, time: '17:00', source: 'painel' });
     createSale({ shopId: shop, userId: null, appointmentId: a.id, items: [{ catalog_item_id: corte, qty: 1 }, { catalog_item_id: beer, qty: 1 }], method: 'pix', now: at(date) });
+    lastVisit = a.id;
   }
   // A Maria sumiu há 40 dias.
   const mariaDay = addDays(today, -40);
   const m = book({ shopId: shop, customerId: maria, barberId: marcos, serviceId: corte, date: mariaDay, time: '10:00', source: 'painel' });
   createSale({ shopId: shop, userId: null, appointmentId: m.id, items: [{ catalog_item_id: corte, qty: 1 }], method: 'dinheiro', now: at(mariaDay, '10:40') });
+  // Avaliações pelo WhatsApp: o João deu 5 para o Paulo; a Maria deu 3 para o Marcos e comentou.
+  run("INSERT INTO reviews (barbershop_id, customer_id, appointment_id, barber_id, rating, status, asked_at, answered_at) VALUES (?, ?, ?, ?, 5, 'done', ?, ?)", [
+    shop,
+    joao,
+    lastVisit,
+    paulo,
+    at(friday, '19:30').toISOString(),
+    at(friday, '19:41').toISOString(),
+  ]);
+  run(
+    "INSERT INTO reviews (barbershop_id, customer_id, appointment_id, barber_id, rating, comment, status, asked_at, answered_at) VALUES (?, ?, ?, ?, 3, 'Esperei uns 20 minutos além do horário marcado.', 'done', ?, ?)",
+    [shop, maria, m.id, marcos, at(mariaDay, '12:30').toISOString(), at(mariaDay, '12:52').toISOString()],
+  );
   // Movimento do mês: Pedro (corte + barba com o Marcos) e vendas de balcão.
   for (const [days, items, method] of [
     [-6, [{ catalog_item_id: corte, qty: 1, barber_id: marcos }, { catalog_item_id: barba, qty: 1, barber_id: marcos }], 'credito'],

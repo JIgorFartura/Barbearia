@@ -93,6 +93,13 @@ export const TEMPLATES = {
     example: ['Barbearia Navalha de Ouro', '24/10 às 14h32'],
     platform: true,
   },
+  nota_baixa: {
+    label: 'Avaliação baixa de um cliente (plataforma)',
+    category: 'UTILITY',
+    body: 'Avaliação {{1}}/5 na {{2}}: {{3}} escreveu "{{4}}". Vale um contato com o cliente.',
+    example: ['2', 'Barbearia Navalha de Ouro', 'João Pereira (atendido pelo Paulo)', 'Demorou para ser atendido'],
+    platform: true,
+  },
   fatura: {
     label: 'Mensalidade do sistema (plataforma)',
     category: 'UTILITY',

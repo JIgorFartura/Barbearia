@@ -10,6 +10,7 @@ import { addDays, dayLabel, hourLabel } from '../time.js';
 import { localPhone } from '../whatsapp.js';
 import { accessStatus } from '../billing.js';
 import { askConsumption, describeItems, reserveItems, type Usual } from '../consumption.js';
+import { handleReviewReply } from '../reviews.js';
 import { llmEnabled, think, type CreateMessage } from './brain.js';
 
 export interface InboundInput {
@@ -70,6 +71,9 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
     cancel(shop.id, next.id, { customerId: customer.id, now });
     return `Cancelado: ${dayLabel(next.starts_at.slice(0, 10))} às ${hourLabel(next.starts_at.slice(11))} com ${next.barber_name}. Quando quiser remarcar, é só chamar.`;
   }
+  // Resposta ao pedido de avaliação (nota de 1 a 5 e, se baixa, o comentário).
+  const review = await handleReviewReply(shop, customer, text, now);
+  if (review) return review;
   if (!YES.has(t) && !NO.has(t)) return null;
 
   // Vale a pergunta mais recente: a do consumo (feita depois de marcar) ou a oferta de horário.

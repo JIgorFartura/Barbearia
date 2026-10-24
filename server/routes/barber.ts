@@ -4,6 +4,7 @@ import { requireRole } from '../auth.js';
 import { accessStatus } from '../billing.js';
 import { shopNow } from '../clock.js';
 import { reservedItems } from '../consumption.js';
+import { barberRating } from '../reviews.js';
 import { all, get, run } from '../db.js';
 import { METHODS, barberStatement, commissionBalances, createSale } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
@@ -45,6 +46,7 @@ barberRouter.get('/me', (req, res) => {
     shop: get('SELECT id, slug, name, primary_color, accent_color, logo_url FROM barbershops WHERE id = ?', [shop]),
     canClose: canClose(shop),
     today: shopNow(shop).date,
+    rating: barberRating(barber),
   });
 });
 

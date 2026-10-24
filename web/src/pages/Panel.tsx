@@ -15,6 +15,7 @@ import {
   Palette,
   Scissors,
   Sparkles,
+  Star,
   Store,
   Ticket,
   UserCog,
@@ -38,6 +39,7 @@ import { Bot } from './panel/Bot';
 import { Brand } from './panel/Brand';
 import { Counter } from './panel/Counter';
 import { Finance } from './panel/Finance';
+import { Reviews } from './panel/Reviews';
 import { Stock } from './panel/Stock';
 import { Subscription } from './panel/Subscription';
 import { Summary } from './panel/Summary';
@@ -48,6 +50,7 @@ const SECTIONS = [
   { id: 'balcao', label: 'Balcão', icon: Store },
   { id: 'financeiro', label: 'Financeiro', icon: Wallet },
   { id: 'robo', label: 'Robô WhatsApp', icon: BotIcon },
+  { id: 'avaliacoes', label: 'Avaliações', icon: Star },
   { id: 'campanhas', label: 'Campanhas', icon: Gift },
   { id: 'beneficios', label: 'Benefícios', icon: Ticket },
   { id: 'parceiros', label: 'Parceiros', icon: Handshake },
@@ -147,6 +150,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       break;
     case 'estoque':
       content = <Stock />;
+      break;
+    case 'avaliacoes':
+      content = <Reviews />;
       break;
     case 'agenda':
       content = <Agenda />;

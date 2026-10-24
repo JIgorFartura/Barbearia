@@ -1,4 +1,4 @@
-import { CalendarDays, ChevronLeft, ChevronRight, LogOut, MessageCircle, Phone, Receipt, UserCog, Wallet } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, LogOut, MessageCircle, Phone, Receipt, Star, UserCog, Wallet } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
@@ -13,6 +13,8 @@ interface BarberMe {
   shop: { id: number; slug: string; name: string; primary_color: string; accent_color: string; logo_url: string | null };
   canClose: boolean;
   today: string;
+  /** Nota média dos clientes nos últimos 90 dias. */
+  rating: { n: number; avg: number | null };
 }
 
 interface Appointment {
@@ -75,7 +77,16 @@ export function BarberApp({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {info.shop.logo_url && <img src={info.shop.logo_url} alt="" className="size-9 rounded-lg bg-white object-contain p-0.5" />}
           <div className="min-w-0 flex-1">
             <p className="truncate font-bold">{info.barber.name}</p>
-            <p className="truncate text-xs opacity-80">{info.shop.name}</p>
+            <p className="truncate text-xs opacity-80">
+              {info.shop.name}
+              {info.rating.avg != null && (
+                <span title="Nota média dos clientes nos últimos 90 dias">
+                  {' '}
+                  · <Star className="mb-0.5 inline size-3 fill-current" /> {info.rating.avg.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} ({info.rating.n}{' '}
+                  {info.rating.n === 1 ? 'nota' : 'notas'})
+                </span>
+              )}
+            </p>
           </div>
           <button className="rounded-lg p-1.5 hover:bg-white/10" onClick={() => setAccount(true)} aria-label="Minha conta">
             <UserCog className="size-5" />

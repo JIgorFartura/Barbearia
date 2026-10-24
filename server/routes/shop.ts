@@ -18,6 +18,7 @@ import { crudRoutes } from './crud.js';
 import { registerFinanceRoutes } from './finance.js';
 import { registerStockRoutes } from './stock.js';
 import { lowStock } from '../stock.js';
+import { reviewsOverview, shopRating } from '../reviews.js';
 
 /** Painel do dono da barbearia. Tudo aqui é filtrado pela barbearia do usuário logado. */
 export const shopRouter = Router();
@@ -275,6 +276,21 @@ shopRouter.delete('/loyalty/events/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- avaliações depois do corte
+
+shopRouter.get('/reviews', (req, res) => {
+  res.json(reviewsOverview(shopId(req)));
+});
+
+shopRouter.put('/reviews/settings', (req, res) => {
+  const body = parseBody(
+    z.object({ review_enabled: zBool, review_delay_min: z.number().int().min(30).max(24 * 60), review_link: zUrl }),
+    req.body,
+  );
+  run('UPDATE barbershops SET review_enabled = ?, review_delay_min = ?, review_link = ? WHERE id = ?', [body.review_enabled, body.review_delay_min, body.review_link, shopId(req)]);
+  res.json(reviewsOverview(shopId(req)));
+});
+
 // ---------- resumo do painel
 
 shopRouter.get('/summary', (req, res) => {
@@ -317,6 +333,7 @@ shopRouter.get('/summary', (req, res) => {
       [shop, since],
     ),
     lowStock: lowStock(shop),
+    rating: shopRating(shop),
     // Agenda e robô
     today: dayAgenda(shop, day)
       .filter((a) => a.status === 'scheduled')

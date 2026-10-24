@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, CalendarDays, Eye, Gift, Handshake, Megaphone, MousePointerClick, Stamp, Trophy, Users } from 'lucide-react';
+import { AlertTriangle, Bot, CalendarDays, Eye, Gift, Handshake, Megaphone, Stamp, Star, Trophy, Users } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Card } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -21,6 +21,7 @@ interface SummaryData {
   botMessagesWeek: number;
   bookedByBotWeek: number;
   lowStock: { id: number; name: string; stock_qty: number; stock_min: number | null }[];
+  rating: { n: number; avg: number | null };
 }
 
 function Stat({ icon, label, value, onClick }: { icon: ReactNode; label: string; value: ReactNode; onClick?: () => void }) {
@@ -64,14 +65,27 @@ export function Summary({ shopName }: { shopName: string }) {
         <Stat icon={<CalendarDays className="size-5" />} label="Horários nos próximos 7 dias" value={data.upcomingWeek} onClick={() => navigate('/painel/agenda')} />
         <Stat icon={<Bot className="size-5" />} label="Marcados pelo robô (7 dias)" value={data.bookedByBotWeek} onClick={() => navigate('/painel/robo')} />
         <Stat icon={<Bot className="size-5" />} label="Mensagens do robô (7 dias)" value={data.botMessagesWeek} onClick={() => navigate('/painel/robo')} />
+        <Stat
+          icon={<Star className="size-5" />}
+          label={`Nota dos clientes (${data.rating.n} ${data.rating.n === 1 ? 'nota' : 'notas'})`}
+          value={data.rating.avg == null ? '—' : data.rating.avg.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}
+          onClick={() => navigate('/painel/avaliacoes')}
+        />
         <Stat icon={<Users className="size-5" />} label="Membros" value={data.customers} onClick={() => navigate('/painel/balcao')} />
         <Stat icon={<Stamp className="size-5" />} label="Carimbos no mês" value={data.stampsThisMonth} />
         <Stat icon={<Gift className="size-5" />} label="Prêmios entregues no mês" value={data.rewardsThisMonth} />
         <Stat icon={<Gift className="size-5" />} label="Campanhas valendo" value={data.runningCampaigns} onClick={() => navigate('/painel/campanhas')} />
         <Stat icon={<Megaphone className="size-5" />} label="Anúncios no ar" value={data.runningAds} onClick={() => navigate('/painel/anuncios')} />
         <Stat icon={<Megaphone className="size-5" />} label="Receita dos anúncios no ar" value={money(data.adRevenueCents)} />
-        <Stat icon={<Eye className="size-5" />} label="Visualizações de anúncios" value={data.adViews} />
-        <Stat icon={<MousePointerClick className="size-5" />} label="Cliques em anúncios" value={data.adClicks} />
+        <Stat
+          icon={<Eye className="size-5" />}
+          label="Visualizações e cliques nos anúncios"
+          value={
+            <>
+              {data.adViews} <span className="text-base font-medium text-zinc-400">/</span> {data.adClicks}
+            </>
+          }
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

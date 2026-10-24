@@ -92,7 +92,7 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
     const stamp = shopNow(shopId, now).stamp;
     run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE customer_id = ? AND status = 'scheduled' AND starts_at >= ?", [nowIso(), customerId, stamp]);
     run('DELETE FROM messages WHERE barbershop_id = ? AND (customer_id = ? OR phone = ?)', [shopId, customerId, phone]);
-    for (const table of ['loyalty_events', 'vouchers', 'bot_offers', 'bot_questions', 'customer_codes', 'customer_sessions']) {
+    for (const table of ['loyalty_events', 'vouchers', 'bot_offers', 'bot_questions', 'customer_codes', 'customer_sessions', 'reviews']) {
       run(`DELETE FROM ${table} WHERE customer_id = ?`, [customerId]);
     }
     run(

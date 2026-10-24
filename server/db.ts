@@ -643,6 +643,27 @@ const MIGRATIONS: (string | Rebuild)[] = [
   -- Barbeiros com login: podem fechar os próprios atendimentos (o dono decide).
   ALTER TABLE barbershops ADD COLUMN barber_can_close INTEGER NOT NULL DEFAULT 1;
 
+  -- Avaliação depois do corte: o robô pergunta a nota; nota alta recebe o link do Google.
+  ALTER TABLE barbershops ADD COLUMN review_enabled INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE barbershops ADD COLUMN review_delay_min INTEGER NOT NULL DEFAULT 120;
+  ALTER TABLE barbershops ADD COLUMN review_link TEXT;
+
+  CREATE TABLE reviews (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    appointment_id INTEGER UNIQUE REFERENCES appointments(id) ON DELETE SET NULL,
+    barber_id INTEGER REFERENCES barbers(id) ON DELETE SET NULL,
+    rating INTEGER CHECK (rating BETWEEN 1 AND 5),
+    comment TEXT,
+    -- asked: esperando a nota · comment: nota baixa, esperando o comentário · done · expired
+    status TEXT NOT NULL DEFAULT 'asked' CHECK (status IN ('asked', 'comment', 'done', 'expired')),
+    asked_at TEXT NOT NULL,
+    answered_at TEXT
+  );
+  CREATE INDEX reviews_shop ON reviews (barbershop_id, answered_at);
+  CREATE INDEX reviews_customer ON reviews (customer_id, status);
+
   -- Conexão do WhatsApp de cada barbearia (conferida a cada 10 minutos): ok | down.
   ALTER TABLE barbershops ADD COLUMN wa_status TEXT;
   ALTER TABLE barbershops ADD COLUMN wa_status_at TEXT;
