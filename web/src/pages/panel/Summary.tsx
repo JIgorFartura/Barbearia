@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, CalendarDays, Eye, Gift, Handshake, Megaphone, Stamp, Star, Trophy, Users } from 'lucide-react';
+import { AlertTriangle, Bot, CalendarDays, CheckCircle2, Circle, Eye, Gift, ListChecks, Megaphone, Stamp, Star, Trophy, Users } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Card } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -22,6 +22,7 @@ interface SummaryData {
   bookedByBotWeek: number;
   lowStock: { id: number; name: string; stock_qty: number; stock_min: number | null }[];
   rating: { n: number; avg: number | null };
+  setup: { id: string; label: string; done: boolean; link: string; optional?: boolean }[];
 }
 
 function Stat({ icon, label, value, onClick }: { icon: ReactNode; label: string; value: ReactNode; onClick?: () => void }) {
@@ -34,7 +35,47 @@ function Stat({ icon, label, value, onClick }: { icon: ReactNode; label: string;
   );
 }
 
-export function Summary({ shopName }: { shopName: string }) {
+/** Primeiros passos: o que falta para a barbearia rodar de verdade. */
+function SetupCard({ steps, onAccount }: { steps: SummaryData['setup']; onAccount: () => void }) {
+  const required = steps.filter((s) => !s.optional);
+  const done = required.filter((s) => s.done).length;
+  if (done === required.length && steps.every((s) => s.done)) return null;
+  const open = (link: string) => {
+    if (link === 'conta') onAccount();
+    else if (link.startsWith('/b/')) window.open(link, '_blank');
+    else navigate(link);
+  };
+  return (
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 font-semibold">
+          <ListChecks className="size-4 text-gold" /> Primeiros passos
+        </p>
+        <span className="text-sm text-zinc-500">
+          {done} de {required.length} prontos
+        </span>
+      </div>
+      <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-zinc-100" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={required.length}>
+        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${(done / required.length) * 100}%` }} />
+      </div>
+      <ul className="grid gap-1.5 text-sm sm:grid-cols-2">
+        {steps.map((s) => (
+          <li key={s.id}>
+            <button onClick={() => open(s.link)} className={`flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-zinc-50 ${s.done ? 'text-zinc-400' : ''}`}>
+              {s.done ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" /> : <Circle className="mt-0.5 size-4 shrink-0 text-zinc-300" />}
+              <span className={s.done ? 'line-through' : ''}>
+                {s.label}
+                {s.optional && !s.done && <span className="text-zinc-400"> (opcional)</span>}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+export function Summary({ shopName, onAccount }: { shopName: string; onAccount: () => void }) {
   const [data, setData] = useState<SummaryData | null>(null);
   useEffect(() => {
     api<SummaryData>('GET', '/api/shop/summary').then(setData);
@@ -47,6 +88,8 @@ export function Summary({ shopName }: { shopName: string }) {
         <h1 className="text-2xl font-bold">Olá, {shopName}!</h1>
         <p className="text-sm text-zinc-500">Como está a sua comunidade.</p>
       </div>
+
+      <SetupCard steps={data.setup} onAccount={onAccount} />
 
       {data.lowStock.length > 0 && (
         <button
@@ -123,19 +166,6 @@ export function Summary({ shopName }: { shopName: string }) {
               </li>
             ))}
           </ol>
-        </Card>
-        <Card className="md:col-span-2">
-          <p className="mb-3 flex items-center gap-2 font-semibold">
-            <Handshake className="size-4 text-gold" /> Próximos passos
-          </p>
-          <ul className="grid gap-2 text-sm text-zinc-600 sm:grid-cols-2">
-            <li>1. Em <b>Minha marca</b>, coloque logo, cores e WhatsApp.</li>
-            <li>2. Cadastre os <b>barbeiros</b> com o expediente e os <b>serviços</b> com preço e duração.</li>
-            <li>3. Na aba <b>Robô WhatsApp</b>, dê um nome ao robô e conecte o WhatsApp.</li>
-            <li>4. Crie <b>campanhas</b> (tomou 5 cervejas, ganhou um copo) e <b>benefícios</b> com voucher.</li>
-            <li>5. Traga <b>parceiros</b> do bairro e venda <b>anúncios</b> para eles.</li>
-            <li>6. Divulgue a <b>área do cliente</b>: cada um entra pelo celular e agenda sozinho.</li>
-          </ul>
         </Card>
       </div>
     </section>

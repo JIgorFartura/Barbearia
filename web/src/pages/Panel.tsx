@@ -377,7 +377,7 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       content = <Brand />;
       break;
     default:
-      content = <Summary shopName={me.shop?.name ?? ''} />;
+      content = <Summary shopName={me.shop?.name ?? ''} onAccount={() => setAccount(true)} />;
   }
 
   // Espera saber se o acesso está liberado antes de abrir qualquer tela.

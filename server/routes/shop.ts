@@ -297,6 +297,39 @@ shopRouter.put('/reviews/settings', (req, res) => {
 
 // ---------- resumo do painel
 
+/**
+ * Primeiros passos para a barbearia começar a usar de verdade (piloto). Os opcionais não contam
+ * no "tudo pronto", mas aparecem como sugestão.
+ */
+function setupChecklist(shop: number, userId: number) {
+  const b = get<{ slug: string; logo_url: string | null; whatsapp: string | null; address: string | null; wa_provider: string; wa_status: string | null; pix_key: string | null; review_link: string | null }>(
+    'SELECT slug, logo_url, whatsapp, address, wa_provider, wa_status, pix_key, review_link FROM barbershops WHERE id = ?',
+    [shop],
+  )!;
+  const has = (sql: string) => Boolean(get(sql, [shop]));
+  return [
+    { id: 'marca', label: 'Coloque logo, WhatsApp e endereço em Minha marca', done: Boolean(b.logo_url && b.whatsapp && b.address), link: '/painel/marca' },
+    {
+      id: 'barbeiros',
+      label: 'Cadastre os barbeiros com o expediente',
+      done: has('SELECT 1 AS ok FROM barbers br JOIN barber_hours h ON h.barber_id = br.id WHERE br.barbershop_id = ? AND br.active = 1 LIMIT 1'),
+      link: '/painel/barbeiros',
+    },
+    { id: 'servicos', label: 'Cadastre os serviços com preço e duração', done: has("SELECT 1 AS ok FROM catalog_items WHERE barbershop_id = ? AND kind = 'service' AND active = 1 LIMIT 1"), link: '/painel/servicos' },
+    { id: 'whatsapp', label: 'Conecte o WhatsApp da barbearia ao robô', done: b.wa_provider !== 'simulador' && b.wa_status !== 'down', link: '/painel/robo' },
+    {
+      id: 'celular',
+      label: 'Cadastre seu celular em Minha conta (avisos e "esqueci minha senha")',
+      done: Boolean(get<{ phone: string | null }>('SELECT phone FROM users WHERE id = ?', [userId])?.phone),
+      link: 'conta',
+    },
+    { id: 'cliente', label: 'Divulgue o site: os clientes entram e agendam pelo celular', done: has('SELECT 1 AS ok FROM customers WHERE barbershop_id = ? LIMIT 1'), link: `/b/${b.slug}` },
+    { id: 'venda', label: 'Feche o primeiro atendimento pela Agenda', done: has("SELECT 1 AS ok FROM sales WHERE barbershop_id = ? AND status = 'closed' LIMIT 1"), link: '/painel/agenda' },
+    { id: 'pix', label: 'Cadastre a chave PIX (clube de assinatura e sinal)', done: Boolean(b.pix_key), link: '/painel/clube', optional: true },
+    { id: 'google', label: 'Coloque o link de avaliação do Google', done: Boolean(b.review_link), link: '/painel/avaliacoes', optional: true },
+  ];
+}
+
 shopRouter.get('/summary', (req, res) => {
   const shop = shopId(req);
   const day = shopNow(shop).date;
@@ -338,6 +371,7 @@ shopRouter.get('/summary', (req, res) => {
     ),
     lowStock: lowStock(shop),
     rating: shopRating(shop),
+    setup: setupChecklist(shop, req.user!.id),
     // Agenda e robô
     today: dayAgenda(shop, day)
       .filter((a) => a.status === 'scheduled')
