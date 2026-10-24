@@ -21,6 +21,7 @@ import {
   Store,
   Ticket,
   UserCog,
+  UserPlus,
   Users,
   Wallet,
   WifiOff,
@@ -43,6 +44,7 @@ import { Brand } from './panel/Brand';
 import { Counter } from './panel/Counter';
 import { Finance } from './panel/Finance';
 import { Club } from './panel/Club';
+import { Growth } from './panel/Growth';
 import { Reviews } from './panel/Reviews';
 import { Stock } from './panel/Stock';
 import { Subscription } from './panel/Subscription';
@@ -58,6 +60,7 @@ const SECTIONS = [
   { id: 'clube', label: 'Clube de assinatura', icon: Crown },
   { id: 'campanhas', label: 'Campanhas', icon: Gift },
   { id: 'beneficios', label: 'Benefícios', icon: Ticket },
+  { id: 'indicacoes', label: 'Indicação e aniversário', icon: UserPlus },
   { id: 'parceiros', label: 'Parceiros', icon: Handshake },
   { id: 'anuncios', label: 'Anúncios', icon: Megaphone },
   { id: 'barbeiros', label: 'Barbeiros', icon: Users },
@@ -166,6 +169,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       break;
     case 'clube':
       content = <Club key={pixRefresh} />;
+      break;
+    case 'indicacoes':
+      content = <Growth />;
       break;
     case 'agenda':
       content = <Agenda />;

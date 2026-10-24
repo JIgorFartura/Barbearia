@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { charge, chargePix, claimCharge } from '../charges.js';
 import { appointmentDeposit, depositPublic, requireDeposit } from '../deposits.js';
+import { birthdayKey, customerReferral, growthSettings } from '../growth.js';
 import { cancelMembership, customerMembership, listPlans, subscribe } from '../club.js';
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
 import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
@@ -64,6 +65,11 @@ customerRouter.get('/me', (req, res) => {
       progress,
     })),
     offers: offersFor(shopId, customerId),
+    referral: customerReferral(shopId, customerId),
+    birthday: (() => {
+      const g = growthSettings(shopId);
+      return { enabled: g.birthday_enabled, gift: g.birthday_enabled ? (g.birthday_reward?.title ?? null) : null, value: (customer.birth_date as string | null) ?? null };
+    })(),
     vouchers: customerVouchers(customerId),
     barbers: activeBarbers(shopId).map(({ id, name, photo_url }) => ({ id, name, photo_url })),
     services: services(shopId),
@@ -170,6 +176,16 @@ customerRouter.put('/preferences', (req, res) => {
     ],
   );
   res.json({ ok: true, habit: customerHabit(customerId) });
+});
+
+/** Aniversário (dia e mês) para o presente da barbearia. */
+customerRouter.put('/birthday', (req, res) => {
+  const { customerId } = ctx(req);
+  const body = parseBody(z.object({ day: z.number().int().nullable(), month: z.number().int().nullable() }), req.body);
+  const key = body.day == null && body.month == null ? null : birthdayKey(body.day ?? 0, body.month ?? 0);
+  if ((body.day != null || body.month != null) && !key) throw new HttpError(400, 'Data de aniversário inválida.');
+  run('UPDATE customers SET birth_date = ? WHERE id = ?', [key, customerId]);
+  res.json({ ok: true, value: key });
 });
 
 // ---------- LGPD: aceite, cópia dos dados e exclusão da conta

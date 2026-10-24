@@ -5,6 +5,7 @@ import { availableQty } from '../stock.js';
 import { customerMembership, listPlans } from '../club.js';
 import { pixSettings } from '../charges.js';
 import { depositSettings } from '../deposits.js';
+import { growthSettings } from '../growth.js';
 import { all, get } from '../db.js';
 import { customerHabit } from '../habits.js';
 import type { HistoryItem } from '../messaging.js';
@@ -38,6 +39,8 @@ Regras:
 - Depois de cancelar, se o resultado trouxer sinal, conte ao cliente o que aconteceu com o sinal.
 - Depois de marcar, se o resultado de agendar trouxer pergunta_consumo, termine a confirmação com essa pergunta.
 - Se o cliente pedir para deixar algo separado para o horário dele (ex.: "separa uma cerveja"), use reservar_consumo.
+- Indique um amigo: se estiver ligado no CONTEXTO e o cliente perguntar (ou quiser indicar alguém), mande o link com link_indicacao. Se alguém disser que veio por indicação, peça o código e passe em cadastrar_cliente (codigo_indicacao).
+- Se o cliente contar o dia do aniversário, salve com definir_aniversario.
 - Clube de assinatura: quando o cliente perguntar (ou fizer sentido, sem insistir), explique os planos do CONTEXTO. Para assinar ou pagar a mensalidade, mande o link da área do cliente (enviar_link_area). Nunca diga que um pagamento foi confirmado: quem confere o PIX é a barbearia.
 - Se pedir para falar com uma pessoa, diga que vai avisar a equipe e passe o WhatsApp ou o endereço da barbearia.
 - O cliente só tem acesso ao que é dele e ao que é público: horários, cartão, vouchers, benefícios, preços e endereço. Nunca fale de faturamento, caixa, comissões, quanto os barbeiros ganham ou dados de outros clientes.
@@ -84,6 +87,14 @@ export function buildContext(ctx: BotContext): string {
         .join('; ')}.`,
     );
   }
+
+  const growth = growthSettings(shop.id);
+  if (growth.referral_enabled && growth.referrer_reward) {
+    lines.push(
+      `Indique um amigo (ligado): quem indica ganha ${growth.referrer_reward.title} quando o amigo vier pela primeira vez${growth.friend_reward ? `; o amigo ganha ${growth.friend_reward.title}` : ''}.`,
+    );
+  }
+  if (growth.birthday_enabled && growth.birthday_reward) lines.push(`Aniversário: no dia, o cliente cadastrado ganha ${growth.birthday_reward.title}.`);
 
   const dep = depositSettings(shop.id);
   if (dep.deposit_mode !== 'off' && pixSettings(shop.id).pix_key) {

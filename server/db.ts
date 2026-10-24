@@ -763,6 +763,25 @@ const MIGRATIONS: (string | Rebuild)[] = [
   -- Cancelou com pelo menos estas horas de antecedência: o sinal vira crédito para o próximo horário.
   ALTER TABLE barbershops ADD COLUMN deposit_credit_hours INTEGER NOT NULL DEFAULT 24;
   `,
+  // 7) Indique um amigo e presente de aniversário (os prêmios são vouchers de benefícios só-prêmio).
+  `
+  -- Benefício que só sai como prêmio (indicação, aniversário): não aparece para o cliente pegar.
+  ALTER TABLE offers ADD COLUMN reward_only INTEGER NOT NULL DEFAULT 0;
+
+  ALTER TABLE customers ADD COLUMN referral_code TEXT;
+  CREATE UNIQUE INDEX customers_referral ON customers (barbershop_id, referral_code) WHERE referral_code IS NOT NULL;
+  -- Quem indicou este cliente; e quando quem indicou ganhou o prêmio (na primeira visita paga do amigo).
+  ALTER TABLE customers ADD COLUMN referred_by INTEGER REFERENCES customers(id) ON DELETE SET NULL;
+  ALTER TABLE customers ADD COLUMN referral_rewarded_at TEXT;
+  -- Ano do último presente de aniversário (um por ano). birth_date guarda "MM-DD".
+  ALTER TABLE customers ADD COLUMN birthday_sent_year INTEGER;
+
+  ALTER TABLE barbershops ADD COLUMN referral_enabled INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE barbershops ADD COLUMN referral_friend_offer_id INTEGER REFERENCES offers(id) ON DELETE SET NULL;
+  ALTER TABLE barbershops ADD COLUMN referral_reward_offer_id INTEGER REFERENCES offers(id) ON DELETE SET NULL;
+  ALTER TABLE barbershops ADD COLUMN birthday_enabled INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE barbershops ADD COLUMN birthday_offer_id INTEGER REFERENCES offers(id) ON DELETE SET NULL;
+  `,
 ];
 
 function migrate(): void {

@@ -155,6 +155,8 @@ crudRoutes(shopRouter, {
   path: '/offers',
   table: 'offers',
   label: 'Benefício',
+  // Os prêmios de indicação e aniversário são configurados na tela deles.
+  scope: 'reward_only = 0',
   order: 'active DESC, created_at DESC',
   refs: { partner_id: 'partners' },
   schema: z.object({

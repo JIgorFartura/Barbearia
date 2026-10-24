@@ -4,6 +4,7 @@ import { Section } from '../components/CustomerSection';
 import { StampCard, type Progress } from '../components/StampCard';
 import { ClubSection } from './CustomerClub';
 import { DepositPayModal, type CustomerDeposit } from './CustomerDeposit';
+import { BirthdaySection, ReferralSection } from './CustomerGrowth';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import { WEEKDAYS, WEEKDAYS_SHORT, addDays, cap, dayLabel, hourLabel, money, phone as fmtPhone, stampLabel, todayStr, weekdayOf } from '../lib/format';
@@ -89,6 +90,9 @@ interface MeData {
   offers: Offer[];
   vouchers: Voucher[];
   purchases: { id: number; date: string; total_cents: number; items: { name: string; qty: number; total_cents: number }[] }[];
+  /** Indique um amigo (null = a barbearia não ligou). */
+  referral: { code: string; link: string; friend_gift: string | null; my_prize: string | null; joined: number; came: number } | null;
+  birthday: { enabled: boolean; gift: string | null; value: string | null };
   barbers: { id: number; name: string }[];
   services: { id: number; name: string; price_cents: number; duration_min: number | null }[];
 }
@@ -165,6 +169,12 @@ function Login({ slug, brand, onDone }: { slug: string; brand: Brand; onDone: ()
   const [demoCode, setDemoCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Veio pelo link de um amigo (?indicacao=CÓDIGO): mostra quem indicou e o presente.
+  const referral = useMemo(() => new URLSearchParams(location.search).get('indicacao'), []);
+  const [referrer, setReferrer] = useState<{ name: string; gift: string | null } | null>(null);
+  useEffect(() => {
+    if (referral) api<{ name: string; gift: string | null }>('GET', `/api/public/shops/${slug}/referral/${encodeURIComponent(referral)}`).then(setReferrer, () => undefined);
+  }, [slug, referral]);
 
   async function requestCode(e?: FormEvent) {
     e?.preventDefault();
@@ -175,6 +185,7 @@ function Login({ slug, brand, onDone }: { slug: string; brand: Brand; onDone: ()
         phone: phoneValue,
         name: needsName ? name : undefined,
         accept: needsName ? accept : undefined,
+        referral: needsName && referrer ? referral : undefined,
       });
       // Número novo: pede o nome e o aceite da política para criar a conta.
       if (r.needsName) {
@@ -214,6 +225,11 @@ function Login({ slug, brand, onDone }: { slug: string; brand: Brand; onDone: ()
           Agende, acompanhe seu cartão fidelidade e pegue vouchers. {brand.connected ? `O ${brand.bot_name} manda um código no seu WhatsApp.` : ''}
         </p>
       </div>
+      {referrer && (
+        <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-950 ring-1 ring-amber-200">
+          🙌 <b>{referrer.name}</b> te indicou!{referrer.gift ? ` Crie sua conta e ganhe ${referrer.gift}.` : ''}
+        </p>
+      )}
       {step === 'phone' ? (
         <form onSubmit={requestCode} className="space-y-4">
           <Field label="Celular com DDD">
@@ -406,6 +422,8 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
       </Section>
 
       <ClubSection slug={slug} accent={brand.accent_color} />
+      {me.referral && <ReferralSection referral={me.referral} shopName={brand.name} accent={brand.accent_color} />}
+      {me.birthday.enabled && <BirthdaySection slug={slug} birthday={me.birthday} onSaved={reload} />}
 
       {me.card.length > 0 && (
         <Section icon={<Gift />} title="Cartão fidelidade">

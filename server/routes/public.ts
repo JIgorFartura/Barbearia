@@ -1,4 +1,5 @@
 import { Router, type Request } from 'express';
+import { growthSettings, referrerByCode, setReferrer, welcomeReferred } from '../growth.js';
 import { listPlans } from '../club.js';
 import { z } from 'zod';
 import { shopToday } from '../clock.js';
@@ -77,6 +78,14 @@ publicRouter.get('/shops/:slug', (req, res) => {
   });
 });
 
+/** "João te indicou": quem é o dono do código e o presente de quem chega por indicação. */
+publicRouter.get('/shops/:slug/referral/:code', (req, res) => {
+  const { id } = shopBySlug(String(req.params.slug));
+  const ref = referrerByCode(id, String(req.params.code));
+  if (!ref) throw new HttpError(404, 'Código de indicação não encontrado.');
+  res.json({ name: ref.name.split(/\s+/)[0], gift: growthSettings(id).friend_reward?.title ?? null });
+});
+
 /** Só a marca (área do cliente): não conta visualização de anúncio. */
 publicRouter.get('/shops/:slug/brand', (req, res) => {
   const { id, ...profile } = shopBySlug(String(req.params.slug));
@@ -113,7 +122,10 @@ const ip = (req: Request) => req.ip ?? '';
 publicRouter.post('/shops/:slug/login/code', async (req, res) => {
   rateLimit(`code:${ip(req)}`, 10, 3600000, 'Muitos pedidos de código. Tente mais tarde.');
   const { id } = shopBySlug(String(req.params.slug));
-  const body = parseBody(z.object({ phone: z.string().max(30), name: z.string().trim().max(80).optional(), accept: z.boolean().optional() }), req.body);
+  const body = parseBody(
+    z.object({ phone: z.string().max(30), name: z.string().trim().max(80).optional(), accept: z.boolean().optional(), referral: z.string().max(20).optional() }),
+    req.body,
+  );
   const phone = normalizePhone(body.phone);
   let customer = customerByPhone(id, phone);
   if (!customer) {
@@ -126,6 +138,8 @@ publicRouter.post('/shops/:slug/login/code', async (req, res) => {
     if (!body.accept) throw new HttpError(400, 'Para criar sua conta, leia e aceite a política de privacidade.');
     run('INSERT INTO customers (barbershop_id, name, phone, privacy_accepted_at, created_at) VALUES (?, ?, ?, ?, ?)', [id, body.name, phone, nowIso(), nowIso()]);
     customer = customerByPhone(id, phone)!;
+    // Veio pelo link de um amigo: guarda quem indicou (o presente sai depois de confirmar o celular).
+    setReferrer(id, customer.id, body.referral);
   }
   const shop = shopBot(id);
   const connected = shop.wa_provider !== 'simulador';
@@ -155,6 +169,7 @@ publicRouter.post('/shops/:slug/login/verify', (req, res) => {
   if (!customer) throw new HttpError(400, 'Código incorreto.');
   checkLoginCode(customer.id, body.code);
   createCustomerSession(res, id, customer.id);
+  welcomeReferred(id, customer.id);
   res.json({ ok: true });
 });
 

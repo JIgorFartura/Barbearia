@@ -7,6 +7,7 @@ import { HttpError, normalizePhone } from '../http.js';
 import { customerCard } from '../loyalty.js';
 import { depositMessage, depositOutcomeText, requireDeposit } from '../deposits.js';
 import { charge } from '../charges.js';
+import { birthdayKey, customerReferral, setReferrer, welcomeReferred } from '../growth.js';
 import type { CustomerRow, ShopBot } from '../messaging.js';
 import { claimVoucher, customerVouchers, offersFor } from '../offers.js';
 import { book, cancel, freeTimes, upcomingFor, type AppointmentView } from '../scheduling.js';
@@ -241,7 +242,10 @@ export const TOOLS = {
 
   cadastrar_cliente: tool({
     description: 'Cadastra quem está falando (número desta conversa) como cliente da barbearia. Pergunte o nome antes.',
-    schema: z.object({ nome: z.string().trim().min(2).max(80) }),
+    schema: z.object({
+      nome: z.string().trim().min(2).max(80),
+      codigo_indicacao: z.string().trim().max(20).optional().describe('Código de quem indicou, se o cliente disser que veio por indicação (ex.: JOAO7K2).'),
+    }),
     run: (ctx, input) => {
       if (ctx.customer) return { ok: true, ja_cadastrado: true, nome: ctx.customer.name };
       const phone = normalizePhone(ctx.phone);
@@ -255,7 +259,39 @@ export const TOOLS = {
         nowIso(),
       ]);
       ctx.customer = { id: lastInsertRowid, barbershop_id: ctx.shop.id, name: input.nome, phone, wa_id: ctx.waId, reminders_opt_out: 0 };
-      return { ok: true, nome: input.nome, politica_privacidade: `${config.appUrl}/b/${ctx.shop.slug}/privacidade` };
+      // Veio por indicação: guarda quem indicou e já dá o presente de boas-vindas (o celular é o desta conversa).
+      const indicado = setReferrer(ctx.shop.id, lastInsertRowid, input.codigo_indicacao);
+      const presente = indicado ? welcomeReferred(ctx.shop.id, lastInsertRowid) : null;
+      return {
+        ok: true,
+        nome: input.nome,
+        politica_privacidade: `${config.appUrl}/b/${ctx.shop.slug}/privacidade`,
+        indicacao: input.codigo_indicacao ? (indicado ? 'registrada' : 'código não encontrado') : undefined,
+        presente_boas_vindas: presente ? { presente: presente.title, codigo: presente.code, validade: presente.expires_on } : undefined,
+      };
+    },
+  }),
+
+  link_indicacao: tool({
+    description: 'Link de indicação do cliente para mandar aos amigos (indique um amigo), com o que ele e o amigo ganham.',
+    needsCustomer: true,
+    schema: z.object({}),
+    run: (ctx) => {
+      const r = customerReferral(ctx.shop.id, ctx.customer!.id);
+      if (!r) return { ok: false, erro: 'A barbearia não está com o indique um amigo ligado.' };
+      return { ok: true, link: r.link, voce_ganha: r.my_prize, amigo_ganha: r.friend_gift, amigos_que_vieram: r.came };
+    },
+  }),
+
+  definir_aniversario: tool({
+    description: 'Salva o dia e o mês do aniversário do cliente (para o presente de aniversário da barbearia).',
+    needsCustomer: true,
+    schema: z.object({ dia: z.number().int().min(1).max(31), mes: z.number().int().min(1).max(12) }),
+    run: (ctx, input) => {
+      const key = birthdayKey(input.dia, input.mes);
+      if (!key) return { ok: false, erro: 'Data inválida.' };
+      run('UPDATE customers SET birth_date = ? WHERE id = ?', [key, ctx.customer!.id]);
+      return { ok: true, aniversario: `${String(input.dia).padStart(2, '0')}/${String(input.mes).padStart(2, '0')}` };
     },
   }),
 

@@ -5,6 +5,7 @@ import { chargesToConfirm, confirmCharge, pixSettings, rejectClaim, savePixSetti
 import { cancelMembership, clubCoverage, clubOverview, deletePlan, memberView, savePlan, sendClubCharge, subscribe } from '../club.js';
 import { shopNow } from '../clock.js';
 import { depositsOverview, refundDeposit, saveDepositSettings } from '../deposits.js';
+import { growthSettings, referralsOverview, saveGrowthSettings, upcomingBirthdays } from '../growth.js';
 import { run } from '../db.js';
 import { METHODS } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
@@ -141,6 +142,27 @@ export function registerClubRoutes(router: Router): void {
   router.post('/charges/:id/refund', (req, res) => {
     const body = parseBody(z.object({ method: z.enum(METHODS).default('pix') }), req.body ?? {});
     res.json(refundDeposit(shopId(req), idParam(req), { userId: req.user!.id, method: body.method }));
+  });
+
+  // ---------- indique um amigo e aniversário
+
+  router.get('/growth', (req, res) => {
+    const shop = shopId(req);
+    res.json({ settings: growthSettings(shop), referrals: referralsOverview(shop), birthdays: upcomingBirthdays(shop) });
+  });
+
+  router.put('/growth/settings', (req, res) => {
+    const zReward = z
+      .object({ title: z.string().trim().min(2, 'Descreva o presente.').max(80), valid_days: z.number().int().min(1).max(365) })
+      .nullish()
+      .transform((v) => v ?? null);
+    const body = parseBody(
+      z.object({ referral_enabled: z.boolean(), friend_reward: zReward, referrer_reward: zReward, birthday_enabled: z.boolean(), birthday_reward: zReward }),
+      req.body,
+    );
+    const shop = shopId(req);
+    saveGrowthSettings(shop, body);
+    res.json({ settings: growthSettings(shop), referrals: referralsOverview(shop), birthdays: upcomingBirthdays(shop) });
   });
 
   /** Na hora de fechar a comanda: o que o clube cobre para este cliente hoje. */

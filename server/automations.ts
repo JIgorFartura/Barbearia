@@ -4,6 +4,7 @@ import { purgeOldData } from './privacy.js';
 import { askReviews } from './reviews.js';
 import { clubBilling } from './club.js';
 import { expireDeposits } from './deposits.js';
+import { birthdayGifts } from './growth.js';
 import { accessStatus, ensureInvoices } from './billing.js';
 import { config } from './config.js';
 import { askConsumption } from './consumption.js';
@@ -258,6 +259,7 @@ export interface RunSummary {
   club: number;
   /** Vagas liberadas porque o sinal não foi pago a tempo. */
   released: number;
+  birthdays: number;
 }
 
 let running = false;
@@ -272,7 +274,7 @@ export const automationStatus: { lastRun: string | null; lastSummary: RunSummary
 
 /** Roda tudo uma vez. Chamado a cada minuto; cada envio é registrado para não repetir. */
 export async function runAutomations(now: Date = new Date()): Promise<RunSummary> {
-  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, released: 0 };
+  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, released: 0, birthdays: 0 };
   if (running) return summary;
   running = true;
   try {
@@ -303,6 +305,7 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
         summary.winbacks += await winbacks(shop, now);
         summary.reviews += await askReviews(shop, now);
         summary.club += await clubBilling(shop, now);
+        summary.birthdays += await birthdayGifts(shop, now);
       } catch (err) {
         console.error(`[automações] ${shop.slug}:`, err);
       }

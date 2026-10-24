@@ -60,7 +60,7 @@ export function offersFor(shopId: number, customerId: number | null) {
             (SELECT COUNT(*) FROM vouchers v WHERE v.offer_id = o.id) AS issued,
             (SELECT COUNT(*) FROM vouchers v WHERE v.offer_id = o.id AND v.customer_id = ?) AS mine
        FROM offers o LEFT JOIN partners p ON p.id = o.partner_id
-      WHERE o.barbershop_id = ? ORDER BY o.created_at DESC`,
+      WHERE o.barbershop_id = ? AND o.reward_only = 0 ORDER BY o.created_at DESC`,
     [customerId ?? 0, shopId],
   )
     .filter((o) => isOfferRunning(o, day))
@@ -92,15 +92,22 @@ function newCode(prefix: string): string {
 /** Cliente pega o voucher (respeita estoque, limite por cliente e período). */
 export function claimVoucher(shopId: number, offerId: number, customerId: number): VoucherView {
   return tx(() => {
-    const offer = get<Offer>('SELECT * FROM offers WHERE id = ? AND barbershop_id = ?', [offerId, shopId]);
+    const offer = get<Offer & { reward_only: number }>('SELECT * FROM offers WHERE id = ? AND barbershop_id = ?', [offerId, shopId]);
     const day = shopToday(shopId);
-    if (!offer || !isOfferRunning(offer, day)) throw new HttpError(404, 'Benefício não encontrado ou encerrado.');
+    if (!offer || offer.reward_only || !isOfferRunning(offer, day)) throw new HttpError(404, 'Benefício não encontrado ou encerrado.');
     if (!get('SELECT 1 AS ok FROM customers WHERE id = ? AND barbershop_id = ?', [customerId, shopId])) throw new HttpError(404, 'Cliente não encontrado.');
     const issued = get<{ n: number }>('SELECT COUNT(*) AS n FROM vouchers WHERE offer_id = ?', [offerId])!.n;
     if (offer.max_total != null && issued >= offer.max_total) throw new HttpError(409, 'Esse benefício esgotou.');
     const mine = get<{ n: number }>('SELECT COUNT(*) AS n FROM vouchers WHERE offer_id = ? AND customer_id = ?', [offerId, customerId])!.n;
     if (mine >= offer.per_customer) throw new HttpError(409, 'Você já pegou esse benefício.');
+    return issueVoucher(shopId, offer, customerId);
+  });
+}
 
+/** Gera o voucher (código único e validade), sem conferir limites: usado também nos prêmios. */
+export function issueVoucher(shopId: number, offer: Pick<Offer, 'id' | 'valid_days' | 'ends_on'>, customerId: number, day: string = shopToday(shopId)): VoucherView {
+  return tx(() => {
+    const offerId = offer.id;
     const slug = get<{ slug: string }>('SELECT slug FROM barbershops WHERE id = ?', [shopId])!.slug;
     const prefix = slug.replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'BB';
     let expires = addDays(day, offer.valid_days);

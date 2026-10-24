@@ -4,6 +4,7 @@ import { addStamps, isRunning, type Campaign } from './loyalty.js';
 import { stockBackForSale, stockOutForSale } from './stock.js';
 import { clubCoverage } from './club.js';
 import { prepaidFor } from './deposits.js';
+import { rewardReferrer } from './growth.js';
 import { shopNow } from './clock.js';
 import { addDays, daysBetween } from './time.js';
 
@@ -223,6 +224,9 @@ export function createSale(input: SaleInput): SaleResult {
         [shop, `Venda #${saleId}${customerName ? ` · ${customerName}` : ''}${prepaid ? ' (descontado o sinal)' : ''}`, total - prepaid, input.method, date, saleId, input.userId, nowIso()],
       );
     }
+
+    // Primeira visita de quem veio indicado: quem indicou ganha o prêmio.
+    if (customerId) rewardReferrer(shop, customerId);
 
     // Item ligado a uma campanha valendo (ex.: cerveja → Clube da Cerveja) vira carimbo automático.
     const stamps: SaleResult['stamps'] = [];

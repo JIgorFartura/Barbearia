@@ -5,6 +5,7 @@ import { get, nowIso, run, tx } from '../server/db.js';
 import { ensureInvoices, savePlatformSettings } from '../server/billing.js';
 import { addEntry, createSale } from '../server/finance.js';
 import { savePlan, subscribe } from '../server/club.js';
+import { saveGrowthSettings } from '../server/growth.js';
 import { book } from '../server/scheduling.js';
 import { stockEntry } from '../server/stock.js';
 import { addDays, localNow, weekdayOf } from '../server/time.js';
@@ -172,6 +173,16 @@ tx(() => {
     item_ids: [corte, barba],
   });
   subscribe(shop, pedro, plan.id, { paidMethod: 'pix', now: at(addDays(today, -6), '11:00') });
+  // Indique um amigo e aniversário: o Pedro veio por indicação do João (que ganhou o corte grátis).
+  saveGrowthSettings(shop, {
+    referral_enabled: true,
+    friend_reward: { title: 'R$ 10 de desconto no primeiro corte', valid_days: 30 },
+    referrer_reward: { title: 'Corte grátis', valid_days: 60 },
+    birthday_enabled: true,
+    birthday_reward: { title: '1 cerveja grátis', valid_days: 7 },
+  });
+  run('UPDATE customers SET referred_by = ?, referral_rewarded_at = ? WHERE id = ?', [joao, at(addDays(today, -6)).toISOString(), pedro]);
+  run('UPDATE customers SET birth_date = ? WHERE id = ?', [addDays(today, 5).slice(5), joao]);
   let next = addDays(today, 1);
   while (weekdayOf(next) < 2) next = addDays(next, 1);
   book({ shopId: shop, customerId: pedro, barberId: marcos, serviceId: corte, date: next, time: '10:00', source: 'painel' });
