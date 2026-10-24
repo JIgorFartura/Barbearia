@@ -1,4 +1,4 @@
-import { Eye, Gift, Handshake, Megaphone, MousePointerClick, Stamp, Trophy, Users } from 'lucide-react';
+import { Bot, CalendarDays, Eye, Gift, Handshake, Megaphone, MousePointerClick, Stamp, Trophy, Users } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Card } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -16,6 +16,10 @@ interface SummaryData {
   stampsThisMonth: number;
   rewardsThisMonth: number;
   topCustomers: { id: number; name: string; stamps: number }[];
+  today: { id: number; time: string; customer: string; barber: string; service: string }[];
+  upcomingWeek: number;
+  botMessagesWeek: number;
+  bookedByBotWeek: number;
 }
 
 function Stat({ icon, label, value, onClick }: { icon: ReactNode; label: string; value: ReactNode; onClick?: () => void }) {
@@ -39,10 +43,14 @@ export function Summary({ shopName }: { shopName: string }) {
     <section className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Olá, {shopName}!</h1>
-        <p className="text-sm text-zinc-500">Como está a sua comunidade este mês.</p>
+        <p className="text-sm text-zinc-500">Como está a sua comunidade.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat icon={<CalendarDays className="size-5" />} label="Horários hoje" value={data.today.length} onClick={() => navigate('/painel/agenda')} />
+        <Stat icon={<CalendarDays className="size-5" />} label="Horários nos próximos 7 dias" value={data.upcomingWeek} onClick={() => navigate('/painel/agenda')} />
+        <Stat icon={<Bot className="size-5" />} label="Marcados pelo robô (7 dias)" value={data.bookedByBotWeek} onClick={() => navigate('/painel/robo')} />
+        <Stat icon={<Bot className="size-5" />} label="Mensagens do robô (7 dias)" value={data.botMessagesWeek} onClick={() => navigate('/painel/robo')} />
         <Stat icon={<Users className="size-5" />} label="Membros" value={data.customers} onClick={() => navigate('/painel/balcao')} />
         <Stat icon={<Stamp className="size-5" />} label="Carimbos no mês" value={data.stampsThisMonth} />
         <Stat icon={<Gift className="size-5" />} label="Prêmios entregues no mês" value={data.rewardsThisMonth} />
@@ -54,6 +62,24 @@ export function Summary({ shopName }: { shopName: string }) {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <p className="mb-3 flex items-center gap-2 font-semibold">
+            <CalendarDays className="size-4 text-gold" /> Hoje na agenda
+          </p>
+          {data.today.length === 0 && <p className="text-sm text-zinc-500">Nenhum horário marcado para hoje.</p>}
+          <ul className="space-y-2">
+            {data.today.map((a) => (
+              <li key={a.id} className="flex items-center justify-between text-sm">
+                <span>
+                  <b className="tabular-nums">{a.time}</b> {a.customer}
+                </span>
+                <span className="text-zinc-500">
+                  {a.service} · {a.barber}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
         <Card>
           <p className="mb-3 flex items-center gap-2 font-semibold">
             <Trophy className="size-4 text-gold" /> Membros mais ativos (30 dias)
@@ -71,16 +97,17 @@ export function Summary({ shopName }: { shopName: string }) {
             ))}
           </ol>
         </Card>
-        <Card>
+        <Card className="md:col-span-2">
           <p className="mb-3 flex items-center gap-2 font-semibold">
             <Handshake className="size-4 text-gold" /> Próximos passos
           </p>
-          <ul className="space-y-2 text-sm text-zinc-600">
+          <ul className="grid gap-2 text-sm text-zinc-600 sm:grid-cols-2">
             <li>1. Em <b>Minha marca</b>, coloque logo, cores e WhatsApp.</li>
-            <li>2. Cadastre <b>serviços e produtos</b> com preço.</li>
-            <li>3. Crie uma <b>campanha</b>: tomou 5 cervejas, ganhou um copo.</li>
-            <li>4. Traga <b>parceiros</b> do bairro e venda <b>anúncios</b> para eles.</li>
-            <li>5. No <b>Balcão</b>, cadastre o cliente pelo celular e lance os carimbos.</li>
+            <li>2. Cadastre os <b>barbeiros</b> com o expediente e os <b>serviços</b> com preço e duração.</li>
+            <li>3. Na aba <b>Robô WhatsApp</b>, dê um nome ao robô e conecte o WhatsApp.</li>
+            <li>4. Crie <b>campanhas</b> (tomou 5 cervejas, ganhou um copo) e <b>benefícios</b> com voucher.</li>
+            <li>5. Traga <b>parceiros</b> do bairro e venda <b>anúncios</b> para eles.</li>
+            <li>6. Divulgue a <b>área do cliente</b>: cada um entra pelo celular e agenda sozinho.</li>
           </ul>
         </Card>
       </div>

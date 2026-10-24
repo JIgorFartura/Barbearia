@@ -1,8 +1,8 @@
-import { Gift, Minus, Plus, Search, Undo2, UserPlus, Users } from 'lucide-react';
+import { CalendarCheck, Gift, Link2, Minus, Plus, Repeat, Search, Ticket, Undo2, UserPlus, Users } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal } from '../../components/ui';
 import { api } from '../../lib/api';
-import { phone } from '../../lib/format';
+import { WEEKDAYS, hourLabel, phone, stampLabel, whatsappLink } from '../../lib/format';
 import { StampCard, type Progress } from '../../components/StampCard';
 
 interface Customer {
@@ -51,6 +51,8 @@ export function Counter() {
           <UserPlus className="size-4" /> Novo cliente
         </Button>
       </div>
+
+      <VoucherCheck />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
         <div>
@@ -150,6 +152,7 @@ function CustomerDetail({ id, onChange }: { id: number; onChange: () => void }) 
       <Card>
         <p className="text-lg font-semibold">{data.customer.name}</p>
         <p className="text-sm text-zinc-500">{phone(data.customer.phone)}</p>
+        <CustomerAgenda customerId={id} name={data.customer.name} customerPhone={data.customer.phone} />
       </Card>
       {flash && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">{flash}</p>}
       <ErrorText error={error} />
@@ -248,5 +251,127 @@ function NewCustomerModal({ onClose, onDone }: { onClose: () => void; onDone: (c
         </div>
       </form>
     </Modal>
+  );
+}
+
+interface Habit {
+  weekday: number;
+  time: string;
+  barberId: number | null;
+  intervalDays: number;
+  source: 'cliente' | 'automatico';
+}
+
+/** Costume, próximos horários e link de acesso à área do cliente. */
+function CustomerAgenda({ customerId, name, customerPhone }: { customerId: number; name: string; customerPhone: string }) {
+  const [info, setInfo] = useState<{ habit: Habit | null; upcoming: { id: number; starts_at: string; barber_name: string; service_name: string }[] } | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  useEffect(() => {
+    setLink(null);
+    api<typeof info>('GET', `/api/shop/customers/${customerId}/agenda`).then(setInfo);
+  }, [customerId]);
+  if (!info) return null;
+  return (
+    <div className="mt-3 space-y-1.5 border-t border-zinc-100 pt-3 text-sm">
+      <p className="flex items-center gap-2 text-zinc-600">
+        <Repeat className="size-4 text-zinc-400" />
+        {info.habit
+          ? `Costuma vir ${WEEKDAYS[info.habit.weekday]} às ${hourLabel(info.habit.time)}, a cada ${info.habit.intervalDays} dias (${info.habit.source === 'cliente' ? 'informado' : 'pelo histórico'})`
+          : 'Sem horário de costume ainda'}
+      </p>
+      <p className="flex items-center gap-2 text-zinc-600">
+        <CalendarCheck className="size-4 text-zinc-400" />
+        {info.upcoming.length ? info.upcoming.map((a) => `${stampLabel(a.starts_at)} com ${a.barber_name}`).join(' · ') : 'Nenhum horário marcado'}
+      </p>
+      {link ? (
+        <div className="space-y-1">
+          <input readOnly value={link} className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-xs" onFocus={(e) => e.target.select()} />
+          <a
+            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline"
+            href={whatsappLink(customerPhone, `Oi, ${name.split(' ')[0]}! Este é o seu acesso à área do cliente (agenda, cartão fidelidade e vouchers): ${link}`)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Enviar pelo meu WhatsApp
+          </a>
+        </div>
+      ) : (
+        <button
+          className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 hover:text-zinc-900"
+          onClick={() => api<{ url: string }>('POST', `/api/shop/customers/${customerId}/access-link`).then((r) => setLink(r.url))}
+        >
+          <Link2 className="size-3.5" /> Gerar link de acesso à área do cliente
+        </button>
+      )}
+    </div>
+  );
+}
+
+interface VoucherInfo {
+  code: string;
+  status: 'active' | 'used' | 'expired';
+  title: string;
+  customer_name: string;
+  expires_on: string;
+}
+
+/** Validação do voucher que o cliente mostra no balcão. */
+function VoucherCheck() {
+  const [code, setCode] = useState('');
+  const [voucher, setVoucher] = useState<VoucherInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function lookup(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setDone(false);
+    setVoucher(null);
+    try {
+      setVoucher(await api<VoucherInfo>('GET', `/api/shop/vouchers/${encodeURIComponent(code.trim().toUpperCase())}`));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function redeem() {
+    if (!voucher) return;
+    setError(null);
+    try {
+      setVoucher(await api<VoucherInfo>('POST', '/api/shop/vouchers/redeem', { code: voucher.code }));
+      setDone(true);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  return (
+    <Card className="mb-5 !p-4">
+      <form onSubmit={lookup} className="flex flex-wrap items-center gap-2">
+        <Ticket className="size-5 text-zinc-400" />
+        <span className="font-semibold">Validar voucher</span>
+        <Input className="!w-44 font-mono uppercase" placeholder="NAV-ABC123" value={code} onChange={(e) => setCode(e.target.value)} />
+        <Button type="submit" variant="ghost" disabled={code.trim().length < 3}>
+          Conferir
+        </Button>
+      </form>
+      {voucher && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-zinc-50 px-3 py-2 text-sm">
+          <span>
+            <b>{voucher.title}</b> · {voucher.customer_name} · vale até {voucher.expires_on.split('-').reverse().join('/')}
+          </span>
+          {voucher.status === 'active' ? (
+            <Button variant="gold" className="!py-1.5" onClick={redeem}>
+              Dar baixa
+            </Button>
+          ) : (
+            <Badge tone={voucher.status === 'used' ? (done ? 'green' : 'red') : 'red'}>
+              {voucher.status === 'used' ? (done ? 'Baixa feita ✓' : 'Já usado') : 'Vencido'}
+            </Badge>
+          )}
+        </div>
+      )}
+      {error && <div className="mt-2"><ErrorText error={error} /></div>}
+    </Card>
   );
 }

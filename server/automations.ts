@@ -209,8 +209,14 @@ export async function sendWinback(shop: ShopBot, c: CustomerLite, days: number, 
   await send(shop, c, 'sumido', `${opening}\n${ask}\n${OPT_OUT_HINT}`);
 }
 
+// O recontato olha todos os clientes: basta uma vez por hora para cada barbearia.
+const lastWinbackCheck = new Map<number, number>();
+
 export async function winbacks(shop: ShopBot, now: Date): Promise<number> {
   if (!shop.winback_enabled) return 0;
+  const last = lastWinbackCheck.get(shop.id);
+  if (last !== undefined && Math.abs(now.getTime() - last) < 3600000) return 0;
+  lastWinbackCheck.set(shop.id, now.getTime());
   let sent = 0;
   for (const a of awayCustomers(shop.id, now)) {
     if (sent >= WINBACK_PER_RUN) break;

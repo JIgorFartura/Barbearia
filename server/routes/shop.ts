@@ -8,6 +8,8 @@ import { addStamps, customerCard, isRunning, redeemReward, type Campaign } from 
 import { issueAccessLink } from '../customerAuth.js';
 import { customerByPhone } from '../messaging.js';
 import { findVoucher, redeemVoucher, shopVouchers } from '../offers.js';
+import { dayAgenda } from '../scheduling.js';
+import { addDays } from '../time.js';
 import { registerAgendaRoutes } from './agenda.js';
 import { registerBotRoutes } from './bot.js';
 import { crudRoutes } from './crud.js';
@@ -276,5 +278,22 @@ shopRouter.get('/summary', (req, res) => {
         GROUP BY cu.id ORDER BY stamps DESC LIMIT 5`,
       [shop, since],
     ),
+    // Agenda e robô
+    today: dayAgenda(shop, day)
+      .filter((a) => a.status === 'scheduled')
+      .map((a) => ({ id: a.id, time: a.starts_at.slice(11), customer: a.customer_name, barber: a.barber_name, service: a.service_name })),
+    upcomingWeek: get<{ n: number }>("SELECT COUNT(*) AS n FROM appointments WHERE barbershop_id = ? AND status = 'scheduled' AND starts_at >= ? AND starts_at < ?", [
+      shop,
+      `${day} 00:00`,
+      `${addDays(day, 7)} 00:00`,
+    ])!.n,
+    botMessagesWeek: get<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE barbershop_id = ? AND direction = 'out' AND created_at >= ?", [
+      shop,
+      new Date(Date.now() - 7 * 86400000).toISOString(),
+    ])!.n,
+    bookedByBotWeek: get<{ n: number }>("SELECT COUNT(*) AS n FROM appointments WHERE barbershop_id = ? AND source = 'whatsapp' AND created_at >= ?", [
+      shop,
+      new Date(Date.now() - 7 * 86400000).toISOString(),
+    ])!.n,
   });
 });

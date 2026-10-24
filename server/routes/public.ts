@@ -65,6 +65,12 @@ publicRouter.get('/shops/:slug', (req, res) => {
   });
 });
 
+/** Só a marca (área do cliente): não conta visualização de anúncio. */
+publicRouter.get('/shops/:slug/brand', (req, res) => {
+  const { id, ...profile } = shopBySlug(String(req.params.slug));
+  res.json({ ...profile, connected: shopBot(id).wa_provider !== 'simulador', loggedIn: Boolean(sessionCustomer(req, id)) });
+});
+
 /** Clique no anúncio: conta e redireciona para o link do anunciante (validado no cadastro). */
 publicRouter.get('/ads/:id/click', (req, res) => {
   const ad = get<{ link_url: string | null }>('SELECT link_url FROM ads WHERE id = ? AND active = 1', [idParam(req)]);

@@ -1,11 +1,14 @@
-import { Gift, Handshake, Megaphone, Scissors, Users } from 'lucide-react';
+import { Bot, CalendarCheck, Gift, Handshake, Megaphone, Scissors, Ticket, Users } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import type { Me } from '../App';
 import { Button, ErrorText, Field, Input } from '../components/ui';
 import { api } from '../lib/api';
 
 const FEATURES = [
-  { icon: Gift, title: 'Campanhas de fidelidade', text: 'Tomou 5 cervejas, ganhou um copo. Cartão digital consultado pelo celular.' },
+  { icon: Bot, title: 'Robô no WhatsApp', text: 'Cada barbearia dá um nome ao seu robô. Ele agenda, consulta o cartão e entrega vouchers.' },
+  { icon: CalendarCheck, title: 'Lembretes que trazem o cliente', text: 'Lembra o horário marcado, oferece o horário de costume toda semana e chama quem sumiu.' },
+  { icon: Gift, title: 'Campanhas de fidelidade', text: 'Tomou 5 cervejas, ganhou um copo. Cartão digital na área do cliente.' },
+  { icon: Ticket, title: 'Benefícios com voucher', text: 'O cliente pega o voucher na área dele e mostra no balcão ou no parceiro.' },
   { icon: Handshake, title: 'Parceiros', text: 'Comércios do bairro oferecem benefícios aos membros da comunidade.' },
   { icon: Megaphone, title: 'Espaço de propaganda', text: 'Venda anúncios no site da barbearia e acompanhe visualizações e cliques.' },
   { icon: Users, title: 'Comunidade', text: 'O cliente não vive só o corte: vive a experiência e se sente parte do grupo.' },

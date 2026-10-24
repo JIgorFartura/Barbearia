@@ -398,6 +398,14 @@ describe('área do cliente e vouchers', () => {
     assert.deepEqual(r.data.habit, { weekday: 5, time: '19:00', barberId: paulo, serviceId: null, intervalDays: 14, source: 'cliente' });
   });
 
+  test('o código de acesso não fica legível no histórico de mensagens', async () => {
+    const r = await client()('POST', '/api/public/shops/navalha/login/code', { phone: '11988880000' });
+    assert.match(r.data.demoCode, /^\d{6}$/);
+    const logged = get<{ body: string }>("SELECT body FROM messages WHERE kind = 'codigo' ORDER BY id DESC LIMIT 1")!.body;
+    assert.equal(logged.includes(r.data.demoCode), false);
+    assert.match(logged, /••••••/);
+  });
+
   test('painel do robô: credenciais do WhatsApp nunca voltam para a tela', async () => {
     const settings = (await dono('GET', '/api/shop/bot')).data;
     const put = await dono('PUT', '/api/shop/bot', {

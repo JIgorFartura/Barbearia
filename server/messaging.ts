@@ -93,7 +93,8 @@ export async function sendMessage(opts: SendOptions): Promise<{ id: number; stat
       opts.customerId,
       opts.phone,
       opts.kind,
-      opts.text,
+      // O código de acesso não fica legível no histórico (nem para o dono, nem para o master).
+      opts.kind === 'codigo' ? opts.text.replace(/\d{6}/g, '••••••') : opts.text,
       result.status,
       result.error ?? null,
       result.externalId ?? null,
