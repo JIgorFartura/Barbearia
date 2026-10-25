@@ -27,6 +27,7 @@ import {
 } from '../billing.js';
 import { llmEnabled } from '../bot/brain.js';
 import { downShops } from '../connection.js';
+import { clearErrors, recentErrors } from '../errors.js';
 import { platformChannel, savePlatformChannel, sendPlatformMessage } from '../platform.js';
 import { legalInfo, saveLegalInfo } from '../privacy.js';
 import { PLATFORM_TEMPLATE_KINDS, TEMPLATES, templateField } from '../templates.js';
@@ -696,5 +697,12 @@ masterRouter.get('/system', (_req, res) => {
       [since],
     ).map((f) => ({ ...f, last_error: f.last_error?.replace(/\d{8,}/g, '•••') ?? null })),
     counts: get('SELECT (SELECT COUNT(*) FROM barbershops) AS shops'),
+    // Erros inesperados do servidor e das telas (sem dados de clientes: números e e-mails mascarados).
+    errors: recentErrors(15),
   });
+});
+
+masterRouter.post('/errors/clear', (_req, res) => {
+  clearErrors();
+  res.json({ ok: true });
 });

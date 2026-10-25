@@ -911,6 +911,22 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE charges ADD COLUMN receipt_type TEXT;
   ALTER TABLE charges ADD COLUMN receipt_at TEXT;
   `,
+  // 13) Erros inesperados do servidor e das telas (o master vê na aba Sistema e recebe um aviso por hora).
+  `
+  CREATE TABLE error_log (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL CHECK (source IN ('server', 'web')),
+    message TEXT NOT NULL,
+    path TEXT NOT NULL DEFAULT '',
+    detail TEXT,
+    count INTEGER NOT NULL DEFAULT 1,
+    first_at TEXT NOT NULL,
+    last_at TEXT NOT NULL,
+    alerted_at TEXT,
+    UNIQUE (source, message, path)
+  );
+  CREATE INDEX error_log_last ON error_log (last_at);
+  `,
 ];
 
 function migrate(): void {

@@ -6,6 +6,7 @@ import { clubBilling } from './club.js';
 import { birthdayGifts } from './growth.js';
 import { syncAsaasCharges } from './asaas.js';
 import { syncCardLinks } from './cards.js';
+import { errorAlerts } from './errors.js';
 import { invoiceReminders } from './invoiceReminders.js';
 import { accessStatus, ensureInvoices } from './billing.js';
 import { config } from './config.js';
@@ -193,20 +194,36 @@ export interface AwayCustomer {
   optOut: boolean;
 }
 
-/** Clientes que não vêm há `winback_days` dias ou mais e não têm horário marcado. */
+/**
+ * Clientes que não vêm há `winback_days` dias ou mais e não têm horário marcado. Uma consulta só por
+ * barbearia (a última visita é o horário atendido ou o carimbo mais recente, como em lastVisitDate).
+ */
 export function awayCustomers(shopId: number, now: Date = new Date()): AwayCustomer[] {
   const shop = shopBot(shopId);
-  const today = shopNow(shopId, now).date;
+  const n = shopNow(shopId, now);
+  const tz = shopTz(shopId);
+  const contacted = new Set(
+    all<{ customer_id: number; ref: string }>("SELECT customer_id, ref FROM automation_log WHERE barbershop_id = ? AND kind = 'sumido'", [shopId]).map(
+      (r) => `${r.customer_id}:${r.ref}`,
+    ),
+  );
+  const rows = all<{ id: number; name: string; phone: string; reminders_opt_out: number; last_appt: string | null; last_loyalty: string | null; upcoming: number }>(
+    `SELECT c.id, c.name, c.phone, c.reminders_opt_out,
+            (SELECT MAX(a.starts_at) FROM appointments a WHERE a.customer_id = c.id AND a.status = 'scheduled' AND a.starts_at < :now) AS last_appt,
+            (SELECT MAX(l.created_at) FROM loyalty_events l WHERE l.customer_id = c.id) AS last_loyalty,
+            EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.status = 'scheduled' AND a.starts_at >= :now) AS upcoming
+       FROM customers c WHERE c.barbershop_id = :shop AND c.anonymized_at IS NULL`,
+    { shop: shopId, now: n.stamp },
+  );
   const out: AwayCustomer[] = [];
-  for (const c of all<CustomerLite & { reminders_opt_out: number }>(
-    'SELECT id, name, phone, wa_id, reminders_opt_out FROM customers WHERE barbershop_id = ? AND anonymized_at IS NULL',
-    [shopId],
-  )) {
-    const last = lastVisitDate(c.id, now);
-    if (!last) continue;
-    const days = daysBetween(last, today);
-    if (days < shop.winback_days || upcomingFor(c.id, now).length) continue;
-    out.push({ id: c.id, name: c.name, phone: c.phone, lastVisit: last, days, contacted: logged(shopId, c.id, 'sumido', last), optOut: Boolean(c.reminders_opt_out) });
+  for (const c of rows) {
+    const appt = c.last_appt?.slice(0, 10) ?? null;
+    const loyalty = c.last_loyalty ? isoToLocal(c.last_loyalty, tz).slice(0, 10) : null;
+    const last = appt && loyalty ? (appt > loyalty ? appt : loyalty) : (appt ?? loyalty);
+    if (!last || c.upcoming) continue;
+    const days = daysBetween(last, n.date);
+    if (days < shop.winback_days) continue;
+    out.push({ id: c.id, name: c.name, phone: c.phone, lastVisit: last, days, contacted: contacted.has(`${c.id}:${last}`), optOut: Boolean(c.reminders_opt_out) });
   }
   return out.sort((a, b) => a.days - b.days);
 }
@@ -293,9 +310,14 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
     const backedUp = await dailyBackup(now).catch((err) => console.error('[backup]', err));
     // Uma vez por dia, junto da cópia: apaga o que não precisa mais ser guardado (LGPD).
     if (backedUp) purgeOldData(now);
-    // Conexão do WhatsApp de cada barbearia (avisa o dono se cair).
-    if (config.automations) await checkConnections(now).catch((err) => console.error('[conexão]', err));
+    // Conexão do WhatsApp de cada barbearia (avisa o dono se cair) e erros novos do sistema (avisa o master).
+    if (config.automations) {
+      await checkConnections(now).catch((err) => console.error('[conexão]', err));
+      await errorAlerts(now).catch((err) => console.error('[erros]', err));
+    }
     for (const { id } of all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1')) {
+      // Entre uma barbearia e outra, dá passagem ao site e ao robô (o banco é síncrono).
+      await new Promise((resolve) => setImmediate(resolve));
       const shop = shopBot(id);
       // Cada barbearia no seu relógio: ofertas vencidas e horário comercial pelo fuso dela.
       const n = shopNow(id, now);

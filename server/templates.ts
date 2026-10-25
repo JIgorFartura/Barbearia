@@ -101,6 +101,13 @@ export const TEMPLATES = {
     example: ['2', 'Barbearia Navalha de Ouro', 'João Pereira (atendido pelo Paulo)', 'Demorou para ser atendido'],
     platform: true,
   },
+  sistema: {
+    label: 'Erros no sistema (aviso ao master)',
+    category: 'UTILITY',
+    body: 'Atenção: {{1}} erro(s) no Sistema Barbearia desde {{2}}. O mais recente: {{3}}. Veja em Master, aba Sistema.',
+    example: ['3', '25/10/2026 14:32', 'Cannot read properties of undefined'],
+    platform: true,
+  },
   fatura: {
     label: 'Mensalidade do sistema (plataforma)',
     category: 'UTILITY',

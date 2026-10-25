@@ -1,5 +1,6 @@
 import {
   Activity,
+  Bug,
   Bot,
   CalendarDays,
   CheckCircle2,
@@ -1086,6 +1087,8 @@ interface SystemInfo {
   publicUrl: string | null;
   failures24h: { shop: string; failed: number; last_error: string | null }[];
   counts: { shops: number };
+  /** Erros inesperados do servidor e das telas (agrupados). */
+  errors: { id: number; source: 'server' | 'web'; message: string; path: string; count: number; first_at: string; last_at: string }[];
 }
 
 interface BackupInfo {
@@ -1441,6 +1444,41 @@ function ReadinessCard() {
   );
 }
 
+/** Erros inesperados (servidor e telas): o master recebe um aviso por hora no WhatsApp da plataforma. */
+function ErrorsCard({ errors, onCleared }: { errors: SystemInfo['errors']; onCleared: () => void }) {
+  const when = (iso: string) => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  return (
+    <Card className="space-y-2 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-2 font-semibold">
+          <Bug className="size-4" /> Erros do sistema
+        </p>
+        {errors.length > 0 && (
+          <button className="text-xs font-medium text-zinc-500 hover:text-zinc-900" onClick={() => api('POST', '/api/master/errors/clear').then(onCleared)}>
+            Limpar
+          </button>
+        )}
+      </div>
+      {errors.length === 0 ? (
+        <p className="text-emerald-700">Nenhum erro registrado. 👍</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {errors.map((e) => (
+            <li key={e.id} className="rounded-lg bg-red-50 px-3 py-2 text-red-900">
+              <p className="font-medium break-words">{e.message}</p>
+              <p className="text-xs text-red-800/80">
+                {e.source === 'web' ? 'Tela' : 'Servidor'}
+                {e.path && ` · ${e.path}`} · {e.count}× · último em {when(e.last_at)}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-xs text-zinc-500">Com o seu celular em Minha conta, você recebe um aviso no WhatsApp (no máximo um por hora) quando aparecer erro novo.</p>
+    </Card>
+  );
+}
+
 function SystemTab() {
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [list, setList] = useState<Announcement[]>([]);
@@ -1497,6 +1535,7 @@ function SystemTab() {
               ))
             )}
           </Card>
+          <ErrorsCard errors={info.errors} onCleared={load} />
           <BackupCard />
           <PlatformWhatsAppCard />
           <LegalCard />
