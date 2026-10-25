@@ -12,6 +12,8 @@ import { accessStatus } from '../billing.js';
 import { askConsumption, describeItems, reserveItems, type Usual } from '../consumption.js';
 import { handleReviewReply } from '../reviews.js';
 import { claimLatest } from '../charges.js';
+import { confirmAppointment } from '../attendance.js';
+import { slotFreed } from '../waitlist.js';
 import { llmEnabled, think, type CreateMessage } from './brain.js';
 
 export interface InboundInput {
@@ -51,8 +53,9 @@ const PAID = /^(ja )?(paguei|pago|ta pago|esta pago|fiz o pix|pix feito|pix envi
 const firstName = (name: string) => name.split(/\s+/)[0];
 
 /**
- * Respostas certeiras que não precisam de IA: SIM/NÃO para o horário oferecido ou para a pergunta
- * do consumo ("posso avisar o Paulo da sua cerveja?"), PARAR/VOLTAR, CANCELAR.
+ * Respostas certeiras que não precisam de IA: SIM/NÃO para a confirmação de presença do lembrete,
+ * para o horário oferecido (costume, lista de espera...) ou para a pergunta do consumo ("posso avisar
+ * o Paulo da sua cerveja?"), PARAR/VOLTAR, CANCELAR.
  */
 async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: string, now: Date, dryRun: boolean): Promise<string | null> {
   if (!customer) return null;
@@ -71,6 +74,8 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
     const next = upcomingFor(customer.id, now)[0];
     if (!next) return 'Você não tem nenhum horário marcado no momento.';
     cancel(shop.id, next.id, { customerId: customer.id, now });
+    // A vaga vai na hora para quem está na lista de espera (no simulador, só na rodada das automações).
+    if (!dryRun) slotFreed(shop.id);
     return `Cancelado: ${dayLabel(next.starts_at.slice(0, 10))} às ${hourLabel(next.starts_at.slice(11))} com ${next.barber_name}. Quando quiser remarcar, é só chamar.`;
   }
   // "Paguei": avisa a barbearia do PIX da mensalidade do clube em aberto (e lembra do comprovante).
@@ -85,16 +90,30 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
   if (review) return review;
   if (!YES.has(t) && !NO.has(t)) return null;
 
-  // Vale a pergunta mais recente: a do consumo (feita depois de marcar) ou a oferta de horário.
-  const question = get<{ id: number; appointment_id: number; payload: string; created_at: string }>(
-    `SELECT q.id, q.appointment_id, q.payload, q.created_at FROM bot_questions q JOIN appointments a ON a.id = q.appointment_id
+  // Vale a pergunta mais recente: a confirmação do lembrete, a do consumo (feita depois de marcar) ou a oferta de horário.
+  const question = get<{ id: number; kind: string; appointment_id: number; starts_at: string; payload: string; created_at: string }>(
+    `SELECT q.id, q.kind, q.appointment_id, a.starts_at, q.payload, q.created_at FROM bot_questions q JOIN appointments a ON a.id = q.appointment_id
       WHERE q.customer_id = ? AND q.status = 'pending' AND a.status = 'scheduled' AND a.starts_at > ? ORDER BY q.id DESC LIMIT 1`,
     [customer.id, nowStamp],
   );
-  const offer = get<{ id: number; barber_id: number; service_id: number | null; starts_at: string; created_at: string }>(
-    "SELECT id, barber_id, service_id, starts_at, created_at FROM bot_offers WHERE customer_id = ? AND status = 'pending' AND starts_at > ? ORDER BY id DESC LIMIT 1",
+  const offer = get<{ id: number; kind: string; barber_id: number; service_id: number | null; starts_at: string; created_at: string }>(
+    "SELECT id, kind, barber_id, service_id, starts_at, created_at FROM bot_offers WHERE customer_id = ? AND status = 'pending' AND starts_at > ? ORDER BY id DESC LIMIT 1",
     [customer.id, nowStamp],
   );
+
+  if (question?.kind === 'presenca' && (!offer || question.created_at >= offer.created_at)) {
+    const when = `${dayLabel(question.starts_at.slice(0, 10))} às ${hourLabel(question.starts_at.slice(11))}`;
+    if (NO.has(t)) {
+      run("UPDATE bot_questions SET status = 'no' WHERE id = ?", [question.id]);
+      cancel(shop.id, question.appointment_id, { customerId: customer.id, now });
+      if (!dryRun) slotFreed(shop.id);
+      return `Tudo bem, ${firstName(customer.name)}: cancelei seu horário de ${when}. Obrigado por avisar! Quando quiser remarcar, é só me chamar. 👊`;
+    }
+    confirmAppointment(shop.id, question.appointment_id, { customerId: customer.id, now });
+    // Confirmou: se ele costuma consumir algo, já pergunta se pode deixar separado.
+    const ask = askConsumption(shop.id, question.appointment_id, now);
+    return `Confirmado, ${firstName(customer.name)}! ✅ Te espero ${when}.${ask ? `\n${ask}` : ''}`;
+  }
 
   if (question && (!offer || question.created_at >= offer.created_at)) {
     if (NO.has(t)) {
@@ -115,7 +134,9 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
   if (!offer) return null;
   if (NO.has(t)) {
     run("UPDATE bot_offers SET status = 'declined' WHERE id = ?", [offer.id]);
-    return 'Tranquilo! Quando quiser marcar, é só me chamar. 👊';
+    return offer.kind === 'espera'
+      ? 'Tudo bem! Você continua na lista de espera desse dia: se abrir outra vaga, eu aviso. 👊'
+      : 'Tranquilo! Quando quiser marcar, é só me chamar. 👊';
   }
   const date = offer.starts_at.slice(0, 10);
   const time = offer.starts_at.slice(11);

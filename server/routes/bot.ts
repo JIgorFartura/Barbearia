@@ -42,6 +42,7 @@ function botSettings(shop: number) {
     winback_enabled: Boolean(s.winback_enabled),
     winback_days: s.winback_days,
     winback_message: s.winback_message,
+    confirm_release_hours: s.confirm_release_hours,
     llm: llmEnabled(),
     connection: connectionInfo(shop),
     /** Modelos para cadastrar na Meta (WhatsApp oficial), com o texto sugerido. */
@@ -62,6 +63,8 @@ const zSettings = z.object({
   winback_enabled: zBool,
   winback_days: z.number().int().min(7).max(365),
   winback_message: zText(600),
+  /** Liberar o horário de quem não confirmou até N horas antes (null = não libera). */
+  confirm_release_hours: z.number().int().min(1).max(24).nullish().transform((v) => v ?? null),
 });
 
 /** Robô do WhatsApp, simulador, conversas e clientes sumidos (painel do dono). */
@@ -73,6 +76,11 @@ export function registerBotRoutes(router: Router): void {
   router.put('/bot', async (req, res) => {
     const shop = shopId(req);
     const body = parseBody(zSettings, req.body);
+    // Quem não confirmou só perde o horário se teve pelo menos 2 horas para responder ao lembrete.
+    if (body.confirm_release_hours && body.reminder_hours <= 0) throw new HttpError(400, 'Ligue o lembrete do horário: é ele que pede a confirmação.');
+    if (body.confirm_release_hours && body.confirm_release_hours > body.reminder_hours - 2) {
+      throw new HttpError(400, `O lembrete sai ${body.reminder_hours}h antes: o horário de quem não confirmar pode ser liberado até ${Math.max(1, body.reminder_hours - 2)}h antes.`);
+    }
     // Campo de senha que voltou mascarado = manter o valor salvo.
     const before = shopBot(shop);
     const previous = waConfig(before) as Record<string, string>;
@@ -85,7 +93,7 @@ export function registerBotRoutes(router: Router): void {
     if (body.wa_provider === 'evolution') waJson = JSON.stringify(parseBody(zEvolutionConfig, merged));
     run(
       `UPDATE barbershops SET bot_name = ?, bot_persona = ?, wa_provider = ?, wa_config = COALESCE(?, wa_config), slot_step_min = ?, reminder_hours = ?,
-              habit_enabled = ?, habit_weekday = ?, habit_time = ?, winback_enabled = ?, winback_days = ?, winback_message = ? WHERE id = ?`,
+              habit_enabled = ?, habit_weekday = ?, habit_time = ?, winback_enabled = ?, winback_days = ?, winback_message = ?, confirm_release_hours = ? WHERE id = ?`,
       [
         body.bot_name,
         body.bot_persona,
@@ -99,6 +107,7 @@ export function registerBotRoutes(router: Router): void {
         body.winback_enabled,
         body.winback_days,
         body.winback_message,
+        body.confirm_release_hours,
         shop,
       ],
     );

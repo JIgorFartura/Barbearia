@@ -17,6 +17,8 @@ export type MessageKind =
   | 'aniversario'
   | 'indicacao'
   | 'assinatura'
+  | 'espera'
+  | 'liberado'
   | 'aviso';
 
 export interface ShopBot {
@@ -41,6 +43,8 @@ export interface ShopBot {
   winback_enabled: number;
   winback_days: number;
   winback_message: string | null;
+  /** Libera o horário de quem não confirmou até N horas antes (null = não libera). */
+  confirm_release_hours: number | null;
 }
 
 export function shopBot(shopId: number): ShopBot {

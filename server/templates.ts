@@ -22,8 +22,20 @@ export const TEMPLATES = {
   lembrete: {
     label: 'Lembrete do horário',
     category: 'UTILITY',
-    body: 'Olá, {{1}}! Lembrete do seu horário na {{2}}: {{3}} com {{4}}. Se não puder vir, responda CANCELAR.',
+    body: 'Olá, {{1}}! Lembrete do seu horário na {{2}}: {{3}} com {{4}}. Você confirma? Responda SIM para confirmar ou NÃO se não puder vir.',
     example: ['João', 'Barbearia Navalha de Ouro', 'amanhã (sábado, 24/10) às 11h', 'Paulo'],
+  },
+  espera: {
+    label: 'Vaga da lista de espera',
+    category: 'UTILITY',
+    body: 'Olá, {{1}}! Abriu uma vaga na {{2}}: {{3}} com {{4}}. Quer? Responda SIM para marcar.',
+    example: ['João', 'Barbearia Navalha de Ouro', 'sábado, 24/10 às 15h', 'Paulo'],
+  },
+  liberado: {
+    label: 'Horário liberado por falta de confirmação',
+    category: 'UTILITY',
+    body: 'Olá, {{1}}! Como não recebemos a sua confirmação, liberamos o horário de {{2}} na {{3}}. Se ainda quiser vir, responda que a gente vê outro horário.',
+    example: ['João', 'sábado, 24/10 às 11h', 'Barbearia Navalha de Ouro'],
   },
   costume: {
     label: 'Oferta do horário de costume',

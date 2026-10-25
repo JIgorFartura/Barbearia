@@ -8,6 +8,7 @@ import { all, get } from '../db.js';
 import { customerHabit } from '../habits.js';
 import type { HistoryItem } from '../messaging.js';
 import { activeBarbers, services, upcomingFor } from '../scheduling.js';
+import { customerWaitlist, describeWait } from '../waitlist.js';
 import { shopNow } from '../clock.js';
 import { addDays, dayLabel, hourLabel, WEEKDAYS } from '../time.js';
 import { runTool, toolDefinitions, type BotContext } from './tools.js';
@@ -26,7 +27,8 @@ Regras:
 - Use as ferramentas para tudo que envolve agenda, cartão, benefícios e parceiros. Nunca invente horários livres, preços, carimbos ou códigos.
 - Datas: converta "sexta", "amanhã", "dia 31" usando o CALENDÁRIO do contexto. Horas no formato HH:MM.
 - Para marcar: se o cliente já disse dia, hora e barbeiro (ou "qualquer um"), confira com ver_horarios_livres e marque com agendar. Se faltar algo, pergunte só o que falta. Sem barbeiro preferido, escolha um que esteja livre no horário pedido.
-- Se o horário pedido estiver ocupado, ofereça os 2 ou 3 horários livres mais próximos.
+- Se o horário pedido estiver ocupado, ofereça os 2 ou 3 horários livres mais próximos. Se o dia estiver lotado (ou o cliente só puder naquele dia), ofereça a lista de espera (entrar_lista_espera): quando abrir vaga, você avisa e o SIM marca.
+- Se o cliente disser que vai vir no horário marcado, confirme a presença com confirmar_presenca.
 - Se existir OFERTA PENDENTE no contexto e o cliente aceitar ou pedir ajuste, use agendar com os dados dela (ou com o ajuste pedido).
 - Antes de cancelar, confirme qual horário. Depois de marcar ou cancelar, confirme dia, hora, barbeiro e serviço.
 - Quem não é cliente: antes de marcar ou pegar voucher, pergunte o nome e use cadastrar_cliente. Na mensagem seguinte ao cadastro, avise em uma frase curta que os dados dele seguem a política de privacidade da barbearia e mande o link politica_privacidade.
@@ -116,16 +118,22 @@ export function buildContext(ctx: BotContext): string {
     }
     const upcoming = upcomingFor(c.id, ctx.now);
     lines.push(
-      `Próximos horários: ${upcoming.length ? upcoming.map((a) => `${dayLabel(a.starts_at.slice(0, 10))} às ${hourLabel(a.starts_at.slice(11))} com ${a.barber_name} (${a.service_name}, id ${a.id})`).join('; ') : 'nenhum'}.`,
+      `Próximos horários: ${upcoming.length ? upcoming.map((a) => `${dayLabel(a.starts_at.slice(0, 10))} às ${hourLabel(a.starts_at.slice(11))} com ${a.barber_name} (${a.service_name}, id ${a.id}${a.confirmed_at ? ', presença confirmada' : ''})`).join('; ') : 'nenhum'}.`,
     );
+    const waiting = customerWaitlist(c.id, ctx.now);
+    if (waiting.length) lines.push(`Na lista de espera: ${waiting.map(describeWait).join('; ')}.`);
     if (c.reminders_opt_out) lines.push('Ele pediu para não receber lembretes automáticos.');
     const usual = usualConsumption(c.id);
     if (usual.length) lines.push(`Consumo de costume quando vem: ${usual.map((u) => `${u.qty} ${u.name} (produto_id ${u.productId})`).join('; ')}.`);
-    const question = get<{ appointment_id: number; payload: string }>(
-      "SELECT appointment_id, payload FROM bot_questions WHERE customer_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
+    const question = get<{ kind: string; appointment_id: number; payload: string }>(
+      "SELECT kind, appointment_id, payload FROM bot_questions WHERE customer_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
       [c.id],
     );
-    if (question) {
+    if (question?.kind === 'presenca') {
+      lines.push(
+        `PERGUNTA PENDENTE (o lembrete perguntou): o cliente confirma a presença no horário (agendamento_id ${question.appointment_id})? Se ele disser que vem, use confirmar_presenca; se não puder vir, cancelar_horario (a vaga vai para a lista de espera).`,
+      );
+    } else if (question) {
       lines.push(
         `PERGUNTA PENDENTE (você perguntou): posso avisar o barbeiro para separar ${describeItems(JSON.parse(question.payload))} (agendamento_id ${question.appointment_id})? Se o cliente aceitar ou ajustar, use reservar_consumo.`,
       );

@@ -7,6 +7,8 @@ import { all, get, nowIso, run, tx } from '../db.js';
 import { reservedItems } from '../consumption.js';
 import { HttpError, idParam, normalizePhone, parseBody, zBool, zId, zText, zUrl } from '../http.js';
 import { book, cancel, dayAgenda, freeTimes, upcomingFor } from '../scheduling.js';
+import { confirmAppointment } from '../attendance.js';
+import { PERIOD_IDS, joinWaitlist, leaveWaitlist, shopWaitlist, slotFreed, type Period } from '../waitlist.js';
 import { shopNow } from '../clock.js';
 import { addDays, isDate, isTime, toMinutes } from '../time.js';
 
@@ -223,8 +225,36 @@ export function registerAgendaRoutes(router: Router): void {
       ...a,
       items: reservedItems(a.id),
       sale: get<{ id: number; total_cents: number; method: string }>("SELECT id, total_cents, method FROM sales WHERE appointment_id = ? AND status = 'closed'", [a.id]) ?? null,
+      // O lembrete pediu a confirmação e ainda não veio a resposta.
+      awaiting: !a.confirmed_at && Boolean(get("SELECT 1 AS ok FROM bot_questions WHERE appointment_id = ? AND kind = 'presenca' AND status = 'pending'", [a.id])),
     }));
-    res.json({ date, barbers: barbersWithHours(shop).filter((b) => b.active), appointments, blocks });
+    res.json({ date, barbers: barbersWithHours(shop).filter((b) => b.active), appointments, blocks, waitlist: shopWaitlist(shop, date) });
+  });
+
+  // ---------- lista de espera (o dono vê a fila do dia, coloca quem ligou e tira quem desistiu)
+
+  router.post('/waitlist', (req, res) => {
+    const body = parseBody(
+      z.object({ customer_id: zId, date: zDay, barber_id: zId.nullish(), service_id: zId.nullish(), period: z.enum(PERIOD_IDS as [Period, ...Period[]]).default('qualquer') }),
+      req.body,
+    );
+    const shop = shopId(req);
+    res.status(201).json(
+      joinWaitlist({ shopId: shop, customerId: body.customer_id, date: body.date, barberId: body.barber_id, serviceId: body.service_id, period: body.period, source: 'painel' }),
+    );
+    // Se já tem vaga que serve, a oferta sai agora.
+    slotFreed(shop);
+  });
+
+  router.delete('/waitlist/:id', (req, res) => {
+    leaveWaitlist(shopId(req), idParam(req));
+    res.json({ ok: true });
+  });
+
+  /** O cliente avisou de outro jeito (ligou, mandou mensagem): o dono confirma ou desfaz. */
+  router.post('/appointments/:id/confirm', (req, res) => {
+    const { confirmed } = parseBody(z.object({ confirmed: z.boolean().default(true) }), req.body ?? {});
+    res.json(confirmAppointment(shopId(req), idParam(req), { confirmed }));
   });
 
   router.get('/availability', (req, res) => {
@@ -259,7 +289,10 @@ export function registerAgendaRoutes(router: Router): void {
   });
 
   router.post('/appointments/:id/cancel', (req, res) => {
-    res.json(cancel(shopId(req), idParam(req)));
+    const a = cancel(shopId(req), idParam(req));
+    // A vaga vai na hora para quem está na lista de espera.
+    slotFreed(shopId(req));
+    res.json(a);
   });
 
   /** Falta (no_show) ou desfazer a falta. */

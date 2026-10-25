@@ -18,6 +18,7 @@ const { hashPassword } = await import('../auth.js');
 const { book } = await import('../scheduling.js');
 const { appointmentReminders } = await import('../automations.js');
 const { shopBot } = await import('../messaging.js');
+const { handleInbound } = await import('../bot/inbound.js');
 const { metaBody, zMetaConfig } = await import('../whatsapp.js');
 const { checkConnections, setConnection } = await import('../connection.js');
 
@@ -98,7 +99,7 @@ describe('modelos da Meta por tipo de mensagem', () => {
     assert.equal(reply.type, 'text');
   });
 
-  test('lembrete pela Meta: modelo fora da janela (sem a pergunta da cerveja); texto com a pergunta dentro dela', async () => {
+  test('lembrete pela Meta: modelo fora da janela (pede a confirmação); texto dentro dela, e a cerveja depois do SIM', async () => {
     // João toma cerveja toda vez: o lembrete costuma perguntar se pode separar.
     const beer = run("INSERT INTO catalog_items (barbershop_id, kind, name, price_cents, created_at) VALUES (?, 'product', 'Cerveja', 1200, ?)", [shopId, nowIso()]).lastInsertRowid;
     for (const day of ['2026-10-02', '2026-10-09']) {
@@ -117,9 +118,13 @@ describe('modelos da Meta por tipo de mensagem', () => {
     assert.equal(sent.body.type, 'template');
     assert.equal(sent.body.template.name, 'lembrete_horario');
     assert.equal(sent.body.template.components[0].parameters[0].text, 'João');
-    assert.equal(get<{ n: number }>("SELECT COUNT(*) AS n FROM bot_questions WHERE customer_id = ? AND status = 'pending'", [joao])!.n, 0);
+    // O modelo aprovado também pede a confirmação: o SIM do cliente confirma a presença (não separa cerveja sem ele ver).
+    assert.deepEqual(
+      all<{ kind: string }>("SELECT kind FROM bot_questions WHERE customer_id = ? AND status = 'pending'", [joao]).map((q) => q.kind),
+      ['presenca'],
+    );
 
-    // Cliente escreveu hoje: o próximo lembrete vai como texto, já com a pergunta.
+    // Cliente escreveu hoje: o próximo lembrete vai como texto, pedindo a confirmação; depois do SIM, a pergunta da cerveja.
     outbound.length = 0;
     run("INSERT INTO messages (barbershop_id, customer_id, phone, direction, kind, body, status, created_at) VALUES (?, ?, '11999990000', 'in', 'chat', 'oi', 'received', ?)", [
       shopId,
@@ -130,7 +135,10 @@ describe('modelos da Meta por tipo de mensagem', () => {
     assert.equal(await appointmentReminders(shopBot(shopId), at('2026-11-03 12:00')), 1);
     const text = outbound.find((o) => o.url.includes('graph.facebook.com'))!;
     assert.equal(text.body.type, 'text');
-    assert.match(text.body.text.body, /Posso avisar o Paulo/);
+    assert.match(text.body.text.body, /Você confirma\?/);
+    const yes = await handleInbound({ shopId, from: '5511999990000', text: 'sim', now: at('2026-11-03 12:05'), dryRun: true });
+    assert.match(yes!, /Confirmado, João! ✅/);
+    assert.match(yes!, /Posso avisar o Paulo/);
   });
 });
 

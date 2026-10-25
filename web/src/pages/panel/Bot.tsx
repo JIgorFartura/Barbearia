@@ -18,6 +18,8 @@ interface Settings {
   winback_enabled: boolean;
   winback_days: number;
   winback_message: string | null;
+  /** Libera o horário de quem não confirmou até N horas antes (null = não libera). */
+  confirm_release_hours: number | null;
   llm: boolean;
   connection: Connection | null;
   templates: TemplateInfo[];
@@ -186,9 +188,21 @@ function RemindersTab({ s, set }: { s: Settings; set: SetFn }) {
   return (
     <div className="grid max-w-4xl gap-4 lg:grid-cols-2">
       <Card className="space-y-3">
-        <p className="font-semibold">Lembrete do horário marcado</p>
-        <p className="text-sm text-zinc-500">Todo agendamento (site, WhatsApp ou balcão) recebe um aviso antes, com a opção de responder CANCELAR.</p>
-        <select className={inputClass} value={s.reminder_hours} onChange={(e) => set('reminder_hours', Number(e.target.value))}>
+        <p className="font-semibold">Lembrete e confirmação de presença</p>
+        <p className="text-sm text-zinc-500">
+          Todo agendamento (site, WhatsApp ou balcão) recebe um aviso antes pedindo a confirmação: SIM confirma; NÃO cancela e a vaga vai na hora para quem
+          está na lista de espera.
+        </p>
+        <select
+          className={inputClass}
+          value={s.reminder_hours}
+          onChange={(e) => {
+            const hours = Number(e.target.value);
+            set('reminder_hours', hours);
+            // A liberação precisa deixar pelo menos 2 horas para o cliente responder.
+            if (s.confirm_release_hours && (hours <= 0 || s.confirm_release_hours > hours - 2)) set('confirm_release_hours', null);
+          }}
+        >
           <option value={0}>Desligado</option>
           {[2, 3, 6, 12, 24, 48].map((h) => (
             <option key={h} value={h}>
@@ -196,6 +210,24 @@ function RemindersTab({ s, set }: { s: Settings; set: SetFn }) {
             </option>
           ))}
         </select>
+        {s.reminder_hours >= 3 && (
+          <Field label="Quem não confirmar" hint="A pessoa recebe um aviso de que o horário foi liberado, e a vaga vai para a lista de espera.">
+            <select
+              className={inputClass}
+              value={s.confirm_release_hours ?? ''}
+              onChange={(e) => set('confirm_release_hours', e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">Mantém o horário (só fica marcado como não confirmado)</option>
+              {[1, 2, 3, 4, 6, 12, 24]
+                .filter((h) => h <= s.reminder_hours - 2)
+                .map((h) => (
+                  <option key={h} value={h}>
+                    Libera o horário {h} {h === 1 ? 'hora' : 'horas'} antes
+                  </option>
+                ))}
+            </select>
+          </Field>
+        )}
       </Card>
       <Card className="space-y-3">
         <label className="flex items-center gap-2 font-semibold">

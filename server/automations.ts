@@ -6,6 +6,8 @@ import { clubBilling } from './club.js';
 import { birthdayGifts } from './growth.js';
 import { syncAsaasCharges } from './asaas.js';
 import { syncCardLinks } from './cards.js';
+import { askPresence, presenceText, releaseUnconfirmed } from './attendance.js';
+import { offerFreedSlots } from './waitlist.js';
 import { errorAlerts } from './errors.js';
 import { invoiceReminders } from './invoiceReminders.js';
 import { accessStatus, ensureInvoices } from './billing.js';
@@ -111,8 +113,8 @@ export async function appointmentReminders(shop: ShopBot, now: Date): Promise<nu
   const n = shopNow(shop.id, now);
   const tz = shopTz(shop.id);
   const windowMin = shop.reminder_hours * 60;
-  const rows = all<CustomerLite & { appt_id: number; starts_at: string; created_at: string; barber_name: string; service_name: string }>(
-    `SELECT a.id AS appt_id, a.starts_at, a.created_at, a.service_name, b.name AS barber_name, c.id, c.name, c.phone, c.wa_id
+  const rows = all<CustomerLite & { appt_id: number; starts_at: string; created_at: string; confirmed_at: string | null; barber_name: string; service_name: string }>(
+    `SELECT a.id AS appt_id, a.starts_at, a.created_at, a.confirmed_at, a.service_name, b.name AS barber_name, c.id, c.name, c.phone, c.wa_id
        FROM appointments a JOIN customers c ON c.id = a.customer_id JOIN barbers b ON b.id = a.barber_id
       WHERE a.barbershop_id = ? AND a.status = 'scheduled' AND a.starts_at > ? AND a.starts_at <= ?`,
     [shop.id, n.stamp, addMinutes(n.stamp, windowMin)],
@@ -125,14 +127,22 @@ export async function appointmentReminders(shop: ShopBot, now: Date): Promise<nu
     log(shop.id, r.id, 'lembrete', String(r.appt_id));
     const date = r.starts_at.slice(0, 10);
     const when = `${relativeDay(date, n.date)}${relativeDay(date, n.date) === dayLabel(date) ? '' : ` (${dayLabel(date)})`} às ${hourLabel(r.starts_at.slice(11))}`;
-    // Se ele costuma consumir algo e ainda não pediu, o lembrete já pergunta (o SIM separa e avisa o barbeiro).
-    // Pelo modelo da Meta o texto é fixo: aí não pergunta, para um "SIM" não separar nada sem ele ter visto.
-    const ask = sendsTemplate(shop, r.phone) ? null : askConsumption(shop.id, r.appt_id, now);
+    // O lembrete pede a confirmação (SIM confirma; NÃO libera a vaga para a lista de espera). Já confirmado:
+    // se ele costuma consumir algo e ainda não pediu, pergunta (o SIM separa e avisa o barbeiro). Pelo modelo
+    // da Meta o texto é fixo (e pede a confirmação): aí não pergunta do consumo.
+    let tail: string;
+    if (!r.confirmed_at) {
+      askPresence(shop.id, r.id, r.appt_id, now);
+      tail = presenceText(shop, r.phone) || ' Se não puder vir, responda NÃO.';
+    } else {
+      const ask = sendsTemplate(shop, r.phone) ? null : askConsumption(shop.id, r.appt_id, now);
+      tail = ` Presença confirmada ✅. Se não puder vir, responda CANCELAR.${ask ? `\n${ask}` : ''}`;
+    }
     await send(
       shop,
       r,
       'lembrete',
-      `Oi, ${firstName(r.name)}! Lembrete do ${shop.bot_name} 💈: seu horário na ${shop.name} é ${when} com ${r.barber_name} (${r.service_name}). Se não puder vir, responda CANCELAR.${ask ? `\n${ask}` : ''}`,
+      `Oi, ${firstName(r.name)}! Lembrete do ${shop.bot_name} 💈: seu horário na ${shop.name} é ${when} com ${r.barber_name} (${r.service_name}).${tail}`,
       { kind: 'lembrete', params: [firstName(r.name), shop.name, when, r.barber_name] },
     );
     sent++;
@@ -277,6 +287,10 @@ export interface RunSummary {
   reviews: number;
   club: number;
   birthdays: number;
+  /** Horários liberados por falta de confirmação. */
+  released: number;
+  /** Vagas oferecidas para quem estava na lista de espera. */
+  waitlist: number;
 }
 
 let running = false;
@@ -291,7 +305,7 @@ export const automationStatus: { lastRun: string | null; lastSummary: RunSummary
 
 /** Roda tudo uma vez. Chamado a cada minuto; cada envio é registrado para não repetir. */
 export async function runAutomations(now: Date = new Date()): Promise<RunSummary> {
-  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0 };
+  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0 };
   if (running) return summary;
   running = true;
   try {
@@ -322,6 +336,14 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
       // Cada barbearia no seu relógio: ofertas vencidas e horário comercial pelo fuso dela.
       const n = shopNow(id, now);
       run("UPDATE bot_offers SET status = 'expired' WHERE barbershop_id = ? AND status = 'pending' AND starts_at <= ?", [id, n.stamp]);
+      // Horário de quem não confirmou (se a barbearia ligou) e vaga aberta para a lista de espera: têm o
+      // próprio horário de envio (são resposta ao que o cliente pediu), fora a regra das automáticas.
+      try {
+        summary.released += await releaseUnconfirmed(shop, now);
+        summary.waitlist += await offerFreedSlots(shop, now);
+      } catch (err) {
+        console.error(`[lista de espera] ${shop.slug}:`, err);
+      }
       if (n.time < SEND_FROM || n.time >= SEND_UNTIL) continue;
       // Mensalidade em atraso além da carência: sem disparos até regularizar.
       if (accessStatus(id, now).blocked) continue;

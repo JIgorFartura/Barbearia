@@ -1,10 +1,10 @@
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, Search, Users } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Clock, MessageCircle, Plus, Search, Users } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { CheckoutModal } from '../../components/Checkout';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { methodLabel } from '../../lib/finance';
 import { api } from '../../lib/api';
-import { addDays, cap, dayLabel, hourLabel, money, phone, todayStr, weekdayOf } from '../../lib/format';
+import { addDays, cap, dayLabel, hourLabel, money, phone, todayStr, weekdayOf, whatsappLink } from '../../lib/format';
 import { navigate } from '../../lib/router';
 
 interface Appointment {
@@ -24,6 +24,24 @@ interface Appointment {
   items: { catalog_item_id: number; name: string; qty: number }[];
   /** Venda que fechou o atendimento. */
   sale: { id: number; total_cents: number; method: string } | null;
+  /** O cliente confirmou a presença. */
+  confirmed_at: string | null;
+  /** O lembrete pediu a confirmação e a resposta ainda não veio. */
+  awaiting: boolean;
+}
+
+type Period = 'qualquer' | 'manha' | 'tarde' | 'noite';
+const PERIOD_LABEL: Record<Period, string> = { qualquer: 'qualquer horário', manha: 'de manhã', tarde: 'à tarde', noite: 'à noite' };
+
+interface WaitItem {
+  id: number;
+  customer_name: string;
+  phone: string;
+  barber_name: string | null;
+  service_name: string | null;
+  period: Period;
+  offers: number;
+  created_at: string;
 }
 
 interface BarberRow {
@@ -37,6 +55,8 @@ interface AgendaData {
   barbers: BarberRow[];
   appointments: Appointment[];
   blocks: { id: number; barber_id: number; starts_at: string; ends_at: string; reason: string | null }[];
+  /** Lista de espera do dia (na ordem de chegada). */
+  waitlist: WaitItem[];
 }
 
 const SOURCE: Record<Appointment['source'], string> = { painel: 'Balcão', cliente: 'Site', whatsapp: 'WhatsApp' };
@@ -54,16 +74,22 @@ export function Agenda() {
   }, [date]);
   useEffect(load, [load]);
 
-  async function act(a: Appointment, action: 'cancel' | 'no_show' | 'scheduled') {
+  async function act(a: Appointment, action: 'cancel' | 'no_show' | 'scheduled' | 'confirm') {
     setError(null);
-    if (action === 'cancel' && !confirm(`Cancelar o horário de ${a.customer_name} (${a.starts_at.slice(11)})?`)) return;
+    if (action === 'cancel' && !confirm(`Cancelar o horário de ${a.customer_name} (${a.starts_at.slice(11)})? Se tiver alguém na lista de espera, a vaga é oferecida.`)) return;
     try {
       if (action === 'cancel') await api('POST', `/api/shop/appointments/${a.id}/cancel`);
+      else if (action === 'confirm') await api('POST', `/api/shop/appointments/${a.id}/confirm`, { confirmed: true });
       else await api('POST', `/api/shop/appointments/${a.id}/status`, { status: action });
       load();
     } catch (err) {
       setError((err as Error).message);
     }
+  }
+
+  async function removeWait(w: WaitItem) {
+    if (!confirm(`Tirar ${w.customer_name} da lista de espera?`)) return;
+    await api('DELETE', `/api/shop/waitlist/${w.id}`).then(load, (e) => setError(e.message));
   }
 
   const weekday = weekdayOf(date);
@@ -143,6 +169,13 @@ export function Agenda() {
                           {item.appt.status === 'cancelled' ? 'Cancelado' : item.appt.status === 'no_show' ? 'Faltou' : SOURCE[item.appt.source]}
                         </Badge>
                       </div>
+                      {item.appt.status === 'scheduled' &&
+                        !item.appt.sale &&
+                        (item.appt.confirmed_at ? (
+                          <p className="mt-1 text-xs font-medium text-emerald-700">✓ Presença confirmada</p>
+                        ) : (
+                          item.appt.awaiting && <p className="mt-1 text-xs font-medium text-amber-700">Aguardando a confirmação do cliente</p>
+                        ))}
                       {item.appt.items.length > 0 && (
                         <p className="mt-1 text-xs font-medium text-amber-800">🍺 Separar: {item.appt.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
                       )}
@@ -158,6 +191,11 @@ export function Agenda() {
                               <button className="rounded-md bg-zinc-900 px-2 py-0.5 font-semibold text-white hover:bg-zinc-700" onClick={() => setClosing(item.appt!.id)}>
                                 Fechar
                               </button>
+                              {!item.appt.confirmed_at && (
+                                <button className="text-zinc-500 hover:text-zinc-900" onClick={() => act(item.appt!, 'confirm')} title="O cliente confirmou por telefone ou mensagem">
+                                  Confirmou
+                                </button>
+                              )}
                               <button className="text-zinc-500 hover:text-zinc-900" onClick={() => act(item.appt!, 'no_show')}>
                                 Faltou
                               </button>
@@ -189,6 +227,45 @@ export function Agenda() {
           );
         })}
       </div>
+
+      {data && data.barbers.length > 0 && (
+        <Card className="mt-4 !p-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-2 font-semibold">
+              <Clock className="size-4" /> Lista de espera do dia {data.waitlist.length > 0 && <Badge tone="gold">{data.waitlist.length}</Badge>}
+            </p>
+            <span className="text-xs text-zinc-500">Abriu vaga, o robô oferece no WhatsApp na ordem da fila (30 minutos para cada um responder).</span>
+          </div>
+          {data.waitlist.length === 0 ? (
+            <p className="text-sm text-zinc-400">Ninguém esperando vaga neste dia. Para pôr alguém, use Novo horário num dia sem vaga.</p>
+          ) : (
+            <ol className="divide-y divide-zinc-100 text-sm">
+              {data.waitlist.map((w, i) => (
+                <li key={w.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <span className="min-w-0">
+                    <b>
+                      {i + 1}. {w.customer_name}
+                    </b>{' '}
+                    <span className="text-zinc-500">
+                      · {PERIOD_LABEL[w.period]}
+                      {w.barber_name ? ` · com ${w.barber_name}` : ''}
+                      {w.offers > 0 ? ` · ${w.offers} vaga(s) oferecida(s)` : ''}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-3 text-xs">
+                    <a href={whatsappLink(w.phone)} target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-emerald-700" aria-label={`WhatsApp de ${w.customer_name}`}>
+                      <MessageCircle className="size-4" />
+                    </a>
+                    <button className="text-red-600 hover:underline" onClick={() => removeWait(w)}>
+                      Tirar
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </Card>
+      )}
 
       {closing && (
         <CheckoutModal
@@ -234,6 +311,7 @@ function NewAppointmentModal({ date: initialDate, barbers, onClose, onDone }: { 
   const [date, setDate] = useState(initialDate);
   const [times, setTimes] = useState<string[]>([]);
   const [time, setTime] = useState('');
+  const [period, setPeriod] = useState<Period>('qualquer');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -265,6 +343,22 @@ function NewAppointmentModal({ date: initialDate, barbers, onClose, onDone }: { 
       let c = customer;
       if (!c) c = await api<CustomerLite>('POST', '/api/shop/customers', newCustomer);
       await api('POST', '/api/shop/appointments', { customer_id: c.id, barber_id: barberId, service_id: serviceId, date, time });
+      onDone(date);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Dia lotado: o cliente entra na lista de espera e o robô avisa quando abrir vaga. */
+  async function wait() {
+    setBusy(true);
+    setError(null);
+    try {
+      let c = customer;
+      if (!c) c = await api<CustomerLite>('POST', '/api/shop/customers', newCustomer);
+      await api('POST', '/api/shop/waitlist', { customer_id: c.id, barber_id: barberId, service_id: serviceId, date, period });
       onDone(date);
     } catch (err) {
       setError((err as Error).message);
@@ -348,7 +442,26 @@ function NewAppointmentModal({ date: initialDate, barbers, onClose, onDone }: { 
             ))}
           </div>
         )}
-        {times.length === 0 && <p className="flex items-center gap-1 text-xs text-zinc-500"><CalendarDays className="size-3.5" /> Sem horários livres nesse dia para esse barbeiro.</p>}
+        {times.length === 0 && (
+          <div className="space-y-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-950 ring-1 ring-amber-200">
+            <p className="flex items-center gap-1">
+              <CalendarDays className="size-4 shrink-0" /> Sem horários livres nesse dia para esse barbeiro. Dá para encaixar mesmo assim (hora acima) ou pôr na
+              lista de espera: abriu vaga, o robô oferece no WhatsApp.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select className={`${inputClass} !w-auto !py-1.5`} value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label="Período">
+                {(Object.keys(PERIOD_LABEL) as Period[]).map((p) => (
+                  <option key={p} value={p}>
+                    {cap(PERIOD_LABEL[p])}
+                  </option>
+                ))}
+              </select>
+              <Button type="button" variant="ghost" className="!py-1.5" loading={busy} disabled={!customer && (!newCustomer.name || !newCustomer.phone)} onClick={wait}>
+                <Clock className="size-4" /> Pôr na lista de espera
+              </Button>
+            </div>
+          </div>
+        )}
         <ErrorText error={error} />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>

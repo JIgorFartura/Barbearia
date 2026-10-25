@@ -40,11 +40,13 @@ export interface AppointmentView {
   status: 'scheduled' | 'cancelled' | 'no_show';
   source: Source;
   notes: string | null;
+  /** O cliente confirmou a presença (resposta ao lembrete, área do cliente ou o dono marcou). */
+  confirmed_at: string | null;
 }
 
 const APPOINTMENT_SELECT = `
   SELECT a.id, a.customer_id, c.name AS customer_name, c.phone AS customer_phone, a.barber_id, b.name AS barber_name,
-         a.service_id, a.service_name, a.price_cents, a.starts_at, a.ends_at, a.status, a.source, a.notes
+         a.service_id, a.service_name, a.price_cents, a.starts_at, a.ends_at, a.status, a.source, a.notes, a.confirmed_at
     FROM appointments a
     JOIN customers c ON c.id = a.customer_id
     JOIN barbers b ON b.id = a.barber_id`;
@@ -223,6 +225,8 @@ export function book(input: BookInput): AppointmentView {
         nowIso(),
       ],
     );
+    // Quem estava na lista de espera desse dia já tem o horário.
+    run("UPDATE waitlist SET status = 'booked' WHERE customer_id = ? AND date = ? AND status = 'waiting'", [input.customerId, input.date]);
     return appointment(lastInsertRowid)!;
   });
 }

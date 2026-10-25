@@ -16,6 +16,8 @@ import { claimVoucher, customerVouchers, offersFor } from '../offers.js';
 import { customerPayments } from '../payments.js';
 import { notifyReceipt, receiptInfo, saveReceipt, sendReceipt } from '../receipts.js';
 import { activeBarbers, book, cancel, freeTimes, historyFor, services, upcomingFor } from '../scheduling.js';
+import { confirmAppointment } from '../attendance.js';
+import { PERIOD_IDS, customerWaitlist, joinWaitlist, leaveWaitlist, slotFreed, type Period } from '../waitlist.js';
 import { isDate, isTime } from '../time.js';
 
 /**
@@ -53,6 +55,8 @@ customerRouter.get('/me', (req, res) => {
     habit: customerHabit(customerId),
     lastVisit: lastVisitDate(customerId),
     upcoming: upcomingFor(customerId).map((a) => ({ ...a, items: reservedItems(a.id) })),
+    // Dias em que ele está na lista de espera (o robô avisa quando abrir vaga).
+    waitlist: customerWaitlist(customerId).map(({ id, date, period, barber_id, barber_name, service_name, offers }) => ({ id, date, period, barber_id, barber_name, service_name, offers })),
     history: historyFor(customerId).slice(0, 10),
     // Os pagamentos dele (é dele por direito): compras e clube, com data, forma e o comprovante que ele mandou.
     // Nada interno (comissão, barbeiro do produto...).
@@ -111,7 +115,39 @@ customerRouter.post('/appointments/:id/items', async (req, res) => {
 
 customerRouter.post('/appointments/:id/cancel', (req, res) => {
   const { shopId, customerId } = ctx(req);
-  res.json(cancel(shopId, idParam(req), { customerId }));
+  const a = cancel(shopId, idParam(req), { customerId });
+  // A vaga vai na hora para quem está na lista de espera.
+  slotFreed(shopId);
+  res.json(a);
+});
+
+customerRouter.post('/appointments/:id/confirm', (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  res.json(confirmAppointment(shopId, idParam(req), { customerId }));
+});
+
+/** Lista de espera: dia sem horário livre (com barbeiro e período, se quiser). */
+customerRouter.post('/waitlist', (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const body = parseBody(
+    z.object({
+      date: z.string().refine(isDate, 'Data inválida.'),
+      barber_id: zId.nullish(),
+      service_id: zId.nullish(),
+      period: z.enum(PERIOD_IDS as [Period, ...Period[]]).default('qualquer'),
+    }),
+    req.body,
+  );
+  const w = joinWaitlist({ shopId, customerId, date: body.date, barberId: body.barber_id, serviceId: body.service_id, period: body.period, source: 'cliente' });
+  // Se já tem vaga que serve (alguém acabou de cancelar), a oferta sai agora.
+  slotFreed(shopId);
+  res.status(201).json({ id: w.id, date: w.date, period: w.period, barber_id: w.barber_id, barber_name: w.barber_name, service_name: w.service_name, offers: w.offers });
+});
+
+customerRouter.delete('/waitlist/:id', (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  leaveWaitlist(shopId, idParam(req), { customerId });
+  res.json({ ok: true });
 });
 
 customerRouter.post('/offers/:id/claim', (req, res) => {

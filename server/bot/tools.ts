@@ -9,6 +9,8 @@ import { birthdayKey, customerReferral, setReferrer, welcomeReferred } from '../
 import type { CustomerRow, ShopBot } from '../messaging.js';
 import { claimVoucher, customerVouchers, offersFor } from '../offers.js';
 import { book, cancel, freeTimes, upcomingFor, type AppointmentView } from '../scheduling.js';
+import { confirmAppointment } from '../attendance.js';
+import { PERIOD_IDS, PERIODS, customerWaitlist, describeWait, joinWaitlist, slotFreed } from '../waitlist.js';
 import { dayLabel, hourLabel, isTime, WEEKDAYS } from '../time.js';
 
 /** O que o robô sabe sobre a conversa atual. Todas as ferramentas ficam presas a esta barbearia e a este celular. */
@@ -47,6 +49,7 @@ const describeAppointment = (a: AppointmentView) => ({
   barbeiro: a.barber_name,
   servico: a.service_name,
   preco: (a.price_cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+  presenca_confirmada: Boolean(a.confirmed_at),
 });
 
 export const TOOLS = {
@@ -122,7 +125,41 @@ export const TOOLS = {
     schema: z.object({ agendamento_id: zId }),
     run: (ctx, input) => {
       const a = cancel(ctx.shop.id, input.agendamento_id, { customerId: ctx.customer!.id, now: ctx.now });
+      // A vaga vai na hora para quem está na lista de espera.
+      if (!ctx.dryRun) slotFreed(ctx.shop.id);
       return { ok: true, cancelado: describeAppointment(a) };
+    },
+  }),
+
+  confirmar_presenca: tool({
+    description: 'Confirma a presença do cliente num horário marcado (pegue o id em meus_horarios). Use quando ele disser que vai vir.',
+    needsCustomer: true,
+    schema: z.object({ agendamento_id: zId }),
+    run: (ctx, input) => ({ ok: true, confirmado: describeAppointment(confirmAppointment(ctx.shop.id, input.agendamento_id, { customerId: ctx.customer!.id, now: ctx.now })) }),
+  }),
+
+  entrar_lista_espera: tool({
+    description:
+      'Coloca o cliente na lista de espera de um dia sem horário livre (com barbeiro e período, se ele quiser). Quando abrir vaga, o robô oferece no WhatsApp e o SIM marca.',
+    needsCustomer: true,
+    schema: z.object({
+      data: zDate,
+      barbeiro_id: zId.optional().describe('Só com este barbeiro (opcional; vazio = qualquer um).'),
+      servico_id: zId.optional(),
+      periodo: z.enum(PERIOD_IDS as [string, ...string[]]).optional().describe('manha, tarde, noite ou qualquer (padrão).'),
+    }),
+    run: (ctx, input) => {
+      const w = joinWaitlist({
+        shopId: ctx.shop.id,
+        customerId: ctx.customer!.id,
+        date: input.data,
+        barberId: input.barbeiro_id,
+        serviceId: input.servico_id,
+        period: (input.periodo as keyof typeof PERIODS | undefined) ?? 'qualquer',
+        source: 'whatsapp',
+        now: ctx.now,
+      });
+      return { ok: true, lista_de_espera: describeWait(w), pedidos: customerWaitlist(ctx.customer!.id, ctx.now).map(describeWait) };
     },
   }),
 

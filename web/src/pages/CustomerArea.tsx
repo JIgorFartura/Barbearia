@@ -31,6 +31,21 @@ interface Appointment {
   starts_at: string;
   status: 'scheduled' | 'cancelled' | 'no_show';
   items?: { catalog_item_id: number; name: string; qty: number }[];
+  /** Presença confirmada (pelo lembrete, aqui ou pela barbearia). */
+  confirmed_at?: string | null;
+}
+
+type Period = 'qualquer' | 'manha' | 'tarde' | 'noite';
+const PERIOD_LABEL: Record<Period, string> = { qualquer: 'qualquer horário', manha: 'de manhã', tarde: 'à tarde', noite: 'à noite' };
+
+/** Dia em que ele está na lista de espera (o robô avisa no WhatsApp quando abrir vaga). */
+interface WaitEntry {
+  id: number;
+  date: string;
+  period: Period;
+  barber_id: number | null;
+  barber_name: string | null;
+  service_name: string | null;
 }
 
 interface Suggestion {
@@ -98,6 +113,7 @@ interface MeData {
   privacyAccepted: boolean;
   habit: Habit | null;
   upcoming: Appointment[];
+  waitlist: WaitEntry[];
   history: Appointment[];
   card: { id: number; name: string; unit_label: string; reward: string; progress: Progress }[];
   offers: Offer[];
@@ -328,6 +344,16 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
     reload();
   }
 
+  async function confirmAppt(a: Appointment) {
+    setError(null);
+    await api('POST', `/api/customer/${slug}/appointments/${a.id}/confirm`).then(reload, (e) => setError(e.message));
+  }
+
+  async function leaveWait(w: WaitEntry) {
+    setError(null);
+    await api('DELETE', `/api/customer/${slug}/waitlist/${w.id}`).then(reload, (e) => setError(e.message));
+  }
+
   async function claim(o: Offer) {
     setError(null);
     try {
@@ -374,7 +400,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
           )
         }
       >
-        {me.upcoming.length === 0 ? (
+        {me.upcoming.length === 0 && me.waitlist.length === 0 ? (
           <p className="text-sm text-zinc-500">Nenhum horário marcado. {me.barbers.length ? 'Que tal agendar agora?' : ''}</p>
         ) : (
           <ul className="space-y-2">
@@ -388,9 +414,30 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
                   {a.items && a.items.length > 0 && (
                     <p className="text-xs text-amber-800">🍺 Separado pra você: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
                   )}
+                  {a.confirmed_at ? (
+                    <p className="text-xs font-medium text-emerald-700">✓ Presença confirmada</p>
+                  ) : (
+                    <button className="mt-1 rounded-md px-2 py-0.5 text-xs font-semibold" style={accent} onClick={() => confirmAppt(a)}>
+                      Confirmar presença
+                    </button>
+                  )}
                 </div>
                 <button onClick={() => cancelAppt(a)} className="flex items-center gap-1 text-sm text-red-600 hover:underline">
                   <CalendarX className="size-4" /> Cancelar
+                </button>
+              </li>
+            ))}
+            {me.waitlist.map((w) => (
+              <li key={`w${w.id}`} className="flex items-center justify-between gap-3 rounded-xl px-4 py-3 ring-1 ring-amber-200">
+                <div>
+                  <p className="font-semibold">⏳ Lista de espera · {cap(dayLabel(w.date))}</p>
+                  <p className="text-sm text-zinc-500">
+                    {cap(PERIOD_LABEL[w.period])}
+                    {w.barber_name ? ` com ${w.barber_name}` : ', qualquer barbeiro'}. Abriu vaga, o {brand.bot_name} te avisa no WhatsApp.
+                  </p>
+                </div>
+                <button onClick={() => leaveWait(w)} className="shrink-0 text-sm text-zinc-500 hover:text-red-600">
+                  Sair
                 </button>
               </li>
             ))}
@@ -656,9 +703,24 @@ function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me:
   });
   const [slots, setSlots] = useState<{ barber: { id: number; name: string }; times: string[] }[] | null>(null);
   const [choice, setChoice] = useState<{ time: string; barberId: number; barberName: string } | null>(null);
+  const [period, setPeriod] = useState<Period>('qualquer');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const days = useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(todayStr(), i)), []);
+
+  /** Dia lotado: entra na lista de espera e o robô avisa quando abrir vaga. */
+  async function joinWaitlist() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api('POST', `/api/customer/${slug}/waitlist`, { date, barber_id: barberId, service_id: serviceId, period });
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     setSlots(null);
@@ -786,7 +848,21 @@ function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me:
           {slots === null ? (
             <p className="text-sm text-zinc-400">Carregando...</p>
           ) : times.length === 0 ? (
-            <p className="text-sm text-zinc-500">Nenhum horário livre nesse dia. Tente outro dia ou outro barbeiro.</p>
+            <div className="space-y-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-950 ring-1 ring-amber-200">
+              <p>Nenhum horário livre nesse dia{barberId ? ' com esse barbeiro' : ''}. Quer que a gente te avise se abrir uma vaga?</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <select className={`${inputClass} !w-auto !py-1.5`} value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label="Período">
+                  {(Object.keys(PERIOD_LABEL) as Period[]).map((p) => (
+                    <option key={p} value={p}>
+                      {cap(PERIOD_LABEL[p])}
+                    </option>
+                  ))}
+                </select>
+                <Button className="!py-1.5" loading={busy} style={{ background: accent, color: '#09090b' }} onClick={joinWaitlist}>
+                  Me avise se abrir vaga
+                </Button>
+              </div>
+            </div>
           ) : (
             <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
               {times.map(([t, b]) => (

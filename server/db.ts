@@ -927,6 +927,30 @@ const MIGRATIONS: (string | Rebuild)[] = [
   );
   CREATE INDEX error_log_last ON error_log (last_at);
   `,
+  // 14) Confirmação de presença no lembrete e lista de espera (vaga que abre vai para quem está esperando).
+  `
+  ALTER TABLE appointments ADD COLUMN confirmed_at TEXT;
+  -- Libera o horário de quem não confirmou até N horas antes (vazio = não libera).
+  ALTER TABLE barbershops ADD COLUMN confirm_release_hours INTEGER;
+
+  CREATE TABLE waitlist (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    -- Vazio = qualquer barbeiro / serviço padrão.
+    barber_id INTEGER REFERENCES barbers(id) ON DELETE SET NULL,
+    service_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL,
+    period TEXT NOT NULL DEFAULT 'qualquer' CHECK (period IN ('qualquer', 'manha', 'tarde', 'noite')),
+    status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'booked', 'expired', 'cancelled')),
+    offers INTEGER NOT NULL DEFAULT 0,
+    last_offer_at TEXT,
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX waitlist_shop ON waitlist (barbershop_id, status, date);
+  CREATE INDEX waitlist_customer ON waitlist (customer_id, status);
+  `,
 ];
 
 function migrate(): void {

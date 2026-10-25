@@ -29,6 +29,8 @@ interface Appointment {
   items: { catalog_item_id: number; name: string; qty: number }[];
   /** Fechado: a comissão dele nesse atendimento. */
   sale: { id: number; commission_cents: number } | null;
+  /** O cliente confirmou a presença. */
+  confirmed_at: string | null;
 }
 
 interface Earnings {
@@ -173,6 +175,7 @@ function BarberAgenda({ info }: { info: BarberMe }) {
                   <Badge tone="green">Pago</Badge>
                 ) : null}
               </div>
+              {a.status === 'scheduled' && !a.sale && a.confirmed_at && <p className="mt-1 text-sm font-medium text-emerald-700">✓ Presença confirmada</p>}
               {a.items.length > 0 && (
                 <p className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900">
                   🍺 Separar: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}
