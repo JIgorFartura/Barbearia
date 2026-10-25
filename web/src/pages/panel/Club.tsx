@@ -2,6 +2,7 @@ import { CreditCard, Crown, Pencil, Plus, Search, Send } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { OnlineSettingsCard } from '../../components/OnlinePay';
 import { PixSettingsCard } from '../../components/Pix';
+import { ReceiptPreview } from '../../components/Receipt';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
 import { METHODS, centsToInput, parseMoney, type Method } from '../../lib/finance';
@@ -24,6 +25,9 @@ interface OpenCharge {
   amount_cents: number;
   due_date: string | null;
   claimed_at: string | null;
+  /** Comprovante do PIX que o cliente mandou pela área dele. */
+  receipt_type: string | null;
+  receipt_at: string | null;
 }
 
 interface Member {
@@ -164,7 +168,8 @@ export function Club() {
                       {m.open_charge && (
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-zinc-50 px-3 py-2 text-sm">
                           <span>
-                            {m.open_charge.claimed_at ? 'PIX avisado pelo cliente' : 'Em aberto'}: <b className="tabular-nums">{money(m.open_charge.amount_cents)}</b>
+                            {m.open_charge.claimed_at ? (m.open_charge.receipt_at ? 'Comprovante enviado pelo cliente' : 'PIX avisado pelo cliente') : 'Em aberto'}:{' '}
+                            <b className="tabular-nums">{money(m.open_charge.amount_cents)}</b>
                             {m.open_charge.due_date && <span className="text-zinc-500"> · vence {date(m.open_charge.due_date)}</span>}
                           </span>
                           <span className="flex gap-2">
@@ -180,6 +185,14 @@ export function Club() {
                               Recebi
                             </Button>
                           </span>
+                          {m.open_charge.receipt_type && m.open_charge.receipt_at && (
+                            <div className="w-full">
+                              <ReceiptPreview
+                                url={`/api/shop/charges/${m.open_charge.id}/receipt`}
+                                receipt={{ type: m.open_charge.receipt_type, at: m.open_charge.receipt_at }}
+                              />
+                            </div>
+                          )}
                         </div>
                       )}
                       {m.status !== 'cancelled' && (

@@ -32,11 +32,11 @@ import { all, get, nowIso, run, tx } from './db.js';
 import type { Method } from './finance.js';
 import { gatewayPayment, upsertCardPayment } from './gatewayPayments.js';
 import { HttpError } from './http.js';
-import { addDays, localNow } from './time.js';
+import { localNow } from './time.js';
 
 /**
  * Cartão pela Cielo: a mensalidade do sistema (a barbearia paga a plataforma, no cartão automático) e,
- * dos clientes, o clube (cartão automático) e o sinal (avulso). O dinheiro cai na conta Cielo de quem
+ * dos clientes, o clube de assinatura (cartão automático). O dinheiro cai na conta Cielo de quem
  * recebe. A baixa é automática pelo aviso da Cielo, sempre conferido na própria Cielo.
  */
 
@@ -44,7 +44,7 @@ export interface CardLink {
   id: number;
   receiver: 'platform' | 'shop';
   barbershop_id: number;
-  kind: 'mensalidade' | 'clube' | 'sinal';
+  kind: 'mensalidade' | 'clube';
   recurrent: number;
   link_id: string;
   sku: string;
@@ -81,9 +81,7 @@ async function newLink(input: {
   name: string;
   description: string;
   sku: string;
-  chargeId?: number | null;
   memberId?: number | null;
-  expirationDate?: string | null;
 }): Promise<CardLink> {
   const creds = input.receiver === 'platform' ? platformCieloCreds() : shopCieloCreds(input.shopId);
   if (!creds) throw new HttpError(409, 'Pagamento com cartão indisponível.');
@@ -96,12 +94,11 @@ async function newLink(input: {
       amountCents: input.amountCents,
       sku: input.sku,
       recurrent: input.recurrent,
-      expirationDate: input.expirationDate,
     });
     const id = run(
-      `INSERT INTO card_links (receiver, barbershop_id, kind, recurrent, link_id, sku, url, amount_cents, charge_id, club_member_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [input.receiver, input.shopId, input.kind, input.recurrent ? 1 : 0, l.id, input.sku, l.url, input.amountCents, input.chargeId ?? null, input.memberId ?? null, nowIso()],
+      `INSERT INTO card_links (receiver, barbershop_id, kind, recurrent, link_id, sku, url, amount_cents, club_member_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [input.receiver, input.shopId, input.kind, input.recurrent ? 1 : 0, l.id, input.sku, l.url, input.amountCents, input.memberId ?? null, nowIso()],
     ).lastInsertRowid;
     return cardLink(id);
   } catch (err) {
@@ -206,7 +203,7 @@ export async function subscriptionPriceChanged(shopId: number): Promise<void> {
   if (l && l.amount_cents !== monthlyPrice(shopBilling(shopId))) await cancelLink(l);
 }
 
-// ---------- clientes da barbearia: clube (automático) e sinal (avulso)
+// ---------- clientes da barbearia: clube de assinatura (automático)
 
 const memberLink = (memberId: number) =>
   get<CardLink>("SELECT * FROM card_links WHERE club_member_id = ? AND kind = 'clube' AND status IN ('open', 'active') ORDER BY id DESC LIMIT 1", [memberId]);
@@ -248,32 +245,14 @@ async function clubCardLink(shopId: number, customerId: number, memberId: number
   return { url: l.url };
 }
 
-/** O cliente quer pagar no cartão: o sinal (avulso) ou a mensalidade do clube (automático todo mês). */
+/** O cliente quer pagar a mensalidade do clube no cartão (automático todo mês). */
 export async function payChargeByCard(shopId: number, customerId: number, chargeId: number): Promise<{ url: string }> {
   const status = shopCardStatus(shopId);
   if (!status.available) throw new HttpError(409, status.reason ?? 'Pagamento com cartão indisponível.');
   const c = charge(chargeId, shopId);
-  if (c.customer_id !== customerId) throw new HttpError(404, 'Cobrança não encontrada.');
+  if (c.customer_id !== customerId || !c.club_member_id) throw new HttpError(404, 'Cobrança não encontrada.');
   if (c.status !== 'open') throw new HttpError(409, 'Essa cobrança não está mais em aberto.');
-  if (c.kind === 'clube' && c.club_member_id) return clubCardLink(shopId, customerId, c.club_member_id);
-  const current = get<CardLink>("SELECT * FROM card_links WHERE charge_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1", [c.id]);
-  if (reusable(current, c.amount_cents)) return { url: current.url };
-  if (current) await cancelLink(current);
-  const shop = get<{ name: string }>('SELECT name FROM barbershops WHERE id = ?', [shopId])!;
-  const l = await newLink({
-    receiver: 'shop',
-    shopId,
-    kind: 'sinal',
-    recurrent: false,
-    amountCents: c.amount_cents,
-    name: c.description,
-    description: `${shop.name}: o sinal é descontado no dia do atendimento.`,
-    sku: `s${c.id}`,
-    chargeId: c.id,
-    // A Cielo só aceita data: o prazo do sinal (em minutos) quem controla é o sistema.
-    expirationDate: addDays(shopNow(shopId).date, 1),
-  });
-  return { url: l.url };
+  return clubCardLink(shopId, customerId, c.club_member_id);
 }
 
 /** O assinante cancelou: a Cielo para de cobrar o cartão (se falhar, devolve o aviso para o dono). */
@@ -386,7 +365,7 @@ function applyOrder(link: CardLink, o: PaidOrder, now: Date = new Date()): { ok:
   if (gatewayPayment(base.externalId)?.applied) return { ok: true, note: 'já aplicado' };
   const ref = tx(() => {
     const r: { invoiceId?: number; chargeId?: number; duplicate?: boolean } =
-      link.kind === 'mensalidade' ? payInvoice(link, o, now) : link.kind === 'clube' ? payClub(link, o, fee, now) : payDeposit(link, o, fee, now);
+      link.kind === 'mensalidade' ? payInvoice(link, o, now) : payClub(link, o, fee, now);
     upsertCardPayment({ ...base, ...r, applied: true, paidAt: localNow(now).date });
     run(
       `UPDATE card_links SET status = CASE WHEN status = 'cancelled' THEN status WHEN recurrent = 1 THEN 'active' ELSE 'paid' END,
@@ -440,17 +419,6 @@ function payClub(link: CardLink, o: PaidOrder, fee: number, now: Date): { charge
   return { chargeId };
 }
 
-function payDeposit(link: CardLink, o: PaidOrder, fee: number, now: Date): { chargeId?: number; duplicate?: boolean } {
-  const c = charge(link.charge_id!);
-  // Já tinha sido pago de outro jeito (ex.: PIX direto): a barbearia devolve.
-  if (c.status === 'paid') return { chargeId: c.id, duplicate: true };
-  // Pagou depois de a vaga ser liberada: o sinal vira crédito para o próximo horário.
-  if (c.status === 'cancelled') run("UPDATE charges SET status = 'open', expires_at = NULL, appointment_id = NULL WHERE id = ?", [c.id]);
-  confirmCharge(c.barbershop_id, c.id, { method: CASH_METHOD[o.method] ?? 'credito', userId: null, now });
-  cardFeeEntry(c.barbershop_id, c.id, fee, now);
-  return { chargeId: c.id };
-}
-
 /** Estornado na Cielo depois da baixa: sai do caixa da barbearia o que tinha ficado com ela. */
 function reverse(link: CardLink, chargeId: number | null, kept: number, now: Date) {
   tx(() => {
@@ -462,24 +430,23 @@ function reverse(link: CardLink, chargeId: number | null, kept: number, now: Dat
        VALUES (?, 'out', 'Outras saídas', ?, ?, 'credito', ?, 'paid', ?, ?)`,
       [c.barbershop_id, `Estorno do cartão (Cielo) · ${c.description}`, kept, shopNow(c.barbershop_id, now).date, c.id, nowIso()],
     );
-    if (c.kind === 'sinal' && !c.sale_id && !c.refunded_at) run('UPDATE charges SET refunded_at = ?, appointment_id = NULL WHERE id = ?', [nowIso(), c.id]);
   });
 }
 
 // ---------- conferência periódica
 
 /**
- * Roda de hora em hora: apaga os links que não valem mais (sinal pago de outro jeito ou vencido,
- * assinatura cancelada, link nunca pago há uma semana), insiste em parar a cobrança de quem cancelou
- * (e de barbearia suspensa) e confere na Cielo os pagamentos cujo aviso não chegou.
+ * Roda de hora em hora: apaga os links que não valem mais (assinatura cancelada, link nunca pago há
+ * uma semana), insiste em parar a cobrança de quem cancelou (e de barbearia suspensa) e confere na
+ * Cielo os pagamentos cujo aviso não chegou.
  */
 export async function syncCardLinks(now: Date = new Date()): Promise<{ removed: number; applied: number }> {
   let removed = 0;
   let applied = 0;
   const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
   const stale = all<CardLink>(
-    `SELECT l.* FROM card_links l LEFT JOIN charges c ON c.id = l.charge_id LEFT JOIN club_members m ON m.id = l.club_member_id
-      WHERE (l.status = 'open' AND (l.created_at < ? OR (l.kind = 'sinal' AND c.status <> 'open') OR (l.kind = 'clube' AND m.status = 'cancelled')))
+    `SELECT l.* FROM card_links l LEFT JOIN club_members m ON m.id = l.club_member_id
+      WHERE (l.status = 'open' AND (l.created_at < ? OR (l.kind = 'clube' AND m.status = 'cancelled')))
          OR (l.status = 'active' AND l.kind = 'clube' AND m.status = 'cancelled')
          OR (l.status = 'active' AND l.kind = 'mensalidade' AND EXISTS (SELECT 1 FROM barbershops b WHERE b.id = l.barbershop_id AND b.active = 0))
       LIMIT 30`,

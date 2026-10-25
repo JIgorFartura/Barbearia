@@ -1,6 +1,7 @@
 import { shopNow } from './clock.js';
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
+import { purgeReceipts } from './receipts.js';
 
 /**
  * LGPD. A barbearia é a controladora dos dados dos clientes dela; a plataforma é a operadora.
@@ -83,16 +84,18 @@ export function exportCustomerData(shopId: number, customerId: number) {
       [customerId],
     ),
     cobrancas: all(
-      'SELECT description AS descricao, amount_cents AS valor_centavos, status AS situacao, paid_at AS pago_em, created_at AS criada_em FROM charges WHERE customer_id = ? ORDER BY id',
+      `SELECT description AS descricao, amount_cents AS valor_centavos, status AS situacao, paid_at AS pago_em, created_at AS criada_em,
+              receipt_at AS comprovante_enviado_em
+         FROM charges WHERE customer_id = ? ORDER BY id`,
       [customerId],
     ),
   };
 }
 
 /**
- * Exclui os dados pessoais do cliente: apaga mensagens, cartão, vouchers, ofertas e sessões, cancela os
- * horários futuros e tira nome e celular do cadastro. As vendas continuam no caixa (obrigação fiscal),
- * mas sem identificar a pessoa.
+ * Exclui os dados pessoais do cliente: apaga mensagens, comprovantes, cartão, vouchers, ofertas e
+ * sessões, cancela os horários futuros e tira nome e celular do cadastro. As vendas continuam no caixa
+ * (obrigação fiscal), mas sem identificar a pessoa.
  */
 export function anonymizeCustomer(shopId: number, customerId: number, now: Date = new Date()): void {
   assertCustomer(shopId, customerId);
@@ -113,16 +116,20 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
       [`removido-${customerId}`, nowIso(), customerId],
     );
   });
+  // Os arquivos dos comprovantes saem depois que o banco já foi atualizado.
+  purgeReceipts({ customerId });
 }
 
-/** Limpeza diária: o que não precisa mais ser guardado (mensagens antigas, códigos usados, sessões vencidas). */
-export function purgeOldData(now: Date = new Date()): { messages: number; codes: number } {
+/** Limpeza diária: o que não precisa mais ser guardado (mensagens e comprovantes antigos, códigos usados, sessões vencidas). */
+export function purgeOldData(now: Date = new Date()): { messages: number; codes: number; receipts: number } {
   const daysAgo = (d: number) => new Date(now.getTime() - d * 86400000).toISOString();
   const messages = run('DELETE FROM messages WHERE created_at < ?', [daysAgo(365)]).changes + run('DELETE FROM platform_messages WHERE created_at < ?', [daysAgo(365)]).changes;
+  // Comprovante do PIX: guardado por 12 meses (o pagamento continua registrado no caixa).
+  const receipts = purgeReceipts({ before: daysAgo(365) });
   const codes =
     run('DELETE FROM customer_codes WHERE created_at < ?', [daysAgo(30)]).changes + run('DELETE FROM password_codes WHERE created_at < ?', [daysAgo(30)]).changes;
   const iso = now.toISOString();
   run('DELETE FROM customer_sessions WHERE expires_at < ?', [iso]);
   run('DELETE FROM sessions WHERE expires_at < ?', [iso]);
-  return { messages, codes };
+  return { messages, codes, receipts };
 }

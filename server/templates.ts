@@ -67,12 +67,6 @@ export const TEMPLATES = {
     body: 'Olá, {{1}}! {{2}} veio à {{3}} por indicação sua. Seu prêmio: {{4}}. Mostre o código {{5}} no balcão até {{6}}.',
     example: ['João', 'Pedro', 'Barbearia Navalha de Ouro', 'R$ 10 de desconto', 'NAV-3M8T2R', '30/11/2026'],
   },
-  sinal: {
-    label: 'Sinal para confirmar o horário',
-    category: 'UTILITY',
-    body: 'Olá, {{1}}! Para confirmar seu horário na {{2}} ({{3}}), pague o sinal de {{4}} pelo PIX copia e cola: {{5}}',
-    example: ['João', 'Barbearia Navalha de Ouro', 'sábado, 24/10 às 11h', 'R$ 20,00', '00020126...'],
-  },
   assinatura: {
     label: 'Mensalidade do clube',
     category: 'UTILITY',
@@ -91,6 +85,13 @@ export const TEMPLATES = {
     category: 'UTILITY',
     body: 'Atenção: o WhatsApp da {{1}} desconectou em {{2}}. O robô e os lembretes estão parados. Reconecte em Painel, Robô WhatsApp, aba WhatsApp.',
     example: ['Barbearia Navalha de Ouro', '24/10 às 14h32'],
+    platform: true,
+  },
+  comprovante: {
+    label: 'Comprovante de PIX enviado por um cliente (plataforma)',
+    category: 'UTILITY',
+    body: 'Comprovante de PIX na {{1}}: {{2}} pagou {{3}} ({{4}}). Confira no extrato e confirme no painel: {{5}}',
+    example: ['Barbearia Navalha de Ouro', 'João Pereira', 'R$ 99,90', 'Clube Ouro · novembro', 'https://app.exemplo.com.br/painel?conferir=1'],
     platform: true,
   },
   nota_baixa: {

@@ -4,18 +4,19 @@ import { all, get, nowIso, run, tx } from './db.js';
 import type { Method } from './finance.js';
 import { HttpError } from './http.js';
 import { pixPayload } from './pix.js';
+import { dropReceipt } from './receipts.js';
 
 /**
- * Cobranças PIX da barbearia para o cliente: mensalidade do clube e sinal de agendamento.
+ * Cobranças PIX da barbearia para o cliente: a mensalidade do clube de assinatura.
  * O PIX vai direto para a chave da barbearia (sem intermediário). O cliente avisa que pagou
- * ("Já paguei" na área dele ou "paguei" no WhatsApp) e a barbearia confirma no painel:
- * só então o valor entra no caixa.
+ * (manda o comprovante ou "Já paguei" na área dele, ou "paguei" no WhatsApp) e a barbearia
+ * confirma no painel: só então o valor entra no caixa.
  */
 
 export interface ChargeView {
   id: number;
   barbershop_id: number;
-  kind: 'clube' | 'sinal';
+  kind: 'clube';
   customer_id: number;
   customer_name: string;
   phone: string;
@@ -31,11 +32,10 @@ export interface ChargeView {
   period_end: string | null;
   due_date: string | null;
   reminded_at: string | null;
-  appointment_id: number | null;
-  expires_at: string | null;
-  sale_id: number | null;
-  forfeited_at: string | null;
-  refunded_at: string | null;
+  /** Comprovante enviado pelo cliente (arquivo privado em DATA_DIR/receipts). */
+  receipt_file: string | null;
+  receipt_type: string | null;
+  receipt_at: string | null;
   created_at: string;
 }
 
@@ -70,7 +70,7 @@ export function chargePayload(c: ChargeView): string | null {
     name: s.pix_name || s.name,
     city: s.pix_city || 'Brasil',
     amountCents: c.amount_cents,
-    txid: `${c.kind === 'clube' ? 'CLUBE' : 'SINAL'}${c.id}`,
+    txid: `CLUBE${c.id}`,
   });
 }
 
@@ -105,7 +105,7 @@ export function claimLatest(shopId: number, customerId: number, now: Date = new 
 export const chargesToConfirm = (shopId: number): ChargeView[] =>
   all<ChargeView>(`${SELECT} WHERE ch.barbershop_id = ? AND ch.status = 'open' AND ch.claimed_at IS NOT NULL ORDER BY ch.claimed_at`, [shopId]);
 
-/** Caiu na conta: entra no caixa e libera o que a cobrança paga (mês do clube ou o horário). */
+/** Caiu na conta: entra no caixa e libera o mês do clube. */
 export function confirmCharge(shopId: number, chargeId: number, opts: { method: Method; userId: number | null; now?: Date }): ChargeView {
   return tx(() => {
     const c = charge(chargeId, shopId);
@@ -117,7 +117,7 @@ export function confirmCharge(shopId: number, chargeId: number, opts: { method: 
        VALUES (?, 'in', ?, ?, ?, ?, ?, 'paid', ?, ?, ?)`,
       [
         shopId,
-        c.kind === 'clube' ? 'Clube de assinatura' : 'Atendimentos',
+        'Clube de assinatura',
         `${c.description} · ${c.customer_name}`,
         c.amount_cents,
         opts.method,
@@ -142,12 +142,10 @@ export function undoConfirm(shopId: number, chargeId: number): ChargeView {
   return tx(() => {
     const c = charge(chargeId, shopId);
     if (c.status !== 'paid') throw new HttpError(409, 'Esse pagamento não está confirmado.');
-    if (c.sale_id) throw new HttpError(409, 'Esse sinal já foi abatido numa venda. Cancele a venda antes.');
-    if (c.refunded_at) throw new HttpError(409, 'Esse sinal já foi devolvido ao cliente.');
     if (get("SELECT 1 AS ok FROM gateway_payments WHERE charge_id = ? AND applied = 1", [chargeId])) {
       throw new HttpError(409, 'Esse pagamento foi feito online e baixado sozinho; não dá para desfazer. Para devolver ao cliente, peça o estorno à plataforma.');
     }
-    run("UPDATE charges SET status = 'open', paid_at = NULL, method = NULL, forfeited_at = NULL WHERE id = ?", [chargeId]);
+    run("UPDATE charges SET status = 'open', paid_at = NULL, method = NULL WHERE id = ?", [chargeId]);
     run('DELETE FROM cash_entries WHERE charge_id = ?', [chargeId]);
     if (c.club_member_id) {
       const last = get<{ until: string | null }>("SELECT MAX(period_end) AS until FROM charges WHERE club_member_id = ? AND status = 'paid'", [c.club_member_id])?.until ?? null;
@@ -161,9 +159,10 @@ export function undoConfirm(shopId: number, chargeId: number): ChargeView {
   });
 }
 
-/** Não caiu na conta: volta a ficar em aberto, à espera do pagamento. */
+/** Não caiu na conta: volta a ficar em aberto, à espera do pagamento (o comprovante, se veio, é descartado). */
 export function rejectClaim(shopId: number, chargeId: number): ChargeView {
   const { changes } = run("UPDATE charges SET claimed_at = NULL WHERE id = ? AND barbershop_id = ? AND status = 'open' AND claimed_at IS NOT NULL", [chargeId, shopId]);
   if (!changes) throw new HttpError(404, 'Aviso de pagamento não encontrado.');
+  dropReceipt(chargeId);
   return charge(chargeId);
 }

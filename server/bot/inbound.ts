@@ -12,7 +12,6 @@ import { accessStatus } from '../billing.js';
 import { askConsumption, describeItems, reserveItems, type Usual } from '../consumption.js';
 import { handleReviewReply } from '../reviews.js';
 import { claimLatest } from '../charges.js';
-import { depositMessage, depositOutcomeText, requireDeposit } from '../deposits.js';
 import { llmEnabled, think, type CreateMessage } from './brain.js';
 
 export interface InboundInput {
@@ -55,7 +54,7 @@ const firstName = (name: string) => name.split(/\s+/)[0];
  * Respostas certeiras que não precisam de IA: SIM/NÃO para o horário oferecido ou para a pergunta
  * do consumo ("posso avisar o Paulo da sua cerveja?"), PARAR/VOLTAR, CANCELAR.
  */
-async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: string, now: Date, dryRun: boolean, followUps: string[]): Promise<string | null> {
+async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: string, now: Date, dryRun: boolean): Promise<string | null> {
   if (!customer) return null;
   const t = normalize(text);
   const nowStamp = shopNow(shop.id, now).stamp;
@@ -71,17 +70,14 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
   if (CANCEL.has(t)) {
     const next = upcomingFor(customer.id, now)[0];
     if (!next) return 'Você não tem nenhum horário marcado no momento.';
-    const done = cancel(shop.id, next.id, { customerId: customer.id, now });
-    const deposit = depositOutcomeText(done.deposit);
-    return `Cancelado: ${dayLabel(next.starts_at.slice(0, 10))} às ${hourLabel(next.starts_at.slice(11))} com ${next.barber_name}.${deposit ? ` ${deposit}` : ''} Quando quiser remarcar, é só chamar.`;
+    cancel(shop.id, next.id, { customerId: customer.id, now });
+    return `Cancelado: ${dayLabel(next.starts_at.slice(0, 10))} às ${hourLabel(next.starts_at.slice(11))} com ${next.barber_name}. Quando quiser remarcar, é só chamar.`;
   }
-  // "Paguei": avisa a barbearia do PIX em aberto (mensalidade do clube ou sinal).
+  // "Paguei": avisa a barbearia do PIX da mensalidade do clube em aberto (e lembra do comprovante).
   if (PAID.test(t)) {
     const c = claimLatest(shop.id, customer.id, now);
     if (c) {
-      return c.kind === 'clube'
-        ? `Anotado, ${firstName(customer.name)}! Assim que a barbearia conferir o PIX, fica tudo certo com o seu clube. Pode usar os benefícios normalmente. 👊`
-        : `Anotado, ${firstName(customer.name)}! Seu horário continua garantido; a barbearia confere o PIX do sinal. 👊`;
+      return `Anotado, ${firstName(customer.name)}! Assim que a barbearia conferir o PIX, fica tudo certo com o seu clube. Pode usar os benefícios normalmente. 👊\nSe quiser, mande o comprovante pela sua área, que ele vai direto para a barbearia: ${issueAccessLink(customer.id, shop.slug)}`;
     }
   }
   // Resposta ao pedido de avaliação (nota de 1 a 5 e, se baixa, o comentário).
@@ -126,11 +122,8 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
   try {
     const a = book({ shopId: shop.id, customerId: customer.id, barberId: offer.barber_id, serviceId: offer.service_id, date, time, source: 'whatsapp', now });
     run("UPDATE bot_offers SET status = 'accepted', appointment_id = ? WHERE id = ?", [a.id, offer.id]);
-    const deposit = requireDeposit(shop.id, a.id, now);
-    const sinal = deposit ? depositMessage(shop, deposit) : null;
-    if (sinal?.payload) followUps.push(sinal.payload);
-    const ask = sinal ? null : askConsumption(shop.id, a.id, now);
-    return `Fechado, ${firstName(customer.name)}! ✅ ${dayLabel(date)} às ${hourLabel(time)} com ${a.barber_name} (${a.service_name}).${sinal ? `\n${sinal.text}` : ' Te espero!'}${ask ? `\n${ask}` : ''}`;
+    const ask = askConsumption(shop.id, a.id, now);
+    return `Fechado, ${firstName(customer.name)}! ✅ ${dayLabel(date)} às ${hourLabel(time)} com ${a.barber_name} (${a.service_name}). Te espero!${ask ? `\n${ask}` : ''}`;
   } catch (err) {
     if (!(err instanceof HttpError)) throw err;
     run("UPDATE bot_offers SET status = 'expired' WHERE id = ?", [offer.id]);
@@ -139,6 +132,17 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
       ? `Esse horário acabou de ser ocupado 😕. No mesmo dia ainda tenho: ${alt.slice(0, 4).join(', ')}. Qual prefere?`
       : `Esse horário acabou de ser ocupado 😕. Me diga outro dia e horário que eu vejo pra você.`;
   }
+}
+
+/**
+ * Foto, áudio ou arquivo: o robô só lê texto. Com a mensalidade do clube em aberto, quase sempre é o
+ * comprovante do PIX: manda o link da área do cliente, onde ele envia o arquivo para a barbearia.
+ */
+function mediaReply(shop: ShopBot, customer: CustomerRow | null): string {
+  if (customer && get("SELECT 1 AS ok FROM charges WHERE customer_id = ? AND status = 'open'", [customer.id])) {
+    return `Por aqui eu só consigo ler texto. 🙂 Se for o comprovante do PIX do clube, mande pela sua área, que ele vai direto para a barbearia: ${issueAccessLink(customer.id, shop.slug)}`;
+  }
+  return 'Por enquanto eu só entendo mensagens de texto. Pode escrever pra mim? 🙂';
 }
 
 /** Sem chave da Anthropic: menu simples por palavras-chave. */
@@ -200,16 +204,15 @@ export async function handleInbound(input: InboundInput): Promise<string | null>
 
     let reply: string;
     let tokens: { in: number; out: number } | undefined;
-    const followUps: string[] = [];
     if (!input.text.trim()) {
-      reply = 'Por enquanto eu só entendo mensagens de texto. Pode escrever pra mim? 🙂';
+      reply = mediaReply(shop, customer);
     } else {
-      const quick = await quickReply(shop, customer, input.text, now, Boolean(input.dryRun), followUps);
+      const quick = await quickReply(shop, customer, input.text, now, Boolean(input.dryRun));
       // Barbearia com mensalidade em atraso: o robô segue atendendo, mas só pelo menu (sem IA).
       const blocked = accessStatus(shop.id, now).blocked;
       if (quick) reply = quick;
       else if (!blocked && (llmEnabled() || input.create)) {
-        const ctx = { shop, phone, waId, customer, profileName: input.name ?? null, now, dryRun: Boolean(input.dryRun), followUps };
+        const ctx = { shop, phone, waId, customer, profileName: input.name ?? null, now, dryRun: Boolean(input.dryRun) };
         const history = recentHistory(shop.id, phone).filter((h) => h.kind !== 'codigo');
         const r = await think(ctx, history, input.create);
         reply = r.text;
@@ -220,9 +223,6 @@ export async function handleInbound(input: InboundInput): Promise<string | null>
       }
     }
     await sendMessage({ shop, customerId: customer?.id ?? null, phone, waId: customer?.wa_id ?? waId, text: reply, kind: 'chat', dryRun: input.dryRun, tokens });
-    for (const text of followUps) {
-      await sendMessage({ shop, customerId: customer?.id ?? null, phone, waId: customer?.wa_id ?? waId, text, kind: 'sinal', dryRun: input.dryRun });
-    }
     return reply;
   });
 }

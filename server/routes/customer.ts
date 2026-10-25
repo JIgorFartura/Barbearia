@@ -1,8 +1,6 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { charge, chargePix, claimCharge } from '../charges.js';
-import { appointmentDeposit, depositPublic, requireDeposit, sendDepositRequest } from '../deposits.js';
-import { shopBot } from '../messaging.js';
 import { cancelMemberCard, payChargeByCard } from '../cards.js';
 import { shopCardStatus } from '../cardSettings.js';
 import { birthdayKey, customerReferral, growthSettings } from '../growth.js';
@@ -10,17 +8,19 @@ import { cancelMembership, customerMembership, listPlans, subscribe } from '../c
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
 import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
 import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
-import { all, get, run } from '../db.js';
+import { get, run } from '../db.js';
 import { customerHabit, lastVisitDate } from '../habits.js';
 import { HttpError, idParam, parseBody, zId } from '../http.js';
 import { customerCard } from '../loyalty.js';
 import { claimVoucher, customerVouchers, offersFor } from '../offers.js';
+import { customerPayments } from '../payments.js';
+import { notifyReceipt, receiptInfo, saveReceipt, sendReceipt } from '../receipts.js';
 import { activeBarbers, book, cancel, freeTimes, historyFor, services, upcomingFor } from '../scheduling.js';
 import { isDate, isTime } from '../time.js';
 
 /**
- * Área logada do cliente (/b/:slug/conta). Só enxerga os próprios dados:
- * agenda, cartão fidelidade, benefícios/vouchers e preferências de lembrete.
+ * Área logada do cliente (/b/:slug/conta). Só enxerga os próprios dados: agenda, os pagamentos
+ * dele à barbearia, cartão fidelidade, benefícios/vouchers e preferências de lembrete.
  */
 export const customerRouter = Router({ mergeParams: true });
 
@@ -52,13 +52,11 @@ customerRouter.get('/me', (req, res) => {
     privacyAccepted: Boolean(customer.privacy_accepted_at),
     habit: customerHabit(customerId),
     lastVisit: lastVisitDate(customerId),
-    upcoming: upcomingFor(customerId).map((a) => ({ ...a, items: reservedItems(a.id), deposit: depositPublic(shopId, appointmentDeposit(a.id)) })),
+    upcoming: upcomingFor(customerId).map((a) => ({ ...a, items: reservedItems(a.id) })),
     history: historyFor(customerId).slice(0, 10),
-    // O que ele comprou (é dele por direito): data, itens e total — sem nada interno (comissão, barbeiro do produto...).
-    purchases: all<{ id: number; date: string; total_cents: number }>(
-      "SELECT id, date, total_cents FROM sales WHERE customer_id = ? AND status = 'closed' ORDER BY date DESC, id DESC LIMIT 10",
-      [customerId],
-    ).map((p) => ({ ...p, items: all('SELECT name, qty, total_cents FROM sale_items WHERE sale_id = ? ORDER BY id', [p.id]) })),
+    // Os pagamentos dele (é dele por direito): compras e clube, com data, forma e o comprovante que ele mandou.
+    // Nada interno (comissão, barbeiro do produto...).
+    payments: customerPayments(shopId, customerId),
     card: customerCard(shopId, customerId).map(({ campaign, running, progress }) => ({
       id: campaign.id,
       name: campaign.name,
@@ -86,7 +84,7 @@ customerRouter.get('/availability', (req, res) => {
   res.json(freeTimes(shopId, date, { barberId: num(req.query.barber_id), serviceId: num(req.query.service_id) }));
 });
 
-customerRouter.post('/appointments', async (req, res) => {
+customerRouter.post('/appointments', (req, res) => {
   const { shopId, customerId } = ctx(req);
   const body = parseBody(
     z.object({
@@ -98,33 +96,11 @@ customerRouter.post('/appointments', async (req, res) => {
     req.body,
   );
   const appointment = book({ shopId, customerId, barberId: body.barber_id, serviceId: body.service_id, date: body.date, time: body.time, source: 'cliente' });
-  // Sinal via PIX para segurar o horário (se a barbearia cobra): na tela e também pelo WhatsApp.
-  const deposit = requireDeposit(shopId, appointment.id);
-  if (deposit?.status === 'open') void sendDepositRequest(shopBot(shopId), deposit);
   res.status(201).json({
     ...appointment,
     // Mesma pergunta do robô: "posso avisar o Paulo da sua cerveja?"
     suggestion: suggestionFor(shopId, appointment.id),
-    deposit: deposit && { ...depositPublic(shopId, deposit), pix: await chargePix(deposit) },
   });
-});
-
-/** Sinal de um horário: PIX para pagar e "Já paguei". */
-function myDeposit(req: Request) {
-  const { shopId, customerId } = ctx(req);
-  const c = get<{ id: number }>("SELECT id FROM charges WHERE id = ? AND barbershop_id = ? AND customer_id = ? AND kind = 'sinal'", [idParam(req), shopId, customerId]);
-  if (!c) throw new HttpError(404, 'Sinal não encontrado.');
-  return { shopId, customerId, charge: charge(c.id) };
-}
-
-customerRouter.get('/deposits/:id', async (req, res) => {
-  const { shopId, customerId, charge: c } = myDeposit(req);
-  res.json({ ...depositPublic(shopId, c), description: c.description, pix: await chargePix(c), online: shopCardStatus(shopId).available });
-});
-
-customerRouter.post('/deposits/:id/claim', (req, res) => {
-  const { shopId, customerId, charge: c } = myDeposit(req);
-  res.json(depositPublic(shopId, claimCharge(shopId, customerId, c.id)));
 });
 
 customerRouter.post('/appointments/:id/items', async (req, res) => {
@@ -247,6 +223,7 @@ async function clubState(shopId: number, customerId: number) {
       amount_cents: open.amount_cents,
       due_date: open.due_date,
       claimed: Boolean(open.claimed_at),
+      receipt: receiptInfo(open),
       pix: await chargePix(open),
     },
     /** A barbearia aceita cartão (página segura da Cielo). */
@@ -254,7 +231,7 @@ async function clubState(shopId: number, customerId: number) {
   };
 }
 
-/** Pagar no cartão (sinal avulso; clube no automático todo mês): devolve o link da página da Cielo. */
+/** Pagar a mensalidade do clube no cartão (a Cielo cobra sozinha todo mês): devolve o link da página da Cielo. */
 customerRouter.post('/charges/:id/pay-online', async (req, res) => {
   const { shopId, customerId } = ctx(req);
   res.json(await payChargeByCard(shopId, customerId, idParam(req)));
@@ -276,6 +253,24 @@ customerRouter.post('/club/charges/:id/claim', async (req, res) => {
   const { shopId, customerId } = ctx(req);
   claimCharge(shopId, customerId, idParam(req));
   res.json(await clubState(shopId, customerId));
+});
+
+/** Comprovante do PIX (foto ou PDF): vale como "já paguei" e a barbearia recebe uma cópia. */
+customerRouter.post('/club/charges/:id/receipt', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const { dataUrl } = parseBody(z.object({ dataUrl: z.string().max(5_000_000) }), req.body);
+  const id = idParam(req);
+  const { notify } = saveReceipt(shopId, customerId, id, dataUrl);
+  if (notify) void notifyReceipt(id).catch((err) => console.error('[comprovante]', err));
+  res.json(await clubState(shopId, customerId));
+});
+
+/** O próprio cliente revê o comprovante que mandou. */
+customerRouter.get('/charges/:id/receipt', (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const c = charge(idParam(req), shopId);
+  if (c.customer_id !== customerId) throw new HttpError(404, 'Comprovante não encontrado.');
+  sendReceipt(res, c);
 });
 
 customerRouter.post('/club/cancel', async (req, res) => {

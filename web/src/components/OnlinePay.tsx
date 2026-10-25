@@ -41,8 +41,8 @@ export function useReloadOnBack() {
 }
 
 /**
- * Pagar no cartão (na área do cliente): abre a página segura da Cielo. No sinal, pagamento avulso; no
- * clube, o cartão fica cadastrado e a Cielo cobra sozinha todo mês.
+ * Pagar a mensalidade do clube no cartão (na área do cliente): abre a página segura da Cielo. O cartão
+ * fica cadastrado e a Cielo cobra sozinha todo mês.
  */
 export function OnlinePayButton({
   slug,
@@ -94,12 +94,12 @@ interface CardStatus {
 
 interface OnlineReceipt {
   id: number;
-  kind: 'clube' | 'sinal';
   customer: string | null;
   description: string | null;
   value_cents: number;
   net_cents: number | null;
-  toShop: number;
+  /** Valor líquido (já sem a taxa estimada da Cielo). */
+  net: number;
   method: string | null;
   status: string;
   paid: boolean;
@@ -124,7 +124,7 @@ const pct = (n: number) => String(n).replace('.', ',');
 
 /**
  * Receber no cartão pela Cielo da barbearia: o cliente assina o clube no cartão (a Cielo cobra sozinha
- * todo mês) e paga o sinal. O dinheiro cai na conta Cielo da barbearia e a baixa aqui é automática.
+ * todo mês). O dinheiro cai na conta Cielo da barbearia e a baixa aqui é automática.
  */
 export function OnlineSettingsCard() {
   const [data, setData] = useState<CardSettings | null>(null);
@@ -178,8 +178,8 @@ export function OnlineSettingsCard() {
             <Badge tone={data.status.available ? 'green' : 'zinc'}>{data.status.available ? 'Ligado' : 'Desligado'}</Badge>
           </div>
           <p className="text-sm text-zinc-500">
-            O cliente assina o clube no cartão (a Cielo cobra sozinha todo mês) e paga o sinal, numa página segura da Cielo. O dinheiro cai na sua conta Cielo em 1
-            dia útil (com o Recebimento Automático ligado na Cielo) e a baixa aqui é automática.
+            O cliente assina o clube no cartão, numa página segura da Cielo, e a Cielo cobra sozinha todo mês. O dinheiro cai na sua conta Cielo em 1 dia útil (com o
+            Recebimento Automático ligado na Cielo) e a baixa aqui é automática.
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -247,7 +247,7 @@ export function OnlineSettingsCard() {
                     <span className="min-w-0">
                       <span className="block truncate font-medium">{p.customer ?? 'Cliente'}</span>
                       <span className="block text-xs text-zinc-500">
-                        {p.kind === 'clube' ? 'Clube' : 'Sinal'} · {date(p.paid_at ?? p.created_at.slice(0, 10))}
+                        {p.description ?? 'Clube'} · {date(p.paid_at ?? p.created_at.slice(0, 10))}
                         {p.method && p.method !== 'UNDEFINED' && ` · ${PAY_METHOD[p.method] ?? p.method}`}
                       </span>
                     </span>
@@ -256,7 +256,7 @@ export function OnlineSettingsCard() {
                       <Badge tone={st.tone}>{st.label}</Badge>
                     </span>
                   </div>
-                  {p.paid && p.net_cents != null && <p className="text-xs text-zinc-500">Cai na sua conta cerca de {money(p.toShop)}, já sem a taxa.</p>}
+                  {p.paid && p.net_cents != null && <p className="text-xs text-zinc-500">Cai na sua conta cerca de {money(p.net)}, já sem a taxa.</p>}
                   {Boolean(p.duplicate) && (
                     <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-900">
                       Pago duas vezes (ou depois de cancelar): devolva {money(p.value_cents)} ao cliente (estorno no site da Cielo ou PIX).

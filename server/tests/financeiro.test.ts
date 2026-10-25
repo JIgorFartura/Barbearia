@@ -272,8 +272,15 @@ describe('o robô entende o consumo do cliente', () => {
     assert.equal(reserved.data.barberNotified, false, 'o Marcos não tem celular cadastrado');
     const me = await cli('GET', '/api/customer/navalha/me');
     assert.deepEqual(me.data.upcoming[0].items, [{ catalog_item_id: cerveja, name: 'Cerveja long neck', qty: 2 }]);
-    assert.equal(me.data.purchases.length, 2);
-    assert.equal('commission_cents' in me.data.purchases[0].items[0], false, 'cliente não vê comissão');
+    // Meus pagamentos: as duas compras dele, sem nada interno (comissão, barbeiro do produto...).
+    assert.deepEqual(
+      me.data.payments.map((p: { kind: string; description: string; method: string }) => [p.kind, p.description, p.method]),
+      [
+        ['compra', '2× Cerveja long neck', 'dinheiro'],
+        ['compra', '2× Cerveja long neck', 'dinheiro'],
+      ],
+    );
+    assert.ok(!JSON.stringify(me.data.payments).includes('commission'), 'cliente não vê comissão');
   });
 });
 

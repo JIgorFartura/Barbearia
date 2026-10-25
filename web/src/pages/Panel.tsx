@@ -27,7 +27,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
 import { PixConfirmModal } from '../components/Pix';
@@ -79,8 +79,10 @@ interface ShopStatus {
   openInvoices: number;
   /** Conexão do WhatsApp da barbearia (null = simulador). */
   whatsapp: { status: 'ok' | 'down' | 'unknown'; since: string | null; error: string | null } | null;
-  /** PIX que os clientes avisaram que pagaram (clube e sinal) e o dono ainda não conferiu. */
+  /** PIX do clube que os clientes avisaram que pagaram (ou mandaram o comprovante) e o dono ainda não conferiu. */
   pixToConfirm?: number;
+  /** Desses, quantos vieram com o comprovante. */
+  receiptsToConfirm?: number;
   announcements: { id: number; title: string; body: string; level: 'novidade' | 'aviso' | 'manutencao' }[];
 }
 
@@ -125,6 +127,15 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
     );
   }, []);
   useEffect(loadStatus, [section, loadStatus]);
+
+  // Link do aviso de comprovante no WhatsApp (/painel?conferir=1): abre a conferência do PIX uma vez.
+  const askedPix = useRef(new URLSearchParams(location.search).has('conferir'));
+  useEffect(() => {
+    if (!askedPix.current || !status) return;
+    askedPix.current = false;
+    history.replaceState(null, '', location.pathname);
+    if (status.active && !status.blocked) setPixOpen(true);
+  }, [status]);
 
   function hideAnnouncement(id: number) {
     const next = [...hidden, id];
@@ -485,7 +496,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
             >
               <HandCoins className="size-4 shrink-0" />
               <span>
-                {status!.pixToConfirm === 1 ? '1 cliente avisou' : `${status!.pixToConfirm} clientes avisaram`} que pagou o PIX. <b>Conferir</b>
+                {status!.pixToConfirm === 1 ? '1 cliente avisou que pagou o PIX' : `${status!.pixToConfirm} clientes avisaram que pagaram o PIX`}
+                {status!.receiptsToConfirm ? ` (${status!.receiptsToConfirm === 1 ? '1 com comprovante' : `${status!.receiptsToConfirm} com comprovante`})` : ''}.{' '}
+                <b>Conferir</b>
               </span>
             </button>
           )}

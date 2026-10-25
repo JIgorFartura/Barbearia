@@ -72,7 +72,6 @@ const KIND_LABEL: Record<string, string> = {
   avaliacao: 'Avaliação',
   aniversario: 'Aniversário',
   indicacao: 'Indicação',
-  sinal: 'Sinal',
   assinatura: 'Clube',
   aviso: 'Aviso',
 };

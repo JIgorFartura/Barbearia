@@ -82,8 +82,8 @@ export function TermsPage() {
       <h2>4. Pagamentos dos clientes no cartão</h2>
       <ul>
         <li>
-          A barbearia pode oferecer aos clientes o pagamento no cartão pela Cielo: o clube de assinatura com cobrança automática todo mês e o sinal do horário.
-          Para isso, a barbearia mantém uma conta própria na Cielo, sujeita às regras da Cielo, e informa no painel as credenciais da API dessa conta.
+          A barbearia pode oferecer aos clientes o clube de assinatura no cartão pela Cielo, com cobrança automática todo mês. Para isso, a barbearia mantém uma
+          conta própria na Cielo, sujeita às regras da Cielo, e informa no painel as credenciais da API dessa conta.
         </li>
         <li>O dinheiro vai direto para a conta Cielo da barbearia: {l.company} não recebe nem repassa esses valores.</li>
         <li>
@@ -111,9 +111,9 @@ export function TermsPage() {
           instruções da barbearia e a Lei nº 13.709/2018 (LGPD).
         </li>
         <li>
-          A administração da plataforma não tem acesso pelo sistema à agenda, aos barbeiros, aos clientes nem às conversas da barbearia: cuida só do cadastro, do
-          acesso do dono, da mensalidade e dos pagamentos online (valores e formas de pagamento, sem o nome dos clientes). As cópias de segurança só podem ser
-          baixadas criptografadas, para restaurar o serviço.
+          A administração da plataforma não tem acesso pelo sistema à agenda, aos barbeiros, aos clientes, às conversas nem ao que os clientes pagam à barbearia:
+          cuida só do cadastro, do acesso do dono e da mensalidade do sistema. As cópias de segurança só podem ser baixadas criptografadas, para restaurar o
+          serviço.
         </li>
         <li>
           {l.company} usa fornecedores necessários ao serviço (hospedagem, armazenamento das cópias de segurança, envio de mensagens de WhatsApp, processamento
@@ -172,8 +172,8 @@ export function PrivacyPage() {
           credenciais da API da conta Cielo dela (guardadas no servidor e nunca mostradas de volta).
         </li>
         <li>
-          Dos pagamentos online: valor, forma de pagamento e situação. Os dados do cartão são digitados só na página da Cielo; não recebemos nem guardamos dados
-          de cartão.
+          Das mensalidades pagas online: valor, forma de pagamento e situação. Os dados do cartão são digitados só na página da Cielo; não recebemos nem guardamos
+          dados de cartão.
         </li>
         <li>
           Dos clientes das barbearias: tratamos em nome de cada barbearia, que é a controladora. A política de cada barbearia fica no site dela, no link
@@ -250,7 +250,8 @@ export function ShopPrivacyPage({ slug }: { slug: string }) {
         <li>Horário de costume (informado por você ou percebido pelo seu histórico).</li>
         <li>Mensagens trocadas com o {s.bot_name} no WhatsApp.</li>
         <li>Data de nascimento, se você informar (para o presente de aniversário).</li>
-        <li>Pagamentos do clube de assinatura e do sinal: valor, forma e data.</li>
+        <li>Seus pagamentos à barbearia (compras e clube de assinatura): valor, forma e data.</li>
+        <li>O comprovante do PIX (foto ou PDF), se você enviar pela sua área.</li>
       </ul>
       {p.online && (
         <p>
@@ -290,8 +291,8 @@ export function ShopPrivacyPage({ slug }: { slug: string }) {
       </p>
       <h2>{p.ai ? 7 : 6}. Por quanto tempo</h2>
       <p>
-        Enquanto você for cliente. As mensagens do WhatsApp são apagadas depois de 12 meses. Se você excluir sua conta, apagamos nome, celular, mensagens, cartão e
-        vouchers; os registros de vendas ficam sem identificação, pelo prazo que a lei exige.
+        Enquanto você for cliente. As mensagens do WhatsApp e os comprovantes de PIX são apagados depois de 12 meses. Se você excluir sua conta, apagamos nome,
+        celular, mensagens, comprovantes, cartão e vouchers; os registros de vendas ficam sem identificação, pelo prazo que a lei exige.
       </p>
       <h2>{p.ai ? 8 : 7}. Seus direitos</h2>
       <p>

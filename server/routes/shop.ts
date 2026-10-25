@@ -327,9 +327,9 @@ function setupChecklist(shop: number, userId: number) {
     },
     { id: 'cliente', label: 'Divulgue o site: os clientes entram e agendam pelo celular', done: has('SELECT 1 AS ok FROM customers WHERE barbershop_id = ? LIMIT 1'), link: `/b/${b.slug}` },
     { id: 'venda', label: 'Feche o primeiro atendimento pela Agenda', done: has("SELECT 1 AS ok FROM sales WHERE barbershop_id = ? AND status = 'closed' LIMIT 1"), link: '/painel/agenda' },
-    { id: 'pix', label: 'Cadastre a chave PIX (clube de assinatura e sinal)', done: Boolean(b.pix_key), link: '/painel/clube', optional: true },
+    { id: 'pix', label: 'Cadastre a chave PIX (clube de assinatura)', done: Boolean(b.pix_key), link: '/painel/clube', optional: true },
     { id: 'google', label: 'Coloque o link de avaliação do Google', done: Boolean(b.review_link), link: '/painel/avaliacoes', optional: true },
-    { id: 'cartao', label: 'Receba no cartão pela Cielo: clube no automático e sinal', done: card.available, link: '/painel/clube', optional: true },
+    { id: 'cartao', label: 'Receba o clube no cartão pela Cielo (cobrança automática todo mês)', done: card.available, link: '/painel/clube', optional: true },
   ];
 }
 

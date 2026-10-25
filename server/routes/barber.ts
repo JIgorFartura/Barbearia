@@ -1,5 +1,4 @@
 import { Router, type Request } from 'express';
-import { depositState } from '../deposits.js';
 import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import { accessStatus } from '../billing.js';
@@ -52,7 +51,7 @@ barberRouter.get('/me', (req, res) => {
   });
 });
 
-/** Agenda do dia, só os horários deste barbeiro (com o que o cliente pediu para separar). */
+/** Agenda do dia, só os horários deste barbeiro (com o que o cliente pediu para separar e, fechado, a parte dele). */
 barberRouter.get('/agenda', (req, res) => {
   const { shop, barber } = ids(req);
   const date = typeof req.query.date === 'string' && isDate(req.query.date) ? req.query.date : shopNow(shop).date;
@@ -63,8 +62,13 @@ barberRouter.get('/agenda', (req, res) => {
       .map((a) => ({
         ...a,
         items: reservedItems(a.id),
-        sale: get<{ id: number; total_cents: number; method: string }>("SELECT id, total_cents, method FROM sales WHERE appointment_id = ? AND status = 'closed'", [a.id]) ?? null,
-        deposit: depositState(shop, a.id),
+        // Atendimento fechado: só a comissão dele, não o total que a barbearia recebeu.
+        sale:
+          get<{ id: number; commission_cents: number }>(
+            `SELECT s.id, COALESCE((SELECT SUM(i.commission_cents) FROM sale_items i WHERE i.sale_id = s.id AND i.barber_id = ?), 0) AS commission_cents
+               FROM sales s WHERE s.appointment_id = ? AND s.status = 'closed'`,
+            [barber, a.id],
+          ) ?? null,
       })),
     blocks: all('SELECT id, starts_at, ends_at, reason FROM barber_blocks WHERE barber_id = ? AND starts_at < ? AND ends_at > ?', [
       barber,
@@ -116,8 +120,6 @@ barberRouter.get('/checkout', (req, res) => {
   res.json({
     appointment,
     reserved: appointmentId ? reservedItems(appointmentId) : [],
-      // Sinal pago antes (abatido no fechamento) ou ainda pendente.
-      deposit: appointmentId ? depositState(shop, appointmentId) : null,
     catalog: all<{ id: number; kind: string; name: string; price_cents: number; track_stock: number }>(
       'SELECT id, kind, name, price_cents, track_stock FROM catalog_items WHERE barbershop_id = ? AND active = 1 ORDER BY kind DESC, name COLLATE NOCASE',
       [shop],
@@ -179,7 +181,7 @@ barberRouter.post('/sales', (req, res) => {
   );
 });
 
-/** Meus ganhos: comissão em aberto, extrato do período e pagamentos recebidos. */
+/** Meus ganhos: só a parte dele (comissão em aberto, extrato das comissões e pagamentos recebidos). */
 barberRouter.get('/earnings', (req, res) => {
   const { shop, barber } = ids(req);
   const today = shopNow(shop).date;
@@ -187,5 +189,15 @@ barberRouter.get('/earnings', (req, res) => {
   const to = typeof req.query.to === 'string' && isDate(req.query.to) ? req.query.to : today;
   if (to < from) throw new HttpError(400, 'Período inválido.');
   const balance = commissionBalances(shop).find((b) => b.barber_id === barber);
-  res.json({ from, to, balance: balance ?? null, ...barberStatement(shop, barber, from, to) });
+  // O valor das vendas é da barbearia: para o barbeiro vai só a comissão de cada item.
+  const { items, commission, payouts } = barberStatement(shop, barber, from, to);
+  res.json({
+    from,
+    to,
+    balance: balance ?? null,
+    items: items.map(({ total_cents: _total, sale_id: _sale, ...i }) => i),
+    commission,
+    services: items.filter((i) => i.kind === 'service').reduce((n, i) => n + i.qty, 0),
+    payouts,
+  });
 });

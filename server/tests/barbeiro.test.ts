@@ -87,13 +87,20 @@ describe('acesso do barbeiro', () => {
     assert.equal(sale.data.sale.items[0].barber_id, paulo);
     assert.equal(sale.data.sale.items[0].commission_cents, 2000);
     assert.equal((await paul('POST', '/api/barber/sales', { appointment_id: withMarcos.id, items: [{ catalog_item_id: corte, qty: 1 }], method: 'pix' })).status, 404);
+    // Na agenda, o atendimento fechado mostra só a parte dele (não o total da venda).
+    const closed = (await paul('GET', `/api/barber/agenda?date=${tomorrow}`)).data.appointments[0];
+    assert.deepEqual(closed.sale, { id: sale.data.sale.id, commission_cents: 2000 });
   });
 
-  test('meus ganhos: comissão em aberto e extrato só dele', async () => {
+  test('meus ganhos: só a parte dele (comissão), sem o valor das vendas', async () => {
     const e = (await paul('GET', `/api/barber/earnings?from=${addDays(tomorrow, -2)}&to=${addDays(tomorrow, 1)}`)).data;
     assert.equal(e.balance.unpaid_cents, 2000);
     assert.equal(e.items.length, 1);
     assert.equal(e.commission, 2000);
+    assert.equal(e.services, 1);
+    assert.equal(e.revenue, undefined);
+    assert.equal(e.items[0].total_cents, undefined);
+    assert.equal(e.items[0].commission_cents, 2000);
   });
 
   test('o dono pode impedir o fechamento, desativar o barbeiro e trocar a senha', async () => {

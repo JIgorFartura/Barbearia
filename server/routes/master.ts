@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { platformPayments, type GatewayKind } from '../gatewayPayments.js';
+import { platformPayments } from '../gatewayPayments.js';
 import { stopSubscriptionCard, subscriptionPriceChanged } from '../cards.js';
 import { cieloWebhookUrl, platformCardReady, platformCielo, savePlatformCielo, secretHint } from '../cardSettings.js';
 import { CieloError, testCielo } from '../cielo.js';
@@ -453,15 +453,14 @@ masterRouter.post('/cielo/test', async (_req, res) => {
 });
 
 /**
- * Pagamentos online: mensalidades das barbearias (cartão pela Cielo; PIX ou boleto pelo Asaas) e o que
- * os clientes delas pagaram no cartão (clube e sinal). Mostra barbearia, tipo, forma e valores, nunca o cliente.
+ * Mensalidades pagas online pelas barbearias (cartão pela Cielo; PIX ou boleto pelo Asaas). O que os
+ * clientes pagam às barbearias é delas: não aparece para o master.
  */
 masterRouter.get('/payments', (req, res) => {
   const today = localNow().date;
   const from = typeof req.query.from === 'string' && isDate(req.query.from) ? req.query.from : `${today.slice(0, 7)}-01`;
   const to = typeof req.query.to === 'string' && isDate(req.query.to) ? req.query.to : today;
-  const kind = ['mensalidade', 'clube', 'sinal'].includes(String(req.query.kind)) ? (String(req.query.kind) as GatewayKind) : null;
-  res.json({ asaas: asaasEnabled(), cielo: platformCardReady(), from, to, ...platformPayments({ from, to, kind }) });
+  res.json({ asaas: asaasEnabled(), cielo: platformCardReady(), from, to, ...platformPayments({ from, to }) });
 });
 
 masterRouter.post('/asaas/test', async (_req, res) => {

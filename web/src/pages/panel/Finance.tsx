@@ -1,6 +1,7 @@
-import { ArrowDownCircle, ArrowUpCircle, Ban, Pencil, Plus, Receipt, Trash2, Wallet } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Ban, HandCoins, Pencil, Plus, Receipt, Trash2, Wallet } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { CheckoutModal } from '../../components/Checkout';
+import { ReceiptPreview, type ReceiptInfo } from '../../components/Receipt';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
 import { IN_CATEGORIES, METHODS, OUT_CATEGORIES, centsToInput, compactMoney, methodLabel, parseMoney } from '../../lib/finance';
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'resumo', label: 'Resumo' },
   { id: 'caixa', label: 'Caixa' },
   { id: 'vendas', label: 'Vendas' },
+  { id: 'recebimentos', label: 'Recebimentos' },
   { id: 'comissoes', label: 'Comissões' },
 ] as const;
 type Tab = (typeof TABS)[number]['id'];
@@ -87,6 +89,7 @@ export function Finance() {
       {tab === 'resumo' && <SummaryTab period={period} />}
       {tab === 'caixa' && <CashTab period={period} />}
       {tab === 'vendas' && <SalesTab period={period} />}
+      {tab === 'recebimentos' && <ReceivedTab period={period} />}
       {tab === 'comissoes' && <CommissionsTab />}
     </section>
   );
@@ -687,6 +690,106 @@ function SalesTab({ period }: { period: Period }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ---------- Recebimentos: o que os clientes pagaram (só a barbearia vê a lista de todos)
+
+interface Received {
+  items: {
+    kind: 'compra' | 'clube';
+    id: number;
+    date: string;
+    description: string;
+    amount_cents: number;
+    method: string | null;
+    /** Clube pago no cartão automático (Cielo). */
+    card: boolean;
+    receipt: ReceiptInfo | null;
+    customer: string | null;
+  }[];
+  totals: { total: number; count: number; counter: number; club: number; receipts: number };
+}
+
+function ReceivedTab({ period }: { period: Period }) {
+  const [data, setData] = useState<Received | null>(null);
+  const [kind, setKind] = useState<'' | 'compra' | 'clube'>('');
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<Received>('GET', `/api/shop/finance/received?from=${period.from}&to=${period.to}`).then(setData, (e) => setError(e.message));
+  }, [period]);
+  const items = data?.items.filter((i) => !kind || i.kind === kind) ?? [];
+
+  return (
+    <div className="space-y-4">
+      <ErrorText error={error} />
+      {data && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Tile label="Recebido dos clientes" value={money(data.totals.total)} hint={`${data.totals.count} pagamento(s)`} />
+          <Tile label="Vendas (agenda e balcão)" value={money(data.totals.counter)} />
+          <Tile
+            label="Clube de assinatura"
+            value={money(data.totals.club)}
+            hint={data.totals.receipts ? `${data.totals.receipts} com comprovante do PIX` : undefined}
+          />
+        </div>
+      )}
+      <div className="flex flex-wrap gap-1.5">
+        {(
+          [
+            ['', 'Todos'],
+            ['compra', 'Vendas'],
+            ['clube', 'Clube'],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setKind(id)}
+            className={`rounded-full px-3 py-1 text-sm font-medium ring-1 ${kind === id ? 'bg-zinc-900 text-white ring-zinc-900' : 'bg-white ring-zinc-200 hover:bg-zinc-100'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {data && items.length === 0 && (
+        <EmptyState
+          icon={<HandCoins className="size-6" />}
+          title="Nenhum pagamento no período"
+          text="As vendas da agenda e do balcão e as mensalidades do clube aparecem aqui assim que entram no caixa."
+        />
+      )}
+      {items.length > 0 && (
+        <Card className="!p-0">
+          <ul className="divide-y divide-zinc-100 text-sm">
+            {items.map((p) => (
+              <li key={`${p.kind}${p.id}`} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium">{p.customer ?? 'Cliente avulso'}</p>
+                    <p className="text-xs text-zinc-500">
+                      {fmtDate(p.date)} · {p.card ? 'Cartão automático (Cielo)' : methodLabel(p.method)}
+                    </p>
+                    <p className="truncate text-xs text-zinc-500">{p.description}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="font-bold tabular-nums">{money(p.amount_cents)}</p>
+                    <Badge tone={p.kind === 'clube' ? 'gold' : 'zinc'}>{p.kind === 'clube' ? 'Clube' : 'Venda'}</Badge>
+                  </div>
+                </div>
+                {p.receipt && (
+                  <div className="mt-2">
+                    <ReceiptPreview url={`/api/shop/charges/${p.id}/receipt`} receipt={p.receipt} />
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      <p className="text-xs text-zinc-500">
+        Só a barbearia vê os pagamentos de todos os clientes. Cada cliente vê só os dele, na área do cliente; a administração do sistema não vê nenhum.
+      </p>
     </div>
   );
 }

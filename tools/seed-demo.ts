@@ -6,9 +6,32 @@ import { ensureInvoices, savePlatformSettings } from '../server/billing.js';
 import { addEntry, createSale } from '../server/finance.js';
 import { savePlan, subscribe } from '../server/club.js';
 import { saveGrowthSettings } from '../server/growth.js';
+import { saveReceipt } from '../server/receipts.js';
 import { book } from '../server/scheduling.js';
 import { stockEntry } from '../server/stock.js';
 import { addDays, localNow, weekdayOf } from '../server/time.js';
+
+/** Comprovante de PIX de mentira (PDF de uma página), para a demonstração mostrar a cópia que chega à barbearia. */
+function demoReceiptPdf(lines: string[]): Buffer {
+  const text = lines.map((l, i) => `BT /F1 ${i ? 11 : 15} Tf 24 ${360 - i * 28} Td (${l}) Tj ET`).join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${Buffer.byteLength(text, 'latin1')} >>\nstream\n${text}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = objects.map((o, i) => {
+    const offset = Buffer.byteLength(pdf, 'latin1');
+    pdf += `${i + 1} 0 obj\n${o}\nendobj\n`;
+    return offset;
+  });
+  const xref = Buffer.byteLength(pdf, 'latin1');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((n) => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, 'latin1');
+}
 
 if (get("SELECT 1 AS ok FROM barbershops WHERE slug = 'demo'")) {
   console.log('A barbearia "demo" já existe.');
@@ -173,6 +196,11 @@ tx(() => {
     item_ids: [corte, barba],
   });
   subscribe(shop, pedro, plan.id, { paidMethod: 'pix', now: at(addDays(today, -6), '11:00') });
+  // A Maria assinou hoje, pagou no PIX e mandou o comprovante: aparece para o dono conferir.
+  subscribe(shop, maria, plan.id, { now: at(today, '08:30') });
+  const mariaCharge = get<{ id: number }>("SELECT id FROM charges WHERE customer_id = ? AND status = 'open'", [maria])!.id;
+  const receipt = demoReceiptPdf(['Comprovante de PIX', 'Valor: R$ 89,90', 'Para: Navalha de Ouro', `Data: ${today.split('-').reverse().join('/')}`, 'Demonstração: não é um pagamento real']);
+  saveReceipt(shop, maria, mariaCharge, `data:application/pdf;base64,${receipt.toString('base64')}`, at(today, '08:40'));
   // Indique um amigo e aniversário: o Pedro veio por indicação do João (que ganhou o corte grátis).
   saveGrowthSettings(shop, {
     referral_enabled: true,

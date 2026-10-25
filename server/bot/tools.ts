@@ -5,8 +5,6 @@ import { issueAccessLink } from '../customerAuth.js';
 import { all, get, nowIso, run } from '../db.js';
 import { HttpError, normalizePhone } from '../http.js';
 import { customerCard } from '../loyalty.js';
-import { depositMessage, depositOutcomeText, requireDeposit } from '../deposits.js';
-import { charge } from '../charges.js';
 import { birthdayKey, customerReferral, setReferrer, welcomeReferred } from '../growth.js';
 import type { CustomerRow, ShopBot } from '../messaging.js';
 import { claimVoucher, customerVouchers, offersFor } from '../offers.js';
@@ -25,8 +23,6 @@ export interface BotContext {
   now: Date;
   /** Simulador do painel: nada sai pelo WhatsApp (nem o aviso ao barbeiro). */
   dryRun: boolean;
-  /** Mensagens para mandar logo depois da resposta (ex.: o PIX copia e cola do sinal, sozinho, fácil de copiar). */
-  followUps?: string[];
 }
 
 interface ToolDef<S extends z.ZodObject> {
@@ -87,13 +83,9 @@ export const TOOLS = {
         source: 'whatsapp',
         now: ctx.now,
       });
-      // Sinal via PIX para segurar o horário (se a barbearia cobra): o código vai numa mensagem separada.
-      const deposit = requireDeposit(ctx.shop.id, a.id, ctx.now);
-      const sinal = deposit ? depositMessage(ctx.shop, deposit) : null;
-      if (sinal?.payload) (ctx.followUps ??= []).push(sinal.payload);
       // Se o cliente costuma consumir algo (ex.: 1 cerveja), já deixa a pergunta pronta para o SIM/NÃO.
       const pergunta = askConsumption(ctx.shop.id, a.id, ctx.now);
-      return { ok: true, agendamento: describeAppointment(a), sinal: sinal?.text, pergunta_consumo: pergunta ?? undefined };
+      return { ok: true, agendamento: describeAppointment(a), pergunta_consumo: pergunta ?? undefined };
     },
   }),
 
@@ -130,21 +122,7 @@ export const TOOLS = {
     schema: z.object({ agendamento_id: zId }),
     run: (ctx, input) => {
       const a = cancel(ctx.shop.id, input.agendamento_id, { customerId: ctx.customer!.id, now: ctx.now });
-      return { ok: true, cancelado: describeAppointment(a), sinal: depositOutcomeText(a.deposit) || undefined };
-    },
-  }),
-
-  reenviar_pix_sinal: tool({
-    description: 'Manda de novo o PIX copia e cola do sinal pendente do cliente (vai numa mensagem separada, logo depois da sua resposta).',
-    needsCustomer: true,
-    schema: z.object({}),
-    run: (ctx) => {
-      const open = get<{ id: number }>("SELECT id FROM charges WHERE customer_id = ? AND kind = 'sinal' AND status = 'open' ORDER BY id DESC LIMIT 1", [ctx.customer!.id]);
-      if (!open) return { ok: false, erro: 'Não há sinal pendente.' };
-      const sinal = depositMessage(ctx.shop, charge(open.id));
-      if (!sinal.payload) return { ok: false, erro: 'A barbearia não cadastrou a chave PIX: o sinal é pago no balcão.' };
-      (ctx.followUps ??= []).push(sinal.payload);
-      return { ok: true, sinal: sinal.text };
+      return { ok: true, cancelado: describeAppointment(a) };
     },
   }),
 

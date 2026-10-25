@@ -1,5 +1,4 @@
 import type { Request, Router } from 'express';
-import { depositState } from '../deposits.js';
 import { z } from 'zod';
 import { shopId } from '../auth.js';
 import { accessStatus, billingInfo, informPayment, invoice, invoicePix, listInvoices, saveBillingInfo, shopBilling, monthlyPrice } from '../billing.js';
@@ -25,6 +24,7 @@ import {
   updateEntry,
 } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
+import { receivedFromCustomers } from '../payments.js';
 import { shopNow } from '../clock.js';
 import { addDays, isDate } from '../time.js';
 
@@ -67,6 +67,11 @@ export function registerFinanceRoutes(router: Router): void {
       trialUntil: status.trialUntil,
       whatsapp: connectionInfo(shop),
       pixToConfirm: get<{ n: number }>("SELECT COUNT(*) AS n FROM charges WHERE barbershop_id = ? AND status = 'open' AND claimed_at IS NOT NULL", [shop])!.n,
+      // Desses, quantos vieram com o comprovante.
+      receiptsToConfirm: get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM charges WHERE barbershop_id = ? AND status = 'open' AND claimed_at IS NOT NULL AND receipt_file IS NOT NULL",
+        [shop],
+      )!.n,
       announcements: all("SELECT id, title, body, level, created_at FROM announcements WHERE active = 1 ORDER BY id DESC LIMIT 5"),
     });
   });
@@ -152,6 +157,12 @@ export function registerFinanceRoutes(router: Router): void {
     res.json(financeSummary(shopId(req), from, to));
   });
 
+  /** Recebimentos: tudo o que os clientes pagaram no período (balcão e clube), com os comprovantes do PIX. */
+  router.get('/finance/received', (req, res) => {
+    const { from, to } = period(req);
+    res.json(receivedFromCustomers(shopId(req), from, to));
+  });
+
   router.get('/finance/entries', (req, res) => {
     const { from, to } = period(req);
     const shop = shopId(req);
@@ -206,8 +217,6 @@ export function registerFinanceRoutes(router: Router): void {
     res.json({
       appointment,
       reserved: appointmentId ? reservedItems(appointmentId) : [],
-      // Sinal pago antes (abatido no fechamento) ou ainda pendente.
-      deposit: appointmentId ? depositState(shop, appointmentId) : null,
       // Produtos com controle de estoque trazem quanto ainda tem (descontado o que está separado).
       catalog: all<{ id: number; kind: string; name: string; price_cents: number; track_stock: number }>(
         'SELECT id, kind, name, price_cents, track_stock FROM catalog_items WHERE barbershop_id = ? AND active = 1 ORDER BY kind DESC, name COLLATE NOCASE',

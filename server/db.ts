@@ -896,6 +896,21 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE customers DROP COLUMN asaas_customer_id;
   DELETE FROM platform_settings WHERE key IN ('online_enabled', 'online_fee_pct');
   `,
+  // 12) Sai o sinal (cobranças em aberto canceladas; as pagas ficam no caixa como histórico) e entra o
+  //     comprovante do PIX que o cliente envia pela área dele (arquivo em DATA_DIR/receipts).
+  `
+  UPDATE charges SET status = 'cancelled' WHERE kind = 'sinal' AND status = 'open';
+  UPDATE card_links SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) WHERE kind = 'sinal' AND status = 'open';
+  ALTER TABLE barbershops DROP COLUMN deposit_mode;
+  ALTER TABLE barbershops DROP COLUMN deposit_cents;
+  ALTER TABLE barbershops DROP COLUMN deposit_hold_min;
+  ALTER TABLE barbershops DROP COLUMN deposit_credit_hours;
+
+  -- Comprovante do PIX: nome do arquivo (privado, fora de /uploads), tipo e quando chegou.
+  ALTER TABLE charges ADD COLUMN receipt_file TEXT;
+  ALTER TABLE charges ADD COLUMN receipt_type TEXT;
+  ALTER TABLE charges ADD COLUMN receipt_at TEXT;
+  `,
 ];
 
 function migrate(): void {

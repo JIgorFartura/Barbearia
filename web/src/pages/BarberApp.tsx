@@ -3,10 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
 import { CheckoutModal, type CheckoutEndpoints } from '../components/Checkout';
-import { DepositBadge, type DepositState } from './panel/Deposits';
 import { Badge, Button, Card, ErrorText } from '../components/ui';
 import { api } from '../lib/api';
-import { methodLabel } from '../lib/finance';
 import { addDays, cap, date as fmtDate, dayLabel, money, todayStr, whatsappLink } from '../lib/format';
 
 interface BarberMe {
@@ -29,17 +27,19 @@ interface Appointment {
   ends_at: string;
   status: 'scheduled' | 'cancelled' | 'no_show';
   items: { catalog_item_id: number; name: string; qty: number }[];
-  sale: { id: number; total_cents: number; method: string } | null;
-  deposit: DepositState | null;
+  /** Fechado: a comissão dele nesse atendimento. */
+  sale: { id: number; commission_cents: number } | null;
 }
 
 interface Earnings {
   from: string;
   to: string;
   balance: { unpaid_cents: number; unpaid_items: number; since: string | null; lastPayout: { date: string; amount_cents: number } | null } | null;
-  items: { date: string; sale_id: number; customer: string | null; name: string; kind: string; qty: number; total_cents: number; commission_cents: number; paid: boolean }[];
-  revenue: number;
+  /** Só a parte dele: a comissão de cada item (o valor das vendas é da barbearia). */
+  items: { date: string; customer: string | null; name: string; kind: string; qty: number; commission_cents: number; paid: boolean }[];
   commission: number;
+  /** Atendimentos (serviços) feitos no período. */
+  services: number;
   payouts: { id: number; date: string; amount_cents: number; items: number; until_date: string; method: string | null }[];
 }
 
@@ -173,11 +173,6 @@ function BarberAgenda({ info }: { info: BarberMe }) {
                   <Badge tone="green">Pago</Badge>
                 ) : null}
               </div>
-              {a.status === 'scheduled' && !a.sale && a.deposit && (
-                <p className="mt-1">
-                  <DepositBadge deposit={a.deposit} />
-                </p>
-              )}
               {a.items.length > 0 && (
                 <p className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900">
                   🍺 Separar: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}
@@ -185,7 +180,7 @@ function BarberAgenda({ info }: { info: BarberMe }) {
               )}
               {a.sale && (
                 <p className="mt-2 text-sm text-emerald-700">
-                  ✓ {money(a.sale.total_cents)} · {methodLabel(a.sale.method)}
+                  ✓ Atendimento fechado · sua parte: <b className="tabular-nums">{money(a.sale.commission_cents)}</b>
                 </p>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -279,12 +274,12 @@ function EarningsTab() {
         <>
           <div className="grid grid-cols-2 gap-3">
             <Card className="!p-4">
-              <p className="text-sm text-zinc-500">Vendeu no período</p>
-              <p className="text-xl font-bold tabular-nums">{money(data.revenue)}</p>
+              <p className="text-sm text-zinc-500">Sua parte no período</p>
+              <p className="text-xl font-bold tabular-nums">{money(data.commission)}</p>
             </Card>
             <Card className="!p-4">
-              <p className="text-sm text-zinc-500">Sua comissão</p>
-              <p className="text-xl font-bold tabular-nums">{money(data.commission)}</p>
+              <p className="text-sm text-zinc-500">Atendimentos</p>
+              <p className="text-xl font-bold tabular-nums">{data.services}</p>
             </Card>
           </div>
           {data.items.length === 0 ? (
@@ -300,7 +295,7 @@ function EarningsTab() {
                         {i.name}
                       </span>
                       <span className="text-xs text-zinc-500">
-                        {fmtDate(i.date)} · {i.customer ?? 'avulso'} · {money(i.total_cents)}
+                        {fmtDate(i.date)} · {i.customer ?? 'avulso'}
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-2">

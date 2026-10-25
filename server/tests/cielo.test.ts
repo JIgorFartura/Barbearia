@@ -18,8 +18,6 @@ const { app } = await import('../index.js');
 const { all, get, nowIso, run } = await import('../db.js');
 const { hashPassword } = await import('../auth.js');
 const { cieloHttp } = await import('../cielo.js');
-const { book } = await import('../scheduling.js');
-const { expireDeposits, requireDeposit } = await import('../deposits.js');
 const { clubBilling, clubCoverage } = await import('../club.js');
 const { syncCardLinks } = await import('../cards.js');
 const { shopBot } = await import('../messaging.js');
@@ -117,7 +115,7 @@ const corte = run("INSERT INTO catalog_items (barbershop_id, kind, name, price_c
 const customer = (name: string, phone: string) =>
   run('INSERT INTO customers (barbershop_id, name, phone, privacy_accepted_at, created_at) VALUES (?, ?, ?, ?, ?)', [shopId, name, phone, nowIso(), nowIso()]).lastInsertRowid;
 const joao = customer('João Pereira', '11999990000');
-const ana = customer('Ana Lima', '11988880000');
+customer('Ana Lima', '11988880000');
 
 async function enter(phone: string) {
   const c = makeClient(() => base);
@@ -132,6 +130,8 @@ let shopToken = '';
 let invoiceId = 0;
 let clubCharge = 0;
 let memberId = 0;
+let planId = 0;
+let anaCharge = 0;
 
 describe('cartão pela Cielo: menor taxa, dinheiro em 1 dia útil e cobrança automática todo mês', () => {
   test('o master liga a Cielo da plataforma: credenciais conferidas na Cielo e a URL de aviso para colar lá', async () => {
@@ -238,6 +238,7 @@ describe('cartão pela Cielo: menor taxa, dinheiro em 1 dia útil e cobrança au
 
   test('clube no cartão automático: a Cielo da barbearia cobra todo mês e a baixa é sozinha, com a taxa no caixa', async () => {
     const plan = await owner('POST', '/api/shop/club/plans', { name: 'Ouro', price_cents: 9990, uses_per_month: null, item_ids: [corte] });
+    planId = plan.data.id;
     const c = await enter('11999990000');
     const sub = (await c('POST', '/api/customer/navalha/club/subscribe', { plan_id: plan.data.id })).data;
     assert.equal(sub.online, true);
@@ -309,64 +310,40 @@ describe('cartão pela Cielo: menor taxa, dinheiro em 1 dia útil e cobrança au
     assert.ok(calls.some((x) => x.method === 'DELETE' && x.path === '/api/public/v1/RecurrentPayment/Deactivate/rec-club'));
   });
 
-  test('sinal no cartão (avulso, uso único); pago depois de a vaga ser liberada vira crédito', async () => {
-    await owner('PUT', '/api/shop/deposits/settings', { deposit_mode: 'all', deposit_cents: 2000, deposit_hold_min: 60, deposit_credit_hours: 24 });
-    const date = addDays(today(), 5);
-    const now = new Date(Date.now() - 2 * 3600000);
-    const a = book({ shopId, customerId: ana, barberId: paulo, serviceId: corte, date, time: '15:00', source: 'cliente', now });
-    const dep = requireDeposit(shopId, a.id, now)!;
+  test('cartão recusado no 1º pagamento do clube: pedir de novo gera outro link e o antigo sai do ar', async () => {
     const c = await enter('11988880000');
-    assert.equal((await c('GET', `/api/customer/navalha/deposits/${dep.id}`)).data.online, true);
-    const r = await c('POST', `/api/customer/navalha/charges/${dep.id}/pay-online`, {});
+    const sub = (await c('POST', '/api/customer/navalha/club/subscribe', { plan_id: planId })).data;
+    anaCharge = sub.charge.id;
+    const r = await c('POST', `/api/customer/navalha/charges/${anaCharge}/pay-online`, {});
     assert.equal(r.status, 200);
-    const body = created().at(-1)!.body as Record<string, unknown>;
-    assert.equal(body.type, 'Payment');
-    assert.equal(body.maxNumberOfInstallments, 1);
-    assert.equal(body.quantity, 1);
-    assert.equal(body.sku, `s${dep.id}`);
-    assert.equal(body.expirationDate, addDays(today(), 1));
-    assert.equal(body.recurrent, undefined);
-    let linkId = `link-${links}`;
-
-    // O cartão foi recusado: pedir de novo gera outro link (o de uso único pode não valer mais).
-    orders.set('ord-s0', { payment: { status: 'Denied', type: 'CreditCard' } });
-    await notify(shopToken, { checkout_cielo_order_number: 'ord-s0', product_id: linkId, payment_status: '3', amount: '2000' });
-    const again = await c('POST', `/api/customer/navalha/charges/${dep.id}/pay-online`, {});
+    assert.equal((await c('POST', `/api/customer/navalha/charges/${anaCharge}/pay-online`, {})).data.url, r.data.url, 'sem tentativa, o mesmo link');
+    const linkId = `link-${links}`;
+    orders.set('ord-a0', { payment: { status: 'Denied', type: 'CreditCard' } });
+    await notify(shopToken, { checkout_cielo_order_number: 'ord-a0', product_id: linkId, payment_status: '3', amount: '9990' });
+    assert.equal(get<{ status: string }>('SELECT status FROM charges WHERE id = ?', [anaCharge])!.status, 'open');
+    const again = await c('POST', `/api/customer/navalha/charges/${anaCharge}/pay-online`, {});
     assert.notEqual(again.data.url, r.data.url);
     assert.ok(calls.some((x) => x.method === 'DELETE' && x.path === `/api/public/v1/products/${linkId}`), 'o link antigo sai do ar');
-    linkId = `link-${links}`;
-
-    // Não pagou no prazo: a vaga é liberada. O cartão é aprovado depois.
-    assert.equal(await expireDeposits(shopBot(shopId), new Date()), 1);
-    orders.set('ord-s1', paidOrder('DebitCard'));
-    await notify(shopToken, { checkout_cielo_order_number: 'ord-s1', product_id: linkId, payment_status: '2', amount: '2000', payment_method_type: '4' });
-    assert.deepEqual(get('SELECT status, method, appointment_id FROM charges WHERE id = ?', [dep.id]), { status: 'paid', method: 'debito', appointment_id: null });
   });
 
   test('conferência de hora em hora: pagamento cujo aviso não chegou e link que não vale mais', async () => {
-    // Sinal pago na Cielo, mas o aviso se perdeu: a conferência acha e dá baixa.
-    const date = addDays(today(), 6);
-    const now = new Date();
-    const bruno = customer('Bruno Costa', '11977770000');
-    const a = book({ shopId, customerId: bruno, barberId: paulo, serviceId: corte, date, time: '16:00', source: 'cliente', now });
-    const dep = requireDeposit(shopId, a.id, now)!;
-    const c = await enter('11977770000');
-    await c('POST', `/api/customer/navalha/charges/${dep.id}/pay-online`, {});
+    // A Ana pagou o clube com o link novo, mas o aviso se perdeu: a conferência acha e dá baixa.
     const lost = `link-${links}`;
-    orders.set('ord-perdido', paidOrder());
-    linkPayments.set(lost, [{ orderNumber: 'ord-perdido', payment: { status: 'Paid', price: 2000 } }]);
+    orders.set('ord-perdido', paidOrder('DebitCard', { recurrentPayment: { id: 'rec-ana' } }));
+    linkPayments.set(lost, [{ orderNumber: 'ord-perdido', payment: { status: 'Paid', price: 9990 } }]);
 
-    // Outro sinal: o cliente gera o link mas paga no PIX direto e o dono confirma. O link é apagado.
-    const d2 = book({ shopId, customerId: bruno, barberId: paulo, serviceId: corte, date: addDays(today(), 7), time: '16:00', source: 'cliente', now });
-    const dep2 = requireDeposit(shopId, d2.id, now)!;
-    await c('POST', `/api/customer/navalha/charges/${dep2.id}/pay-online`, {});
+    // O Bruno gerou o link do clube, mas a assinatura foi cancelada sem a Cielo saber: o link é apagado.
+    customer('Bruno Costa', '11977770000');
+    const c = await enter('11977770000');
+    const sub = (await c('POST', '/api/customer/navalha/club/subscribe', { plan_id: planId })).data;
+    await c('POST', `/api/customer/navalha/charges/${sub.charge.id}/pay-online`, {});
     const stale = `link-${links}`;
-    await owner('POST', `/api/shop/charges/${dep2.id}/confirm`, { method: 'pix' });
+    run("UPDATE club_members SET status = 'cancelled' WHERE id = ?", [sub.member.id]);
 
     const r = await syncCardLinks(new Date(Date.now() + 2 * 3600000));
     assert.equal(r.applied, 1);
     assert.equal(r.removed, 1);
-    assert.equal(get<{ status: string }>('SELECT status FROM charges WHERE id = ?', [dep.id])!.status, 'paid');
+    assert.deepEqual(get('SELECT status, method FROM charges WHERE id = ?', [anaCharge]), { status: 'paid', method: 'debito' });
     assert.ok(calls.some((x) => x.method === 'DELETE' && x.path === `/api/public/v1/products/${stale}`));
     assert.equal(get<{ status: string }>('SELECT status FROM card_links WHERE link_id = ?', [stale])!.status, 'cancelled');
   });
@@ -392,11 +369,13 @@ describe('cartão pela Cielo: menor taxa, dinheiro em 1 dia útil e cobrança au
     assert.equal(get<{ duplicate: number }>("SELECT duplicate FROM gateway_payments WHERE external_id = 'cielo:ord-c4'")!.duplicate, 1);
   });
 
-  test('o master vê os pagamentos no cartão (barbearia, tipo, forma e valores), sem o nome dos clientes', async () => {
+  test('o master vê só as mensalidades das barbearias: nada do que os clientes pagam a elas', async () => {
     const r = (await master('GET', `/api/master/payments?from=${today()}&to=${today()}`)).data;
     assert.equal(r.cielo, true);
-    const kinds = new Set(r.items.filter((i: { paid: boolean }) => i.paid).map((i: { kind: string }) => i.kind));
-    assert.deepEqual([...kinds].sort(), ['clube', 'mensalidade', 'sinal']);
+    const kinds = new Set(r.items.map((i: { kind: string }) => i.kind));
+    assert.deepEqual([...kinds], ['mensalidade']);
+    assert.ok(get("SELECT 1 AS ok FROM gateway_payments WHERE kind = 'clube' AND applied = 1"), 'os pagamentos do clube existem, só não aparecem para o master');
+    assert.equal(r.totals.processed, r.items.filter((i: { paid: boolean }) => i.paid).reduce((t: number, i: { value_cents: number }) => t + i.value_cents, 0));
     const monthly = r.items.find((i: { kind: string; paid: boolean }) => i.kind === 'mensalidade' && i.paid);
     assert.equal(monthly.provider, 'cielo');
     assert.equal(monthly.value_cents, 14990);

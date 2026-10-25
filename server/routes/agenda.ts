@@ -1,5 +1,4 @@
 import type { Router } from 'express';
-import { depositState } from '../deposits.js';
 import { z } from 'zod';
 import { hashPassword, shopId } from '../auth.js';
 import { zPassword } from './auth.js';
@@ -224,7 +223,6 @@ export function registerAgendaRoutes(router: Router): void {
       ...a,
       items: reservedItems(a.id),
       sale: get<{ id: number; total_cents: number; method: string }>("SELECT id, total_cents, method FROM sales WHERE appointment_id = ? AND status = 'closed'", [a.id]) ?? null,
-      deposit: depositState(shop, a.id),
     }));
     res.json({ date, barbers: barbersWithHours(shop).filter((b) => b.active), appointments, blocks });
   });

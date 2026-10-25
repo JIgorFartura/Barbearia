@@ -3,10 +3,11 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Section } from '../components/CustomerSection';
 import { StampCard, type Progress } from '../components/StampCard';
 import { ClubSection } from './CustomerClub';
-import { DepositPayModal, type CustomerDeposit } from './CustomerDeposit';
 import { BirthdaySection, ReferralSection } from './CustomerGrowth';
+import type { ReceiptInfo } from '../components/Receipt';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { ApiError, api } from '../lib/api';
+import { methodLabel } from '../lib/finance';
 import { WEEKDAYS, WEEKDAYS_SHORT, addDays, cap, dayLabel, hourLabel, money, phone as fmtPhone, stampLabel, todayStr, weekdayOf } from '../lib/format';
 
 interface Brand {
@@ -30,8 +31,6 @@ interface Appointment {
   starts_at: string;
   status: 'scheduled' | 'cancelled' | 'no_show';
   items?: { catalog_item_id: number; name: string; qty: number }[];
-  /** Sinal via PIX para segurar o horário (se a barbearia cobra). */
-  deposit?: CustomerDeposit | null;
 }
 
 interface Suggestion {
@@ -68,6 +67,20 @@ interface Voucher {
   expires_on: string;
 }
 
+/** Um pagamento dele à barbearia: compra (balcão ou atendimento) ou mensalidade do clube. */
+interface Payment {
+  kind: 'compra' | 'clube';
+  id: number;
+  date: string;
+  description: string;
+  amount_cents: number;
+  method: string | null;
+  status: 'open' | 'claimed' | 'paid';
+  /** Pago no cartão pela Cielo (automático). */
+  card: boolean;
+  receipt: ReceiptInfo | null;
+}
+
 interface MeData {
   customer: {
     id: number;
@@ -89,7 +102,8 @@ interface MeData {
   card: { id: number; name: string; unit_label: string; reward: string; progress: Progress }[];
   offers: Offer[];
   vouchers: Voucher[];
-  purchases: { id: number; date: string; total_cents: number; items: { name: string; qty: number; total_cents: number }[] }[];
+  /** Só os pagamentos dele: compras e clube. */
+  payments: Payment[];
   /** Indique um amigo (null = a barbearia não ligou). */
   referral: { code: string; link: string; friend_gift: string | null; my_prize: string | null; joined: number; came: number } | null;
   birthday: { enabled: boolean; gift: string | null; value: string | null };
@@ -301,7 +315,6 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
   const [prefs, setPrefs] = useState(false);
   const [voucher, setVoucher] = useState<Voucher | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [paying, setPaying] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const accent = { background: brand.accent_color, color: '#09090b' };
   const habit = me.habit;
@@ -375,17 +388,6 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
                   {a.items && a.items.length > 0 && (
                     <p className="text-xs text-amber-800">🍺 Separado pra você: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
                   )}
-                  {a.deposit &&
-                    (a.deposit.paid ? (
-                      <p className="text-xs text-emerald-700">✅ Sinal pago ({money(a.deposit.amount_cents)})</p>
-                    ) : a.deposit.claimed ? (
-                      <p className="text-xs text-emerald-700">✅ Sinal avisado: a barbearia confere o PIX</p>
-                    ) : (
-                      <button className="mt-1 rounded-md px-2 py-0.5 text-xs font-semibold" style={accent} onClick={() => setPaying(a.deposit!.id)}>
-                        Pagar sinal de {money(a.deposit.amount_cents)}
-                        {a.deposit.expires_local ? ` até ${hourLabel(a.deposit.expires_local.slice(11))}` : ''}
-                      </button>
-                    ))}
                 </div>
                 <button onClick={() => cancelAppt(a)} className="flex items-center gap-1 text-sm text-red-600 hover:underline">
                   <CalendarX className="size-4" /> Cancelar
@@ -421,7 +423,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
         </p>
       </Section>
 
-      <ClubSection slug={slug} accent={brand.accent_color} />
+      <ClubSection slug={slug} accent={brand.accent_color} onPaid={reload} />
       {me.referral && <ReferralSection referral={me.referral} shopName={brand.name} accent={brand.accent_color} />}
       {me.birthday.enabled && <BirthdaySection slug={slug} birthday={me.birthday} onSaved={reload} />}
 
@@ -471,20 +473,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
         </Section>
       )}
 
-      {me.purchases.length > 0 && (
-        <Section icon={<Receipt />} title="Minhas compras">
-          <ul className="divide-y divide-zinc-100 text-sm">
-            {me.purchases.map((p) => (
-              <li key={p.id} className="flex justify-between gap-3 py-2">
-                <span>
-                  <span className="text-zinc-500">{p.date.split('-').reverse().join('/')}</span> · {p.items.map((i) => `${i.qty > 1 ? `${i.qty}× ` : ''}${i.name}`).join(', ')}
-                </span>
-                <span className="font-medium whitespace-nowrap tabular-nums">{money(p.total_cents)}</span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
+      {me.payments.length > 0 && <PaymentsSection slug={slug} payments={me.payments} />}
 
       {me.history.length > 0 && (
         <Section icon={<History />} title="Histórico">
@@ -524,17 +513,6 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
       </Section>
 
       {deleting && <DeleteAccountModal slug={slug} shopName={brand.name} onClose={() => setDeleting(false)} />}
-      {paying && (
-        <DepositPayModal
-          slug={slug}
-          depositId={paying}
-          accent={brand.accent_color}
-          onClose={() => {
-            setPaying(null);
-            reload();
-          }}
-        />
-      )}
       {booking && (
         <BookingModal
           slug={slug}
@@ -577,6 +555,59 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
 }
 
 /** Exclui a conta: apaga os dados pessoais (a barbearia mantém só as vendas, sem identificação). */
+const PAYMENT_STATUS: Record<Payment['status'], { label: string; className: string }> = {
+  paid: { label: 'Pago', className: 'bg-emerald-100 text-emerald-800' },
+  claimed: { label: 'A barbearia está conferindo', className: 'bg-amber-100 text-amber-900' },
+  open: { label: 'Em aberto', className: 'bg-red-100 text-red-800' },
+};
+
+/** Meus pagamentos: só o que ele pagou (ou tem para pagar) à barbearia, com o comprovante que mandou. */
+function PaymentsSection({ slug, payments }: { slug: string; payments: Payment[] }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? payments : payments.slice(0, 6);
+  return (
+    <Section icon={<Receipt />} title="Meus pagamentos">
+      <ul className="divide-y divide-zinc-100 text-sm">
+        {shown.map((p) => {
+          const st = PAYMENT_STATUS[p.status];
+          return (
+            <li key={`${p.kind}${p.id}`} className="flex items-start justify-between gap-3 py-2.5">
+              <div className="min-w-0">
+                <p className="font-medium">{p.description}</p>
+                <p className="text-xs text-zinc-500">
+                  {p.status === 'paid' ? '' : 'Vence '}
+                  {p.date.split('-').reverse().join('/')}
+                  {p.kind === 'clube' && p.status === 'paid' && ` · ${p.card ? 'Cartão automático' : methodLabel(p.method)}`}
+                  {p.kind === 'compra' && ` · ${methodLabel(p.method)}`}
+                </p>
+                {p.receipt && (
+                  <a href={`/api/customer/${slug}/charges/${p.id}/receipt`} target="_blank" rel="noreferrer" className="text-xs font-medium text-zinc-700 underline">
+                    Ver comprovante
+                  </a>
+                )}
+                {p.status === 'open' && (
+                  <a href="#clube" className="text-xs font-medium text-zinc-700 underline">
+                    Pagar ou enviar o comprovante
+                  </a>
+                )}
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="font-semibold tabular-nums">{money(p.amount_cents)}</p>
+                <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${st.className}`}>{st.label}</span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {payments.length > shown.length && (
+        <button className="mt-1 text-sm font-medium text-zinc-600 hover:text-zinc-900" onClick={() => setAll(true)}>
+          Ver todos
+        </button>
+      )}
+    </Section>
+  );
+}
+
 function DeleteAccountModal({ slug, shopName, onClose }: { slug: string; shopName: string; onClose: () => void }) {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -643,40 +674,27 @@ function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me:
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [slots]);
 
-  const [booked, setBooked] = useState<{ id: number; suggestion: Suggestion | null; deposit: CustomerDeposit | null } | null>(null);
-  const [depositDone, setDepositDone] = useState(false);
+  const [booked, setBooked] = useState<{ id: number; suggestion: Suggestion | null } | null>(null);
 
   async function confirmBooking() {
     if (!choice) return;
     setBusy(true);
     setError(null);
     try {
-      const a = await api<{ id: number; suggestion: Suggestion | null; deposit: CustomerDeposit | null }>('POST', `/api/customer/${slug}/appointments`, {
+      const a = await api<{ id: number; suggestion: Suggestion | null }>('POST', `/api/customer/${slug}/appointments`, {
         barber_id: choice.barberId,
         service_id: serviceId,
         date,
         time: choice.time,
       });
-      // Sinal para segurar o horário e/ou a pergunta do consumo (ex.: "posso avisar o Paulo da sua cerveja?").
-      if ((a.deposit && !a.deposit.paid) || a.suggestion) setBooked(a);
+      // Pergunta do consumo (ex.: "posso avisar o Paulo da sua cerveja?").
+      if (a.suggestion) setBooked(a);
       else onDone();
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
     }
-  }
-
-  if (booked?.deposit && !booked.deposit.paid && !depositDone) {
-    return (
-      <DepositPayModal
-        slug={slug}
-        depositId={booked.deposit.id}
-        accent={accent}
-        title="Horário reservado! Falta o sinal"
-        onClose={() => (booked.suggestion ? setDepositDone(true) : onDone())}
-      />
-    );
   }
 
   if (booked?.suggestion) {

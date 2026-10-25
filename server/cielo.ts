@@ -1,8 +1,8 @@
 /**
  * Cielo, pela API do Link de Pagamento. O cliente paga numa página segura da Cielo (o sistema nunca
- * vê o cartão). Serve para a cobrança avulsa (sinal) e para a recorrente: a Cielo guarda o cartão e
- * cobra sozinha todo mês (mensalidade do sistema e do clube). Cada recebedor usa as credenciais da
- * própria conta Cielo (ClientId e Client Secret, no site da Cielo).
+ * vê o cartão). Na cobrança recorrente, a Cielo guarda o cartão e cobra sozinha todo mês (mensalidade
+ * do sistema e do clube). Cada recebedor usa as credenciais da própria conta Cielo (ClientId e Client
+ * Secret, no site da Cielo).
  */
 
 export interface CieloCredentials {

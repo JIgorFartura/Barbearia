@@ -16,7 +16,6 @@ export type MessageKind =
   | 'avaliacao'
   | 'aniversario'
   | 'indicacao'
-  | 'sinal'
   | 'assinatura'
   | 'aviso';
 

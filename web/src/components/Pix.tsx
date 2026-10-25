@@ -3,7 +3,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../lib/api';
 import { METHODS, type Method } from '../lib/finance';
 import { date, money, phone as fmtPhone } from '../lib/format';
-import { Badge, Button, Card, ErrorText, Field, Input, Modal, inputClass } from './ui';
+import { ReceiptPreview, type ReceiptInfo } from './Receipt';
+import { Button, Card, ErrorText, Field, Input, Modal, inputClass } from './ui';
 
 type PixType = 'cpf' | 'celular' | 'email' | 'aleatoria';
 
@@ -24,7 +25,7 @@ const TYPES: { id: PixType; label: string; placeholder: string }[] = [
 /** Como a chave salva aparece no campo (celular sem o +55). */
 const keyForInput = (s: PixSettings) => (s.pix_type === 'celular' && s.pix_key ? fmtPhone(s.pix_key.slice(3)) : (s.pix_key ?? ''));
 
-/** Chave PIX da barbearia: o cliente paga direto na conta dela (clube de assinatura e sinal). */
+/** Chave PIX da barbearia: o cliente paga a mensalidade do clube direto na conta dela. */
 export function PixSettingsCard({ onSaved }: { onSaved?: (hasKey: boolean) => void }) {
   const [form, setForm] = useState<{ pix_type: PixType; pix_key: string; pix_name: string; pix_city: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -132,16 +133,17 @@ export function PixPay({ pix }: { pix: { payload: string; qr: string } }) {
 
 export interface ChargeRow {
   id: number;
-  kind: 'clube' | 'sinal';
   customer_name: string;
   phone: string;
   description: string;
   amount_cents: number;
   due_date: string | null;
   claimed_at: string | null;
+  /** Cópia do comprovante que o cliente mandou pela área dele. */
+  receipt: ReceiptInfo | null;
 }
 
-/** PIX que os clientes avisaram que pagaram: o dono confere no banco e confirma (ou não). */
+/** PIX que os clientes avisaram que pagaram (com o comprovante, quando mandaram): o dono confere no banco e confirma (ou não). */
 export function PixConfirmModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const [rows, setRows] = useState<ChargeRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -165,7 +167,9 @@ export function PixConfirmModal({ onClose, onChanged }: { onClose: () => void; o
   return (
     <Modal title="PIX para conferir" onClose={onClose}>
       <div className="space-y-3">
-        <p className="text-sm text-zinc-500">Os clientes avisaram que pagaram. Confira no extrato do banco: se caiu, confirme e o valor entra no caixa.</p>
+        <p className="text-sm text-zinc-500">
+          Os clientes avisaram que pagaram (alguns mandaram o comprovante). Confira no extrato do banco: se caiu, confirme e o valor entra no caixa.
+        </p>
         <ErrorText error={error} />
         {rows && rows.length > 0 && (
           <Field label="Recebido como">
@@ -189,11 +193,13 @@ export function PixConfirmModal({ onClose, onChanged }: { onClose: () => void; o
                     {c.description} · avisou em {date(c.claimed_at)}
                   </p>
                 </div>
-                <div className="text-right">
-                  <p className="font-bold whitespace-nowrap tabular-nums">{money(c.amount_cents)}</p>
-                  <Badge tone={c.kind === 'clube' ? 'gold' : 'zinc'}>{c.kind === 'clube' ? 'Clube' : 'Sinal'}</Badge>
-                </div>
+                <p className="font-bold whitespace-nowrap tabular-nums">{money(c.amount_cents)}</p>
               </div>
+              {c.receipt && (
+                <div className="mt-2">
+                  <ReceiptPreview url={`/api/shop/charges/${c.id}/receipt`} receipt={c.receipt} />
+                </div>
+              )}
               <div className="mt-2 flex gap-2">
                 <Button className="flex-1 !py-1.5" onClick={() => act(c, 'confirm')}>
                   Caiu na conta

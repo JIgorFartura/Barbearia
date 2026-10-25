@@ -28,8 +28,6 @@ interface CheckoutData {
   reserved: { catalog_item_id: number; name: string; qty: number }[];
   catalog: CatalogItem[];
   barbers: { id: number; name: string }[];
-  /** Sinal via PIX do horário: pago (é abatido aqui), avisado pelo cliente ou esperando. */
-  deposit: { id: number; amount_cents: number; state: 'paid' | 'claimed' | 'open' } | null;
 }
 
 interface Line {
@@ -54,7 +52,7 @@ interface Coverage {
 }
 
 export interface SaleResult {
-  sale: { id: number; total_cents: number; prepaid_cents: number };
+  sale: { id: number; total_cents: number };
   stamps: { campaign: string; qty: number; unit: string; available: number }[];
 }
 
@@ -66,8 +64,6 @@ export interface CheckoutEndpoints {
   sales: string;
   customers: string;
   club: string;
-  /** Confirmar o PIX do sinal avisado pelo cliente (só o dono). */
-  confirmCharge?: string;
 }
 
 const OWNER: CheckoutEndpoints = {
@@ -75,7 +71,6 @@ const OWNER: CheckoutEndpoints = {
   sales: '/api/shop/finance/sales',
   customers: '/api/shop/customers',
   club: '/api/shop/finance/club',
-  confirmCharge: '/api/shop/charges',
 };
 
 /**
@@ -181,20 +176,6 @@ export function CheckoutModal({
   const coveredBy = (l: Line) => Boolean(club && l.catalog_item_id && club.itemIds.includes(l.catalog_item_id));
   const discountCents = Math.min(parseMoney(discount), subtotal);
   const total = subtotal - discountCents;
-  // Sinal pago antes: é descontado do que falta cobrar agora.
-  const prepaid = data?.deposit?.state === 'paid' ? Math.min(data.deposit.amount_cents, total) : 0;
-  const toCharge = total - prepaid;
-
-  async function confirmDeposit() {
-    if (!data?.deposit || !endpoints.confirmCharge) return;
-    setError(null);
-    try {
-      await api('POST', `${endpoints.confirmCharge}/${data.deposit.id}/confirm`, { method: 'pix' });
-      setData({ ...data, deposit: { ...data.deposit, state: 'paid' } });
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
 
   const update = (key: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
@@ -241,11 +222,6 @@ export function CheckoutModal({
         <div className="space-y-4 text-center">
           <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
           <p className="text-2xl font-bold">{money(result.sale.total_cents)}</p>
-          {result.sale.prepaid_cents > 0 && (
-            <p className="text-sm">
-              {money(result.sale.prepaid_cents)} do sinal + <b>{money(result.sale.total_cents - result.sale.prepaid_cents)}</b> agora
-            </p>
-          )}
           <p className="text-sm text-zinc-500">Entrou no caixa e a comissão do barbeiro já foi calculada.</p>
           {result.stamps.map((s) => (
             <p key={s.campaign} className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -418,37 +394,13 @@ export function CheckoutModal({
                 <span>Desconto</span> <span className="tabular-nums">− {money(discountCents)}</span>
               </p>
             )}
-            {prepaid > 0 ? (
-              <>
-                <p className="flex justify-between">
-                  <span>Total</span> <span className="tabular-nums">{money(total)}</span>
-                </p>
-                <p className="flex justify-between text-emerald-700">
-                  <span>Sinal já pago (PIX)</span> <span className="tabular-nums">− {money(prepaid)}</span>
-                </p>
-                <p className="flex justify-between text-lg font-bold">
-                  <span>A cobrar agora</span> <span className="tabular-nums">{money(toCharge)}</span>
-                </p>
-              </>
-            ) : (
-              <p className="flex justify-between text-lg font-bold">
-                <span>Total</span> <span className="tabular-nums">{money(total)}</span>
-              </p>
-            )}
+            <p className="flex justify-between text-lg font-bold">
+              <span>Total</span> <span className="tabular-nums">{money(total)}</span>
+            </p>
           </div>
-          {data.deposit?.state === 'claimed' && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-950 ring-1 ring-amber-200">
-              <span>O cliente avisou que pagou o sinal de {money(data.deposit.amount_cents)}. Confira no banco.</span>
-              {endpoints.confirmCharge && (
-                <Button className="!py-1" onClick={confirmDeposit}>
-                  Caiu na conta
-                </Button>
-              )}
-            </div>
-          )}
           <ErrorText error={error ?? (clubOver ? `O plano ${club!.plan} só tem mais ${club!.left} ${club!.left === 1 ? 'uso' : 'usos'} neste mês.` : null)} />
           <Button className="w-full" loading={busy} disabled={!lines.length || clubOver} onClick={submit}>
-            Registrar {money(toCharge)} em {METHODS.find((m) => m.id === method)?.label}
+            Registrar {money(total)} em {METHODS.find((m) => m.id === method)?.label}
           </Button>
         </div>
       )}

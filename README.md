@@ -20,40 +20,48 @@ aniversário, comércios parceiros e um robô que lembra dele (até da cerveja d
 |---|---|---|
 | <img src="docs/img/clube.png" width="300" alt="Clube de assinatura"> | <img src="docs/img/avaliacoes.png" width="300" alt="Avaliações"> | <img src="docs/img/indicacao.png" width="300" alt="Indicação e aniversário"> |
 
-| Sinal via PIX (cliente) | App do barbeiro | Financeiro | Estoque |
-|---|---|---|---|
-| <img src="docs/img/sinal-cliente.png" width="180" alt="Sinal via PIX"> | <img src="docs/img/barbeiro.png" width="180" alt="App do barbeiro"> | <img src="docs/img/financeiro.png" width="300" alt="Financeiro"> | <img src="docs/img/estoque.png" width="300" alt="Estoque"> |
+| Comprovante do PIX (cliente) | App do barbeiro (só a parte dele) | Recebimentos dos clientes (barbearia) |
+|---|---|---|
+| <img src="docs/img/comprovante-cliente.png" width="180" alt="Comprovante do PIX"> | <img src="docs/img/barbeiro.png" width="180" alt="App do barbeiro"> | <img src="docs/img/recebimentos.png" width="300" alt="Recebimentos dos clientes"> |
+
+| Financeiro | Estoque |
+|---|---|
+| <img src="docs/img/financeiro.png" width="300" alt="Financeiro"> | <img src="docs/img/estoque.png" width="300" alt="Estoque"> |
 
 | Painel master | Pronto para o piloto? | Mensalidades no master |
 |---|---|---|
 | <img src="docs/img/master.png" width="300" alt="Painel master"> | <img src="docs/img/master-piloto.png" width="300" alt="Checklist do piloto"> | <img src="docs/img/master-financeiro.png" width="300" alt="Financeiro do master"> |
 
-| Clube no cartão (cliente) | Mensalidade no cartão automático | Receber no cartão (barbearia) | Pagamentos online (master) |
+| Clube no cartão (cliente) | Mensalidade no cartão automático | Receber no cartão (barbearia) | Mensalidades pagas (master) |
 |---|---|---|---|
-| <img src="docs/img/cartao-cliente.png" width="180" alt="Clube no cartão automático"> | <img src="docs/img/cartao-mensalidade.png" width="300" alt="Mensalidade no cartão automático"> | <img src="docs/img/cartao-barbearia.png" width="220" alt="Receber no cartão pela Cielo"> | <img src="docs/img/master-pagamentos.png" width="300" alt="Pagamentos online no master"> |
+| <img src="docs/img/cartao-cliente.png" width="180" alt="Clube no cartão automático"> | <img src="docs/img/cartao-mensalidade.png" width="300" alt="Mensalidade no cartão automático"> | <img src="docs/img/cartao-barbearia.png" width="220" alt="Receber no cartão pela Cielo"> | <img src="docs/img/master-pagamentos.png" width="300" alt="Mensalidades pagas online no master"> |
 
 ## Quatro perfis
 
 - **Master** (dono da plataforma) cuida **só do controle geral**: cria a barbearia e entrega o
   acesso ao dono (plano, valor, dia de vencimento, dias grátis e a mensagem pronta com o link e a
-  senha), troca a senha e o celular do dono, suspende ou reativa, acompanha as **mensalidades** e
-  os **pagamentos online** (mensalidades no cartão e o que os clientes pagaram no cartão, sem
-  dados dos clientes), configura a **Cielo** e o **Asaas**, o **WhatsApp da plataforma**, os **termos e a política de privacidade**,
+  senha), troca a senha e o celular do dono, suspende ou reativa, acompanha as **mensalidades** que
+  as barbearias pagam a ele (inclusive as pagas online), configura a **Cielo** e o **Asaas**, o
+  **WhatsApp da plataforma**, os **termos e a política de privacidade**,
   as **cópias de segurança** e os **avisos** que aparecem no painel de todas as barbearias. A aba
   *Sistema* tem o checklist **"Pronto para o piloto?"**. O master **não vê** agenda, barbeiros,
-  clientes nem conversas (são da barbearia): a API recusa o master em qualquer rota do painel.
-- **Dono da barbearia**: agenda, balcão, financeiro, estoque, robô, avaliações, clube de
-  assinatura, campanhas, benefícios, indicação e aniversário, parceiros, anúncios, barbeiros,
-  serviços, produtos, marca e a própria mensalidade. Nunca vê dados de outra barbearia.
+  clientes, conversas nem o que os clientes pagam às barbearias (é delas): a API recusa o master
+  em qualquer rota do painel.
+- **Dono da barbearia**: agenda, balcão, financeiro (com os **recebimentos de todos os clientes** e a
+  cópia dos **comprovantes** do PIX), estoque, robô, avaliações, clube de assinatura, campanhas,
+  benefícios, indicação e aniversário, parceiros, anúncios, barbeiros, serviços, produtos, marca e a
+  própria mensalidade. Nunca vê dados de outra barbearia.
 - **Barbeiro** (o dono libera em *Barbeiros → Acesso ao sistema*): entra pelo **celular** ou
   e-mail e vê só a **própria agenda**, fecha os **próprios atendimentos** (se o dono permitir),
-  marca falta e acompanha **Meus ganhos** (comissão a receber, extrato e pagamentos) e a nota que
-  os clientes dão para ele. Não vê caixa, comissão dos colegas nem configurações.
+  marca falta e acompanha **Meus ganhos** e a nota que os clientes dão para ele. Do dinheiro, vê só
+  **a parte dele**: a comissão de cada atendimento, o que tem a receber e os pagamentos recebidos
+  (não vê o total que o cliente pagou, o faturamento, o caixa nem a comissão dos colegas).
 - **Cliente** (`/b/<endereço>/conta`): entra pelo celular com um **código enviado pelo robô no
-  WhatsApp** (ou pelo link que o robô manda) e fica logado por 180 dias. Agenda e cancela, paga o
-  **sinal** e o **clube** por PIX ou **cartão**, assina o **clube**, vê o cartão fidelidade, pega vouchers, manda o **link de
-  indicação**, informa o **aniversário** e o horário de costume, vê as próprias compras, **baixa
-  os próprios dados** e pode **excluir a conta** (LGPD).
+  WhatsApp** (ou pelo link que o robô manda) e fica logado por 180 dias. Agenda e cancela, assina o
+  **clube** e paga por PIX (mandando o **comprovante**) ou **cartão**, vê **Meus pagamentos** (só os
+  dele), o cartão fidelidade, pega vouchers, manda o **link de indicação**, informa o
+  **aniversário** e o horário de costume, **baixa os próprios dados** e pode **excluir a conta**
+  (LGPD).
 
 Todos (menos o cliente) têm **Minha conta** (nome, celular, senha) e **"Esqueci minha senha"**
 com código pelo WhatsApp da plataforma.
@@ -71,7 +79,9 @@ conversa naturalmente:
   de indicação"* → faz na hora.
 - Número desconhecido → pergunta o nome, cadastra (com o aviso da política de privacidade) e
   aceita o **código de quem indicou**.
-- *"Paguei"* → avisa a barbearia do PIX do sinal ou da mensalidade do clube.
+- *"Paguei"* → avisa a barbearia do PIX da mensalidade do clube e manda o link para enviar o
+  **comprovante** pela área do cliente. Foto ou arquivo no WhatsApp (o robô só lê texto): com a
+  mensalidade em aberto, ele responde com esse mesmo link.
 
 **Ele aprende o consumo de cada cliente.** Se o João toma 1 cerveja em pelo menos metade das
 visitas, ao confirmar o horário vem a pergunta: *"Posso avisar o Paulo que você vai querer 1
@@ -90,7 +100,7 @@ Canais (um por barbearia):
 |---|---|
 | **Simulador** | Padrão. Nada sai pelo WhatsApp; as conversas ficam no painel. Ótimo para testar e apresentar. |
 | **Evolution API** | Conecta o WhatsApp da barbearia por QR Code (serviço próprio ou contratado). Mais simples de começar; não é a API oficial. |
-| **WhatsApp oficial (Meta)** | Cloud API do WhatsApp Business. Exige conta verificada. Fora da janela de 24h, só saem **modelos aprovados** pela Meta: o painel lista um modelo por tipo de mensagem (lembrete, costume, sumido, código, avaliação, aniversário, indicação, sinal, clube...) com o texto sugerido e as variáveis. |
+| **WhatsApp oficial (Meta)** | Cloud API do WhatsApp Business. Exige conta verificada. Fora da janela de 24h, só saem **modelos aprovados** pela Meta: o painel lista um modelo por tipo de mensagem (lembrete, costume, sumido, código, avaliação, aniversário, indicação, clube...) com o texto sugerido e as variáveis. |
 
 O painel mostra a URL do webhook de cada barbearia (com um segredo próprio), tem **envio de
 teste** e confere a **conexão a cada 10 minutos**: se o WhatsApp cair, o dono recebe um aviso
@@ -110,20 +120,10 @@ de receber as de marketing.
 - **Mensalidade do clube** 3 dias antes de vencer (com o PIX em mensagem separada, fácil de
   copiar, e o link para pagar no cartão quando a barbearia aceita) e um lembrete se atrasar. No
   cartão automático não vai cobrança: só o aviso se o cartão não passar.
-- **Pedido do sinal** logo depois de marcar pelo site (com o PIX) e o aviso de **vaga liberada**
-  quando o sinal não é pago no prazo (esses dois saem a qualquer hora: são resposta ao pedido do
-  cliente).
 
-## Agenda, sinal e barbeiros
+## Agenda e barbeiros
 
 - **Agenda** por barbeiro, encaixe pelo balcão, falta, cancelamento e **fechar o atendimento**.
-- **Sinal via PIX ou cartão** (botão *Sinal* na agenda): sem sinal, só de quem já faltou (últimos
-  6 meses) ou de todos que marcam pelo site/WhatsApp. O horário fica **segurado** esperando o
-  pagamento (QR Code e copia e cola direto na chave da barbearia, ou cartão pela área do cliente);
-  sem pagamento no prazo, a vaga é liberada sozinha.
-  O sinal é **abatido no fechamento**. Cancelou com antecedência (ou a barbearia cancelou): vira
-  **crédito** para o próximo horário (o dono pode devolver). Em cima da hora ou falta: fica com a
-  barbearia. Assinantes do clube não pagam sinal.
 - **Barbeiros**: expediente com pausas, folgas, bloqueios, comissão (por serviço, inclusive valor
   fixo) e acesso ao sistema.
 
@@ -131,8 +131,9 @@ de receber as de marketing.
 
 O cliente paga um valor fixo por mês e usa os serviços do plano **sem pagar na hora**, até o
 limite do mês (ou à vontade). Ele assina pela **área do cliente** (ou o dono adiciona no balcão)
-e paga por **PIX direto na chave da barbearia** (avisa com *Já paguei*, ou *paguei* no WhatsApp,
-e o dono confere no banco e confirma pelo aviso no topo do painel, e só então entra no caixa) ou
+e paga por **PIX direto na chave da barbearia** (manda o **comprovante** ou avisa com *Já paguei*,
+ou *paguei* no WhatsApp; o dono confere no banco e confirma pelo aviso no topo do painel, e só
+então entra no caixa) ou
 no **cartão automático pela Cielo**: a Cielo cobra sozinha todo mês e a baixa é automática (veja
 *Pagamentos no cartão*). Na
 comanda, o que o plano cobre já sai por **R$ 0**, e a comissão do barbeiro é calculada sobre o
@@ -141,11 +142,13 @@ aparecem no site da barbearia.
 
 ## Financeiro e estoque
 
-- **Fechar atendimento**: a comanda já vem com o serviço, o que o cliente pediu para separar, o
-  que o clube cobre e o sinal pago; dá para somar produtos, mudar quem atendeu, dar desconto e
-  escolher a forma de pagamento.
+- **Fechar atendimento**: a comanda já vem com o serviço, o que o cliente pediu para separar e o
+  que o clube cobre; dá para somar produtos, mudar quem atendeu, dar desconto e escolher a forma de
+  pagamento.
 - **Caixa** (entradas, saídas, contas a pagar), **comissões** (a receber, extrato e *Pagar
   comissão*), **resumo** com gráfico, faturamento por barbeiro, formas de pagamento e gastos.
+- **Recebimentos**: tudo o que os clientes pagaram no período (vendas da agenda e do balcão,
+  mensalidades do clube no PIX ou no cartão), com o cliente, a forma e o comprovante do PIX.
 - **Carimbo automático**: o produto ou serviço ligado a uma campanha vira carimbo no cartão.
 - **Estoque**: entrada de mercadoria (com lançamento no caixa), contagem, perda, consumo interno,
   baixa automática na venda (volta no cancelamento), reservado para os horários marcados e aviso
@@ -196,23 +199,23 @@ automática, quem guarda o cartão é a Cielo.
 - **Clientes das barbearias** (Cielo de cada barbearia): **clube no cartão automático** (a Cielo
   cobra todo mês no dia do primeiro pagamento; o clube vale até 3 dias a mais enquanto a Cielo
   tenta de novo; se não passar, sai a cobrança com PIX no WhatsApp e o cliente pode usar outro
-  cartão) e **sinal** (pagamento avulso, uso único). O dinheiro cai **direto na conta Cielo da
-  barbearia**: a Cielo não divide pagamento, então a plataforma não fica com parte (ganha a
-  mensalidade).
+  cartão). O dinheiro cai **direto na conta Cielo da barbearia**: a Cielo não divide pagamento,
+  então a plataforma não fica com parte (ganha a mensalidade).
 - **Baixa automática**: cada aviso da Cielo é **conferido na própria Cielo** antes da baixa (o
   aviso não é assinado). O pagamento entra no caixa e a **taxa do cartão** (a % que a barbearia
   informa, padrão 3,48%) sai como despesa, para o saldo bater com o que cai na conta. Aviso
-  repetido não duplica; pago depois de a vaga ser liberada vira **crédito**; pago de dois jeitos
-  (ou depois de cancelar) fica marcado para **devolver**; estorno na Cielo tira o valor do caixa.
+  repetido não duplica; pago de dois jeitos (ou depois de cancelar) fica marcado para **devolver**;
+  estorno na Cielo tira o valor do caixa.
   De hora em hora o sistema confere na Cielo os pagamentos cujo aviso não chegou, apaga os links
   que não valem mais e insiste em parar a cobrança de quem cancelou.
 - **Cancelar**: o cliente (ou o dono) cancela o clube e a Cielo para de cobrar o cartão. Se a
   Cielo não responder, o dono vê o aviso para cancelar no site da Cielo.
-- **Master** (*Financeiro → Pagamentos online*): por período e tipo, quanto foi pago, as taxas
-  (estimadas) e cada pagamento (barbearia, tipo, forma, valor, situação), **sem o nome dos
-  clientes**. O cartão da Cielo mostra quando chegou o **último aviso**.
+- **Master** (*Financeiro → Mensalidades pagas online*): só as mensalidades das barbearias, por
+  período (quanto foi pago, as taxas estimadas e cada pagamento: barbearia, forma, valor e
+  situação). O cartão da Cielo mostra quando chegou o **último aviso**.
 - **Dono** (*Clube de assinatura → Receber no cartão*): ClientId e Client Secret da conta Cielo
-  dele, as URLs para colar na Cielo, a taxa e os **recebidos no cartão**.
+  dele, as URLs para colar na Cielo, a taxa e os **recebidos no cartão** (também em *Financeiro →
+  Recebimentos*).
 
 Para ligar (master e cada barbearia, cada um na sua conta Cielo): contratar o **Link de Pagamento**
 no site da Cielo (sem mensalidade), ligar o **Recebimento Automático** (dinheiro em 1 dia útil),
@@ -233,6 +236,28 @@ negociáveis, confira no app de cada uma):
 | Mercado Pago | 4,98% (na hora) | Sim |
 | PagBank | 4,99% + R$ 0,40 (o mais rápido é 14 dias) | Sim |
 
+## Pagamentos: cada um vê só o que é seu
+
+- **Master**: só as **mensalidades** que as barbearias pagam a ele. O que os clientes pagam às
+  barbearias não passa pela plataforma e não aparece para o master.
+- **Barbearia** (*Financeiro → Recebimentos*): tudo o que os clientes pagaram (vendas da agenda e
+  do balcão, mensalidades do clube no PIX ou no cartão), com o cliente, a forma e a **cópia do
+  comprovante** do PIX quando o cliente mandou.
+- **Barbeiro** (*Minha agenda* e *Meus ganhos*): só **a parte dele**. No atendimento fechado
+  aparece a comissão dele (não o total pago); em *Meus ganhos*, a parte dele no período, os
+  atendimentos, o que tem a receber e os pagamentos recebidos.
+- **Cliente** (*Meus pagamentos*, na área dele): só os pagamentos dele (compras e clube), com a
+  forma, a situação e o comprovante que mandou.
+
+**Comprovante do PIX.** Na área do cliente, junto do PIX do clube, o botão *Paguei: enviar
+comprovante* aceita foto, print ou PDF (até 3 MB; a foto é reduzida no próprio celular antes de
+subir). Vale como *Já paguei* (o clube já vale enquanto a barbearia confere) e a barbearia recebe
+a **cópia**: no aviso do topo do painel (com a miniatura), na lista de assinantes, em
+*Recebimentos* e numa mensagem no WhatsApp do dono, pelo WhatsApp da plataforma, com o link que
+abre a conferência. O arquivo fica **fora da pasta pública**: só o próprio cliente e o dono abrem,
+com login (o tipo é conferido pelo conteúdo; a foto abre na tela e o PDF baixa). *Não caiu*
+descarta o comprovante, e o cliente pode mandar outro.
+
 ## Privacidade (LGPD) e segurança
 
 - Termos de uso, política de privacidade da plataforma e **política de cada barbearia**
@@ -240,7 +265,10 @@ negociáveis, confira no app de cada uma):
   no primeiro acesso.
 - O cliente **baixa os próprios dados** e **exclui a conta**; o dono faz o mesmo pelo Balcão
   (as vendas ficam no caixa sem identificar a pessoa).
-- Limpeza automática: mensagens com mais de 1 ano, códigos com mais de 30 dias, sessões vencidas.
+- Limpeza automática: mensagens e comprovantes do PIX com mais de 1 ano, códigos com mais de 30
+  dias, sessões vencidas. Excluir a conta apaga também os comprovantes do cliente.
+- Os comprovantes ficam só no servidor (em `DATA_DIR/receipts`, fora da pasta pública) e não vão
+  para a cópia de segurança externa.
 - Cada barbearia só enxerga o que é dela; o barbeiro só o que é dele; o master só a plataforma.
 - **Cópia de segurança** todo dia às 3h (guarda as últimas 14), com envio opcional para um
   armazenamento compatível com S3 (Cloudflare R2, Backblaze B2, AWS S3...) e criptografia
@@ -292,9 +320,9 @@ npm run dev    # interface em http://localhost:5173 (API na porta 3000)
   *Robô WhatsApp → Simulador*.
 
 Outros comandos: `npm test` (agenda, costume, automações, robô, webhooks, área do cliente,
-vouchers, financeiro, comissões, consumo, estoque, clube, sinal, avaliações, indicação,
-aniversário, mensalidades, Asaas, cartão pela Cielo, LGPD, cópia de segurança, acesso do barbeiro, limites do master,
-isolamento entre barbearias), `npm run typecheck`, `npm run build && npm start`.
+vouchers, financeiro, comissões, consumo, estoque, clube, comprovante do PIX, o que cada perfil
+vê dos pagamentos, avaliações, indicação, aniversário, mensalidades, Asaas, cartão pela Cielo,
+LGPD, cópia de segurança, acesso do barbeiro, limites do master, isolamento entre barbearias), `npm run typecheck`, `npm run build && npm start`.
 
 ## Hospedar
 
@@ -303,7 +331,7 @@ cp .env.example .env      # ajuste PUBLIC_URL, DOMAIN, ANTHROPIC_API_KEY e as c�
 docker compose --profile https up -d --build
 ```
 
-O banco (SQLite) e as imagens ficam no volume `app-data` (`/data`). As automações rodam dentro do
+O banco (SQLite), as imagens e os comprovantes do PIX ficam no volume `app-data` (`/data`). As automações rodam dentro do
 próprio servidor, a cada minuto. Todas as variáveis estão comentadas no `.env.example`.
 
 **Restaurar uma cópia de segurança** (com o sistema parado):
@@ -335,22 +363,24 @@ server/
   connection.ts     confere a conexão do WhatsApp e avisa o dono
   finance.ts        vendas, caixa, comissões, pagamentos aos barbeiros e relatórios
   stock.ts          estoque; consumption.ts: consumo de costume e itens separados
-  charges.ts        cobranças PIX da barbearia (clube e sinal) e confirmação
-  club.ts           clube de assinatura; deposits.ts: sinal; reviews.ts: avaliações
+  charges.ts        cobranças PIX da barbearia (mensalidade do clube) e confirmação
+  receipts.ts       comprovante do PIX (arquivo privado, cópia e aviso para a barbearia)
+  payments.ts       pagamentos dos clientes: os de cada cliente e os recebimentos da barbearia
+  club.ts           clube de assinatura; reviews.ts: avaliações
   growth.ts         indique um amigo e aniversário; offers.ts: benefícios e vouchers
   billing.ts        mensalidades da plataforma; asaas.ts: Asaas; invoiceReminders.ts
   cielo.ts          API do Link de Pagamento da Cielo; cardSettings.ts: contas Cielo da plataforma e das barbearias
-  cards.ts          cartão: mensalidade e clube no automático, sinal, avisos da Cielo e conferência
-  gatewayPayments.ts registro dos pagamentos online (o que o master vê); asaasWebhook.ts: avisos do Asaas
+  cards.ts          cartão: mensalidade e clube no automático, avisos da Cielo e conferência
+  gatewayPayments.ts registro dos pagamentos online (o master vê só as mensalidades); asaasWebhook.ts: avisos do Asaas
   privacy.ts        LGPD; backup.ts: cópias de segurança; passwordReset.ts
   routes/           master, painel (shop, agenda, bot, finance, stock, club), barbeiro, cliente, público, webhooks
 web/src/
   pages/ShopLanding.tsx   site da barbearia
-  pages/CustomerArea.tsx  área do cliente (+ CustomerClub, CustomerDeposit, CustomerGrowth)
+  pages/CustomerArea.tsx  área do cliente (+ CustomerClub, CustomerGrowth)
   pages/Panel.tsx         painel do dono (pages/panel/*)
   pages/BarberApp.tsx     app do barbeiro
   pages/Master.tsx        painel master (pages/master/*)
-  components/Checkout.tsx fechar atendimento / nova venda
+  components/Checkout.tsx fechar atendimento / nova venda; Receipt.tsx: enviar e ver o comprovante
 tools/                    seed-demo.ts (demonstração), restore-backup.ts (restaurar cópia)
 ```
 

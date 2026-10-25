@@ -1,5 +1,4 @@
 import { all, get, nowIso, run, tx } from './db.js';
-import { depositOnCancel, type DepositOutcome } from './deposits.js';
 import { HttpError } from './http.js';
 import { customerNow, shopNow } from './clock.js';
 import { addDays, addMinutes, fromMinutes, isDate, isTime, toMinutes, weekdayOf } from './time.js';
@@ -229,18 +228,14 @@ export function book(input: BookInput): AppointmentView {
 }
 
 /** Cancela. Cliente só cancela os próprios horários futuros; o dono cancela qualquer um da barbearia. */
-export function cancel(shopId: number, appointmentId: number, opts: { customerId?: number; now?: Date } = {}): AppointmentView & { deposit: DepositOutcome } {
+export function cancel(shopId: number, appointmentId: number, opts: { customerId?: number; now?: Date } = {}): AppointmentView {
   const a = appointment(appointmentId);
   const owned = a && get('SELECT 1 AS ok FROM appointments WHERE id = ? AND barbershop_id = ?', [appointmentId, shopId]);
   if (!a || !owned || (opts.customerId && a.customer_id !== opts.customerId)) throw new HttpError(404, 'Horário não encontrado.');
   if (a.status !== 'scheduled') throw new HttpError(409, 'Esse horário já foi cancelado.');
   if (opts.customerId && a.starts_at < shopNow(shopId, opts.now).stamp) throw new HttpError(409, 'Esse horário já passou.');
-  return tx(() => {
-    run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [nowIso(), appointmentId]);
-    // Sinal pago vira crédito (ou fica com a barbearia, se o cliente cancelou em cima da hora).
-    const deposit = depositOnCancel(shopId, appointmentId, { byCustomer: Boolean(opts.customerId), now: opts.now });
-    return { ...appointment(appointmentId)!, deposit };
-  });
+  run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [nowIso(), appointmentId]);
+  return appointment(appointmentId)!;
 }
 
 export function upcomingFor(customerId: number, now?: Date): AppointmentView[] {

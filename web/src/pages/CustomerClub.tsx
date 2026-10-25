@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Section } from '../components/CustomerSection';
 import { OnlinePayButton } from '../components/OnlinePay';
 import { PixPay } from '../components/Pix';
+import { ReceiptUpload, type ReceiptInfo } from '../components/Receipt';
 import { Button, ErrorText, Modal } from '../components/ui';
 import { api } from '../lib/api';
 import { money } from '../lib/format';
@@ -35,6 +36,8 @@ interface ClubData {
     amount_cents: number;
     due_date: string | null;
     claimed: boolean;
+    /** Comprovante do PIX que ele mandou (a barbearia recebe uma cópia). */
+    receipt: ReceiptInfo | null;
     pix: { payload: string; qr: string } | null;
   } | null;
   /** A barbearia aceita cartão (página segura da Cielo). */
@@ -43,8 +46,8 @@ interface ClubData {
 
 const br = (d: string | null | undefined) => (d ? d.split('-').reverse().slice(0, 2).join('/') : '');
 
-/** Clube de assinatura na área do cliente: assinar, pagar a mensalidade (PIX ou cartão) e acompanhar o uso. */
-export function ClubSection({ slug, accent }: { slug: string; accent: string }) {
+/** Clube de assinatura na área do cliente: assinar, pagar a mensalidade (PIX com comprovante ou cartão) e acompanhar o uso. */
+export function ClubSection({ slug, accent, onPaid }: { slug: string; accent: string; onPaid?: () => void }) {
   const [data, setData] = useState<ClubData | null>(null);
   const [joining, setJoining] = useState<Plan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,10 +74,16 @@ export function ClubSection({ slug, accent }: { slug: string; accent: string }) 
     setError(null);
     try {
       setData(await api<ClubData>('POST', `/api/customer/${slug}/club/${path}`, body));
+      onPaid?.();
     } catch (err) {
       setError((err as Error).message);
     }
   }
+  // Comprovante enviado: atualiza o clube e a lista de pagamentos.
+  const receiptDone = (d: ClubData) => {
+    setData(d);
+    onPaid?.();
+  };
 
   const m = data.member;
   const c = data.charge;
@@ -126,15 +135,41 @@ export function ClubSection({ slug, accent }: { slug: string; accent: string }) 
               <p className="text-2xl font-bold tabular-nums">{money(c.amount_cents)}</p>
               {c.due_date && <p className="text-xs text-zinc-500">Vencimento {br(c.due_date)}</p>}
               {c.claimed ? (
-                <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">✅ Pagamento avisado. A barbearia confere e confirma; enquanto isso, o clube já vale.</p>
+                <div className="mt-2 space-y-1 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                  <p>✅ {c.receipt ? 'Comprovante enviado para a barbearia.' : 'Pagamento avisado.'} A barbearia confere e confirma; enquanto isso, o clube já vale.</p>
+                  <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                    {c.receipt && (
+                      <a href={`/api/customer/${slug}/charges/${c.id}/receipt`} target="_blank" rel="noreferrer" className="font-medium underline">
+                        Ver comprovante
+                      </a>
+                    )}
+                    <ReceiptUpload<ClubData>
+                      url={`/api/customer/${slug}/club/charges/${c.id}/receipt`}
+                      label={c.receipt ? 'Trocar comprovante' : 'Enviar o comprovante'}
+                      link
+                      onDone={receiptDone}
+                      onError={setError}
+                    />
+                  </p>
+                </div>
               ) : c.pix || data.online ? (
                 <div className="mt-3 space-y-3">
                   {c.pix && (
                     <>
                       <PixPay pix={c.pix} />
-                      <Button className="w-full" style={style} onClick={() => act(`charges/${c.id}/claim`)}>
-                        Já paguei
-                      </Button>
+                      <ReceiptUpload<ClubData>
+                        url={`/api/customer/${slug}/club/charges/${c.id}/receipt`}
+                        label="Paguei: enviar comprovante"
+                        style={style}
+                        onDone={receiptDone}
+                        onError={setError}
+                      />
+                      <p className="text-center text-xs text-zinc-500">
+                        Foto, print ou PDF do comprovante: vai direto para a barbearia.{' '}
+                        <button className="font-medium text-zinc-700 underline" onClick={() => act(`charges/${c.id}/claim`)}>
+                          Já paguei, sem comprovante
+                        </button>
+                      </p>
                     </>
                   )}
                   {data.online && (

@@ -6,7 +6,7 @@ import { HttpError } from './http.js';
 
 /**
  * Contas Cielo de quem recebe no cartão: a plataforma (mensalidade das barbearias) e cada barbearia
- * (clube e sinal dos clientes). Cada uma tem a sua URL de aviso, com um segredo, para colar no site da
+ * (clube dos clientes). Cada uma tem a sua URL de aviso, com um segredo, para colar no site da
  * Cielo. O Client Secret nunca volta para a tela.
  */
 
@@ -119,7 +119,7 @@ export interface CardStatusView {
   reason: string | null;
 }
 
-/** A barbearia aceita cartão dos clientes (clube no automático e sinal)? */
+/** A barbearia aceita cartão dos clientes (clube no automático)? */
 export function shopCardStatus(shopId: number): CardStatusView {
   const s = shopCielo(shopId);
   const reason = !(s.clientId && s.clientSecret) ? 'Falta ligar a conta Cielo da barbearia.' : !s.enabled ? 'A barbearia não ligou o pagamento com cartão.' : null;

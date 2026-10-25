@@ -3,7 +3,6 @@ import { HttpError } from './http.js';
 import { addStamps, isRunning, type Campaign } from './loyalty.js';
 import { stockBackForSale, stockOutForSale } from './stock.js';
 import { clubCoverage } from './club.js';
-import { prepaidFor } from './deposits.js';
 import { rewardReferrer } from './growth.js';
 import { shopNow } from './clock.js';
 import { addDays, daysBetween } from './time.js';
@@ -90,8 +89,6 @@ export interface SaleView {
   subtotal_cents: number;
   discount_cents: number;
   total_cents: number;
-  /** Parte já paga antes (sinal via PIX). */
-  prepaid_cents: number;
   method: Method;
   notes: string | null;
   status: 'closed' | 'cancelled';
@@ -113,7 +110,7 @@ export interface SaleView {
 
 export function saleView(id: number): SaleView {
   const sale = get<Omit<SaleView, 'items'>>(
-    `SELECT s.id, s.date, s.customer_id, c.name AS customer_name, s.appointment_id, s.subtotal_cents, s.discount_cents, s.total_cents, s.prepaid_cents,
+    `SELECT s.id, s.date, s.customer_id, c.name AS customer_name, s.appointment_id, s.subtotal_cents, s.discount_cents, s.total_cents,
             s.method, s.notes, s.status, s.created_at
        FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?`,
     [id],
@@ -189,15 +186,11 @@ export function createSale(input: SaleInput): SaleResult {
     const subtotal = items.reduce((s, i) => s + i.unit * i.qty, 0);
     const discount = Math.min(Math.max(0, input.discountCents ?? 0), subtotal);
     const total = subtotal - discount;
-    // Sinal pago antes (PIX) para este horário: é abatido aqui e só o resto entra agora no caixa.
-    const deposit = input.appointmentId ? prepaidFor(input.appointmentId) : null;
-    const prepaid = deposit ? Math.min(deposit.amount_cents, total) : 0;
     const saleId = run(
-      `INSERT INTO sales (barbershop_id, customer_id, appointment_id, date, subtotal_cents, discount_cents, total_cents, prepaid_cents, method, notes, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [shop, customerId, input.appointmentId ?? null, date, subtotal, discount, total, prepaid, input.method, input.notes ?? null, input.userId, nowIso()],
+      `INSERT INTO sales (barbershop_id, customer_id, appointment_id, date, subtotal_cents, discount_cents, total_cents, method, notes, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [shop, customerId, input.appointmentId ?? null, date, subtotal, discount, total, input.method, input.notes ?? null, input.userId, nowIso()],
     ).lastInsertRowid;
-    if (deposit) run('UPDATE charges SET sale_id = ? WHERE id = ?', [saleId, deposit.id]);
 
     for (const i of items) {
       const gross = i.unit * i.qty;
@@ -217,11 +210,11 @@ export function createSale(input: SaleInput): SaleResult {
     stockOutForSale(shop, saleId, items, input.userId);
 
     const customerName = customerId ? get<{ name: string }>('SELECT name FROM customers WHERE id = ?', [customerId])?.name : null;
-    if (total - prepaid > 0) {
+    if (total > 0) {
       run(
         `INSERT INTO cash_entries (barbershop_id, type, category, description, amount_cents, method, date, status, sale_id, created_by, created_at)
          VALUES (?, 'in', 'Atendimentos', ?, ?, ?, ?, 'paid', ?, ?, ?)`,
-        [shop, `Venda #${saleId}${customerName ? ` · ${customerName}` : ''}${prepaid ? ' (descontado o sinal)' : ''}`, total - prepaid, input.method, date, saleId, input.userId, nowIso()],
+        [shop, `Venda #${saleId}${customerName ? ` · ${customerName}` : ''}`, total, input.method, date, saleId, input.userId, nowIso()],
       );
     }
 
@@ -255,8 +248,6 @@ export function cancelSale(shopId: number, saleId: number, userId: number | null
     run("UPDATE sales SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [nowIso(), saleId]);
     run('DELETE FROM cash_entries WHERE sale_id = ?', [saleId]);
     run('DELETE FROM loyalty_events WHERE sale_id = ?', [saleId]);
-    // O sinal volta a valer para o horário (abate de novo quando fechar outra vez).
-    run('UPDATE charges SET sale_id = NULL WHERE sale_id = ?', [saleId]);
     stockBackForSale(shopId, saleId, userId);
     return saleView(saleId);
   });
@@ -313,7 +304,7 @@ function manualEntry(shopId: number, id: number): void {
   );
   if (!e) throw new HttpError(404, 'Lançamento não encontrado.');
   if (e.sale_id || e.payout_id || e.invoice_id) throw new HttpError(409, 'Lançamento automático: altere pela venda, comissão ou mensalidade.');
-  if (e.charge_id) throw new HttpError(409, 'Pagamento PIX confirmado: para desfazer, use "Desfazer confirmação" no clube ou no sinal.');
+  if (e.charge_id) throw new HttpError(409, 'Mensalidade do clube confirmada: para desfazer, use "Desfazer confirmação" no clube.');
 }
 
 export function updateEntry(shopId: number, id: number, e: EntryInput): void {

@@ -3,7 +3,6 @@ import { checkConnections } from './connection.js';
 import { purgeOldData } from './privacy.js';
 import { askReviews } from './reviews.js';
 import { clubBilling } from './club.js';
-import { expireDeposits } from './deposits.js';
 import { birthdayGifts } from './growth.js';
 import { syncAsaasCharges } from './asaas.js';
 import { syncCardLinks } from './cards.js';
@@ -260,8 +259,6 @@ export interface RunSummary {
   winbacks: number;
   reviews: number;
   club: number;
-  /** Vagas liberadas porque o sinal não foi pago a tempo. */
-  released: number;
   birthdays: number;
 }
 
@@ -277,7 +274,7 @@ export const automationStatus: { lastRun: string | null; lastSummary: RunSummary
 
 /** Roda tudo uma vez. Chamado a cada minuto; cada envio é registrado para não repetir. */
 export async function runAutomations(now: Date = new Date()): Promise<RunSummary> {
-  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, released: 0, birthdays: 0 };
+  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0 };
   if (running) return summary;
   running = true;
   try {
@@ -303,8 +300,6 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
       // Cada barbearia no seu relógio: ofertas vencidas e horário comercial pelo fuso dela.
       const n = shopNow(id, now);
       run("UPDATE bot_offers SET status = 'expired' WHERE barbershop_id = ? AND status = 'pending' AND starts_at <= ?", [id, n.stamp]);
-      // Horário segurado esperando o sinal que não veio: libera a vaga (a qualquer hora, é consequência do pedido do cliente).
-      summary.released += await expireDeposits(shop, now).catch((err) => (console.error(`[sinal] ${shop.slug}:`, err), 0));
       if (n.time < SEND_FROM || n.time >= SEND_UNTIL) continue;
       // Mensalidade em atraso além da carência: sem disparos até regularizar.
       if (accessStatus(id, now).blocked) continue;
