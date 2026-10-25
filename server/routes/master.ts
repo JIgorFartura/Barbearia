@@ -28,7 +28,7 @@ import {
 import { llmEnabled } from '../bot/brain.js';
 import { downShops } from '../connection.js';
 import { clearErrors, recentErrors } from '../errors.js';
-import { platformChannel, savePlatformChannel, sendPlatformMessage } from '../platform.js';
+import { platformChannel, platformDisplayPhone, platformWebhookToken, savePlatformChannel, savePlatformDisplayPhone, sendPlatformMessage } from '../platform.js';
 import { legalInfo, saveLegalInfo } from '../privacy.js';
 import { PLATFORM_TEMPLATE_KINDS, TEMPLATES, templateField } from '../templates.js';
 import { PROVIDERS, zEvolutionConfig, zMetaConfig } from '../whatsapp.js';
@@ -542,7 +542,10 @@ function platformWhatsapp() {
     config: Object.fromEntries(Object.entries(cfg).map(([k, v]) => [k, SECRET_FIELDS.includes(k) && v ? SECRET_MASK : String(v ?? '')])),
     templates: PLATFORM_TEMPLATE_KINDS.map((k) => ({ kind: k, field: templateField(k), ...TEMPLATES[k] })),
     down: downShops(),
-    recent: all("SELECT id, phone, kind, status, error, created_at FROM platform_messages ORDER BY id DESC LIMIT 10"),
+    recent: all("SELECT id, phone, kind, status, error, created_at FROM platform_messages WHERE direction = 'out' ORDER BY id DESC LIMIT 10"),
+    /** Onde o WhatsApp entrega as mensagens dos donos (gerente virtual). */
+    inboundUrl: provider === 'simulador' ? null : `${config.appUrl}/api/webhooks/platform/${provider}/${platformWebhookToken()}`,
+    displayPhone: platformDisplayPhone(),
   };
 }
 
@@ -551,7 +554,10 @@ masterRouter.get('/whatsapp', (_req, res) => {
 });
 
 masterRouter.put('/whatsapp', (req, res) => {
-  const body = parseBody(z.object({ provider: z.enum(PROVIDERS as [string, ...string[]]), config: z.record(z.string(), z.string()).default({}) }), req.body);
+  const body = parseBody(
+    z.object({ provider: z.enum(PROVIDERS as [string, ...string[]]), config: z.record(z.string(), z.string()).default({}), displayPhone: z.string().max(30).nullish() }),
+    req.body,
+  );
   const previous = platformChannel().config;
   const merged: Record<string, string> = {};
   for (const [k, v] of Object.entries(body.config)) merged[k] = v === SECRET_MASK ? (previous[k] ?? '') : v;
@@ -559,6 +565,7 @@ masterRouter.put('/whatsapp', (req, res) => {
   if (body.provider === 'meta') cfg = parseBody(zMetaConfig, merged) as Record<string, string>;
   if (body.provider === 'evolution') cfg = parseBody(zEvolutionConfig, merged) as Record<string, string>;
   savePlatformChannel(body.provider as 'simulador' | 'meta' | 'evolution', cfg);
+  if (body.displayPhone !== undefined) savePlatformDisplayPhone(body.displayPhone?.trim() ? normalizePhone(body.displayPhone) : null);
   res.json(platformWhatsapp());
 });
 

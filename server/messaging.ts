@@ -46,6 +46,8 @@ export interface ShopBot {
   winback_message: string | null;
   /** Libera o horário de quem não confirmou até N horas antes (null = não libera). */
   confirm_release_hours: number | null;
+  /** Resumo da semana para o dono, toda segunda (WhatsApp da plataforma). */
+  weekly_summary: number;
 }
 
 export function shopBot(shopId: number): ShopBot {

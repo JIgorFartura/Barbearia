@@ -126,6 +126,13 @@ export const TEMPLATES = {
     example: ['3', '25/10/2026 14:32', 'Cannot read properties of undefined'],
     platform: true,
   },
+  resumo: {
+    label: 'Resumo da semana para o dono (plataforma)',
+    category: 'UTILITY',
+    body: 'Resumo da semana da {{1}} ({{2}}): entrou {{3}} ({{4}} em relação à semana anterior), {{5}} atendimentos e agenda {{6}} ocupada. Responda MAIS para ver os detalhes.',
+    example: ['Barbearia Navalha de Ouro', '19/10 a 25/10', 'R$ 4.250,00', '+12%', '68', '74%'],
+    platform: true,
+  },
   fatura: {
     label: 'Mensalidade do sistema (plataforma)',
     category: 'UTILITY',

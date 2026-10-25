@@ -34,6 +34,7 @@ import { OnlinePaymentsCard } from './master/OnlinePayments';
 import { api } from '../lib/api';
 import { centsToInput, parseMoney } from '../lib/finance';
 import { addDays, date, money, phone as fmtPhone, todayStr } from '../lib/format';
+import { CopyField } from '../components/CopyField';
 
 interface ShopRow {
   id: number;
@@ -1262,16 +1263,28 @@ interface PlatformWa {
   templates: { kind: string; field: string; label: string; category: string; body: string; example: string[] }[];
   down: { id: number; name: string; since: string | null; error: string | null }[];
   recent: { id: number; phone: string; kind: string; status: string; error: string | null; created_at: string }[];
+  /** Onde o WhatsApp entrega as mensagens dos donos (gerente virtual). */
+  inboundUrl: string | null;
+  displayPhone: string | null;
 }
 
-const PLATFORM_KIND: Record<string, string> = { senha: 'Código de senha', alerta: 'Aviso', fatura: 'Mensalidade', aviso: 'Aviso', teste: 'Teste' };
+const PLATFORM_KIND: Record<string, string> = {
+  senha: 'Código de senha',
+  alerta: 'Aviso',
+  fatura: 'Mensalidade',
+  aviso: 'Aviso',
+  teste: 'Teste',
+  gerente: 'Gerente virtual',
+  resumo: 'Resumo da semana',
+};
 
-/** WhatsApp da plataforma: fala com os donos (aviso de desconexão, código de senha). */
+/** WhatsApp da plataforma: fala com os donos (avisos, código de senha, resumo da semana e o gerente virtual). */
 function PlatformWhatsAppCard() {
   const [data, setData] = useState<PlatformWa | null>(null);
   const [provider, setProvider] = useState<PlatformWa['provider']>('simulador');
   const [cfg, setCfg] = useState<Record<string, string>>({});
   const [testPhone, setTestPhone] = useState('');
+  const [displayPhone, setDisplayPhone] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1279,6 +1292,7 @@ function PlatformWhatsAppCard() {
     setData(d);
     setProvider(d.provider);
     setCfg(d.config);
+    setDisplayPhone(d.displayPhone ?? '');
   };
   useEffect(() => {
     api<PlatformWa>('GET', '/api/master/whatsapp').then(apply, (e) => setError(e.message));
@@ -1318,7 +1332,8 @@ function PlatformWhatsAppCard() {
             <Smartphone className="size-4" /> WhatsApp da plataforma
           </p>
           <p className="text-zinc-500">
-            O seu número: avisa o dono quando o WhatsApp da barbearia cai e manda o código de “esqueci minha senha”. Os donos precisam ter o celular cadastrado.
+            O seu número: avisa o dono quando o WhatsApp da barbearia cai, manda o código de “esqueci minha senha” e o resumo da semana, e responde como gerente
+            virtual quando o dono pergunta (“quanto entrou hoje?”). Os donos precisam ter o celular cadastrado.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1348,7 +1363,11 @@ function PlatformWhatsAppCard() {
               {field('token', 'Token de acesso', { secret: true })}
               {field('templateLang', 'Idioma dos modelos', { placeholder: 'pt_BR' })}
             </div>
-            <p className="text-zinc-500">A plataforma não recebe respostas: na API oficial todas as mensagens saem por modelo aprovado.</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {field('verifyToken', 'Token de verificação do webhook', { placeholder: 'invente uma senha (mín. 6)' })}
+              {field('appSecret', 'Chave secreta do app (confere as mensagens)', { secret: true })}
+            </div>
+            <p className="text-zinc-500">Avisos por conta própria saem pelos modelos aprovados abaixo; as respostas do gerente virtual vão como texto (o dono acabou de escrever).</p>
             {data.templates.map((t) => (
               <div key={t.kind} className="grid gap-2 sm:grid-cols-[1fr_14rem] sm:items-start">
                 <div>
@@ -1360,8 +1379,20 @@ function PlatformWhatsAppCard() {
             ))}
           </div>
         )}
+        {provider !== 'simulador' && (
+          <Field label="Número deste WhatsApp" hint="Aparece para os donos em Relatórios, para falarem com o gerente virtual.">
+            <Input type="tel" className="!w-56" placeholder="(11) 99999-0000" value={displayPhone} onChange={(e) => setDisplayPhone(e.target.value)} />
+          </Field>
+        )}
+        {data.inboundUrl && provider === data.provider && (
+          <CopyField
+            label="Endereço para receber as mensagens dos donos (gerente virtual)"
+            value={data.inboundUrl}
+            hint={provider === 'meta' ? 'Na Meta: Webhooks do app, campo messages, com o token de verificação acima.' : 'Na Evolution: Webhook da instância, evento MESSAGES_UPSERT.'}
+          />
+        )}
         <div className="flex flex-wrap items-center gap-2">
-          <Button loading={busy} onClick={() => run(api<PlatformWa>('PUT', '/api/master/whatsapp', { provider, config: cfg }).then(apply), 'Salvo!')}>
+          <Button loading={busy} onClick={() => run(api<PlatformWa>('PUT', '/api/master/whatsapp', { provider, config: cfg, displayPhone }).then(apply), 'Salvo!')}>
             Salvar
           </Button>
           {data.provider !== 'simulador' && (

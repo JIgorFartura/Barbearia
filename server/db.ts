@@ -1003,6 +1003,14 @@ const MIGRATIONS: (string | Rebuild)[] = [
   CREATE INDEX push_subscriptions_user ON push_subscriptions (user_id);
   CREATE INDEX push_subscriptions_customer ON push_subscriptions (customer_id);
   `,
+  // 18) Gerente virtual: o dono conversa com o WhatsApp da plataforma; resumo da semana toda segunda.
+  `
+  ALTER TABLE barbershops ADD COLUMN weekly_summary INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE platform_messages ADD COLUMN direction TEXT NOT NULL DEFAULT 'out';
+  ALTER TABLE platform_messages ADD COLUMN external_id TEXT;
+  CREATE UNIQUE INDEX platform_messages_external ON platform_messages (external_id) WHERE external_id IS NOT NULL;
+  CREATE INDEX platform_messages_phone ON platform_messages (phone, created_at);
+  `,
 ];
 
 function migrate(): void {

@@ -1,7 +1,10 @@
+import crypto from 'node:crypto';
 import express, { Router, type Request } from 'express';
 import { handleAsaasEvent } from '../asaasWebhook.js';
 import { handleCieloNotice } from '../cards.js';
 import { handleInbound } from '../bot/inbound.js';
+import { handlePlatformInbound } from '../manager.js';
+import { platformChannel, platformWebhookToken } from '../platform.js';
 import { setConnection } from '../connection.js';
 import { get } from '../db.js';
 import { HttpError } from '../http.js';
@@ -63,6 +66,47 @@ webhooksRouter.post('/evolution/:token', (req, res) => {
     return;
   }
   processLater(shop, parseEvolutionWebhook(req.body));
+});
+
+// ---------- WhatsApp da plataforma: o dono conversa com o gerente virtual (URL na aba Sistema do master)
+
+function platformAuth(req: Request, provider: 'meta' | 'evolution') {
+  const token = Buffer.from(String(req.params.token ?? ''));
+  const expected = Buffer.from(platformWebhookToken());
+  const channel = platformChannel();
+  if (token.length !== expected.length || !crypto.timingSafeEqual(token, expected) || channel.provider !== provider) throw new HttpError(404, 'Não encontrado.');
+  return channel;
+}
+
+function managerLater(messages: Inbound[]): void {
+  for (const m of messages) {
+    void handlePlatformInbound({ from: m.from, text: m.text, externalId: m.externalId }).catch((err) => console.error('[gerente virtual]', err));
+  }
+}
+
+webhooksRouter.get('/platform/meta/:token', (req, res) => {
+  const cfg = zMetaConfig.safeParse(platformAuth(req, 'meta').config);
+  if (req.query['hub.mode'] === 'subscribe' && cfg.success && cfg.data.verifyToken && req.query['hub.verify_token'] === cfg.data.verifyToken) {
+    res.type('text/plain').send(String(req.query['hub.challenge'] ?? ''));
+    return;
+  }
+  res.sendStatus(403);
+});
+
+webhooksRouter.post('/platform/meta/:token', (req, res) => {
+  const cfg = zMetaConfig.safeParse(platformAuth(req, 'meta').config);
+  if (cfg.success && cfg.data.appSecret && !verifyMetaSignature(req.rawBody, req.header('x-hub-signature-256'), cfg.data.appSecret)) {
+    res.sendStatus(401);
+    return;
+  }
+  res.sendStatus(200);
+  managerLater(parseMetaWebhook(req.body));
+});
+
+webhooksRouter.post('/platform/evolution/:token', (req, res) => {
+  platformAuth(req, 'evolution');
+  res.sendStatus(200);
+  managerLater(parseEvolutionWebhook(req.body));
 });
 
 /**

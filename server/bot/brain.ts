@@ -166,7 +166,7 @@ type CreateParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 export type CreateMessage = (params: CreateParams) => Promise<Anthropic.Beta.Messages.BetaMessage>;
 
 let client: Anthropic | null = null;
-function defaultCreate(): CreateMessage {
+export function defaultCreate(): CreateMessage {
   client ??= new Anthropic({ apiKey: config.anthropicKey, timeout: 60_000, maxRetries: 2 });
   return (params) => client!.beta.messages.create(params);
 }
@@ -183,6 +183,72 @@ export interface BrainReply {
   tokensOut: number;
 }
 
+export interface AgentOptions {
+  system: Anthropic.Beta.Messages.BetaTextBlockParam[];
+  tools: Anthropic.Beta.Messages.BetaToolUnion[];
+  messages: Anthropic.Beta.Messages.BetaMessageParam[];
+  runTool: (name: string, input: unknown) => Promise<{ ok: boolean; content: string }>;
+  create: CreateMessage;
+}
+
+/**
+ * Laço de ferramentas com o Claude até a resposta final (robô do cliente e gerente virtual do dono).
+ * `text` null: sem resposta (recusa ou passos demais). Erros da API sobem para quem chamou.
+ */
+export async function runAgent(o: AgentOptions): Promise<{ text: string | null; refused: boolean; tokensIn: number; tokensOut: number }> {
+  const messages = [...o.messages];
+  let tokensIn = 0;
+  let tokensOut = 0;
+  for (let step = 0; step < MAX_STEPS; step++) {
+    const response = await o.create({
+      model: config.botModel,
+      max_tokens: 16000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      output_config: { effort: config.botEffort },
+      system: o.system,
+      tools: o.tools,
+      messages,
+    });
+    const u = response.usage;
+    tokensIn += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+    tokensOut += u.output_tokens ?? 0;
+
+    if (response.stop_reason === 'refusal') return { text: null, refused: true, tokensIn, tokensOut };
+
+    const toolUses = response.content.filter((b): b is Anthropic.Beta.Messages.BetaToolUseBlock => b.type === 'tool_use');
+    if (response.stop_reason === 'tool_use' && toolUses.length) {
+      // Devolve o conteúdo inteiro (inclusive blocos de raciocínio) sem alterar, e todos os resultados numa mensagem só.
+      messages.push({ role: 'assistant', content: response.content });
+      const results = await Promise.all(toolUses.map((t) => o.runTool(t.name, t.input)));
+      messages.push({
+        role: 'user',
+        content: toolUses.map((t, i) => ({ type: 'tool_result' as const, tool_use_id: t.id, content: results[i].content, is_error: !results[i].ok })),
+      });
+      continue;
+    }
+    if (response.stop_reason === 'pause_turn') {
+      messages.push({ role: 'assistant', content: response.content });
+      continue;
+    }
+    const text = response.content
+      .filter((b): b is Anthropic.Beta.Messages.BetaTextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+    return { text: text || null, refused: false, tokensIn, tokensOut };
+  }
+  return { text: null, refused: false, tokensIn, tokensOut };
+}
+
+/** Registra no log o tipo de falha da API (chave inválida, limite de uso...). */
+export function logAgentError(tag: string, err: unknown): void {
+  if (err instanceof Anthropic.RateLimitError) console.warn(`[${tag}] limite de uso da API atingido`);
+  else if (err instanceof Anthropic.AuthenticationError) console.error(`[${tag}] chave da Anthropic inválida (ANTHROPIC_API_KEY)`);
+  else if (err instanceof Anthropic.APIError) console.error(`[${tag}] erro da API ${err.status}:`, err.message);
+  else console.error(`[${tag}] erro inesperado`, err);
+}
+
 /** Conversa com o Claude usando as ferramentas da barbearia até ter a resposta final. */
 export async function think(ctx: BotContext, history: HistoryItem[], create: CreateMessage = defaultCreate()): Promise<BrainReply> {
   const messages: Anthropic.Beta.Messages.BetaMessageParam[] = history.map((h) =>
@@ -195,56 +261,11 @@ export async function think(ctx: BotContext, history: HistoryItem[], create: Cre
     { type: 'text', text: INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
     { type: 'text', text: buildContext(ctx) },
   ];
-  const tools = toolDefinitions();
-  let tokensIn = 0;
-  let tokensOut = 0;
-
   try {
-    for (let step = 0; step < MAX_STEPS; step++) {
-      const response = await create({
-        model: config.botModel,
-        max_tokens: 16000,
-        betas: ['server-side-fallback-2026-07-01'],
-        fallbacks: 'default',
-        output_config: { effort: config.botEffort },
-        system,
-        tools,
-        messages,
-      });
-      const u = response.usage;
-      tokensIn += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
-      tokensOut += u.output_tokens ?? 0;
-
-      if (response.stop_reason === 'refusal') return { text: REFUSAL_REPLY, tokensIn, tokensOut };
-
-      const toolUses = response.content.filter((b): b is Anthropic.Beta.Messages.BetaToolUseBlock => b.type === 'tool_use');
-      if (response.stop_reason === 'tool_use' && toolUses.length) {
-        // Devolve o conteúdo inteiro (inclusive blocos de raciocínio) sem alterar, e todos os resultados numa mensagem só.
-        messages.push({ role: 'assistant', content: response.content });
-        const results = await Promise.all(toolUses.map((t) => runTool(ctx, t.name, t.input)));
-        messages.push({
-          role: 'user',
-          content: toolUses.map((t, i) => ({ type: 'tool_result' as const, tool_use_id: t.id, content: results[i].content, is_error: !results[i].ok })),
-        });
-        continue;
-      }
-      if (response.stop_reason === 'pause_turn') {
-        messages.push({ role: 'assistant', content: response.content });
-        continue;
-      }
-      const text = response.content
-        .filter((b): b is Anthropic.Beta.Messages.BetaTextBlock => b.type === 'text')
-        .map((b) => b.text)
-        .join('\n')
-        .trim();
-      return { text: text || ERROR_REPLY, tokensIn, tokensOut };
-    }
-    return { text: ERROR_REPLY, tokensIn, tokensOut };
+    const r = await runAgent({ system, tools: toolDefinitions(), messages, runTool: (name, input) => runTool(ctx, name, input), create });
+    return { text: r.refused ? REFUSAL_REPLY : (r.text ?? ERROR_REPLY), tokensIn: r.tokensIn, tokensOut: r.tokensOut };
   } catch (err) {
-    if (err instanceof Anthropic.RateLimitError) console.warn('[bot] limite de uso da API atingido');
-    else if (err instanceof Anthropic.AuthenticationError) console.error('[bot] chave da Anthropic inválida (ANTHROPIC_API_KEY)');
-    else if (err instanceof Anthropic.APIError) console.error(`[bot] erro da API ${err.status}:`, err.message);
-    else console.error('[bot] erro inesperado', err);
-    return { text: ERROR_REPLY, tokensIn, tokensOut };
+    logAgentError('bot', err);
+    return { text: ERROR_REPLY, tokensIn: 0, tokensOut: 0 };
   }
 }

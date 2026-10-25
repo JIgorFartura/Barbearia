@@ -10,6 +10,8 @@ import { askPresence, presenceText, releaseUnconfirmed } from './attendance.js';
 import { offerFreedSlots } from './waitlist.js';
 import { idleOffers } from './idle.js';
 import { pushTo } from './push.js';
+import { weeklySummary } from './manager.js';
+import { notifyOwners } from './platform.js';
 import { errorAlerts } from './errors.js';
 import { invoiceReminders } from './invoiceReminders.js';
 import { accessStatus, ensureInvoices } from './billing.js';
@@ -291,6 +293,18 @@ export async function winbacks(shop: ShopBot, now: Date): Promise<number> {
   return sent;
 }
 
+// ---------- resumo da semana para o dono
+
+/** Pelo WhatsApp da plataforma (modelo aprovado fora da janela) e no celular de quem ligou os avisos do painel. */
+async function sendWeeklySummary(shop: ShopBot, now: Date): Promise<number> {
+  const msg = weeklySummary(shop, now);
+  if (!msg) return 0;
+  const sent = await notifyOwners(shop.id, msg.text, msg.template, { kind: 'resumo' });
+  const owners = all<{ id: number }>("SELECT id FROM users WHERE barbershop_id = ? AND role = 'owner'", [shop.id]).map((u) => u.id);
+  await pushTo({ shopId: shop.id, userIds: owners }, { ...msg.push, url: '/painel/relatorios', tag: 'resumo-semana' }).catch((err) => console.error('[aviso no celular]', err));
+  return sent ? 1 : 0;
+}
+
 // ---------- rodada
 
 export interface RunSummary {
@@ -306,6 +320,8 @@ export interface RunSummary {
   waitlist: number;
   /** Horários vazios oferecidos com desconto. */
   idle: number;
+  /** Resumos da semana enviados aos donos. */
+  summaries: number;
 }
 
 let running = false;
@@ -320,7 +336,7 @@ export const automationStatus: { lastRun: string | null; lastSummary: RunSummary
 
 /** Roda tudo uma vez. Chamado a cada minuto; cada envio é registrado para não repetir. */
 export async function runAutomations(now: Date = new Date()): Promise<RunSummary> {
-  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0 };
+  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0, summaries: 0 };
   if (running) return summary;
   running = true;
   try {
@@ -370,6 +386,7 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
         summary.club += await clubBilling(shop, now);
         summary.birthdays += await birthdayGifts(shop, now);
         summary.idle += await idleOffers(shop, now);
+        summary.summaries += await sendWeeklySummary(shop, now);
       } catch (err) {
         console.error(`[automações] ${shop.slug}:`, err);
       }

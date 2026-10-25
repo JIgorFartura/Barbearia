@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   Boxes,
   Bot as BotIcon,
   CalendarDays,
@@ -45,6 +46,7 @@ import { Counter } from './panel/Counter';
 import { Finance } from './panel/Finance';
 import { Club } from './panel/Club';
 import { Growth } from './panel/Growth';
+import { Reports } from './panel/Reports';
 import { Reviews } from './panel/Reviews';
 import { Stock } from './panel/Stock';
 import { Subscription } from './panel/Subscription';
@@ -56,6 +58,7 @@ const SECTIONS = [
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
   { id: 'balcao', label: 'Balcão', icon: Store },
   { id: 'financeiro', label: 'Financeiro', icon: Wallet },
+  { id: 'relatorios', label: 'Relatórios', icon: BarChart3 },
   { id: 'robo', label: 'Robô WhatsApp', icon: BotIcon },
   { id: 'avaliacoes', label: 'Avaliações', icon: Star },
   { id: 'clube', label: 'Clube de assinatura', icon: Crown },
@@ -177,6 +180,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       break;
     case 'avaliacoes':
       content = <Reviews />;
+      break;
+    case 'relatorios':
+      content = <Reports />;
       break;
     case 'clube':
       content = <Club key={pixRefresh} />;
