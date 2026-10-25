@@ -9,6 +9,7 @@ import { clubCoverage } from '../club.js';
 import { all, get, run } from '../db.js';
 import { METHODS, barberStatement, commissionBalances, createSale } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
+import { customerPackages, giftCardByCode } from '../prepaid.js';
 import { addPhoto, barberSeesCustomer, customerProfile, deletePhoto, photoOf, profileSummary, saveNotes, sendPhoto, zNotes, zPhoto } from '../profile.js';
 import { dayAgenda } from '../scheduling.js';
 import { availableQty } from '../stock.js';
@@ -182,6 +183,22 @@ barberRouter.get('/club', (req, res) => {
   res.json(clubCoverage(shop, customer, shopNow(shop).date));
 });
 
+/** Pacotes valendo do cliente e saldo do vale-presente (na hora de fechar a comanda). */
+barberRouter.get('/customers/:id/packages', (req, res) => {
+  const { shop } = ids(req);
+  if (!canClose(shop)) throw new HttpError(403, 'O dono da barbearia não liberou o fechamento pelos barbeiros.');
+  if (!get('SELECT 1 AS ok FROM customers WHERE id = ? AND barbershop_id = ?', [idParam(req), shop])) throw new HttpError(404, 'Cliente não encontrado.');
+  res.json(customerPackages(shop, idParam(req), { activeOnly: true }));
+});
+
+barberRouter.get('/gift-cards/:code', (req, res) => {
+  const { shop } = ids(req);
+  if (!canClose(shop)) throw new HttpError(403, 'O dono da barbearia não liberou o fechamento pelos barbeiros.');
+  const card = giftCardByCode(shop, String(req.params.code));
+  // Para o barbeiro, só o necessário para cobrar.
+  res.json({ code: card.code, balance_cents: card.balance_cents, expires_on: card.expires_on, status: card.status });
+});
+
 /** Fecha um atendimento próprio ou registra uma venda de balcão (comissão sempre dele ou de ninguém). */
 barberRouter.post('/sales', (req, res) => {
   const { shop, barber, user } = ids(req);
@@ -200,11 +217,14 @@ barberRouter.post('/sales', (req, res) => {
             unit_price_cents: z.number().int().min(0).max(10_000_000).nullish(),
             barber_id: zId.nullish(),
             club: z.boolean().nullish(),
+            package_id: zId.nullish(),
           }),
         )
         .min(1, 'Inclua pelo menos um item.')
         .max(30),
       discount_cents: z.number().int().min(0).max(10_000_000).default(0),
+        gift_code: z.string().trim().max(20).nullish(),
+        gift_cents: z.number().int().min(1).max(10_000_000).nullish(),
       method: z.enum(METHODS),
       notes: zText(300),
     }),
@@ -221,6 +241,8 @@ barberRouter.post('/sales', (req, res) => {
       // No horário dele, item sem barbeiro fica com ele; "sem comissão" só na venda de balcão.
       items: body.items,
       discountCents: body.discount_cents,
+      giftCode: body.gift_code,
+      giftCents: body.gift_cents,
       method: body.method,
       notes: body.notes,
     }),

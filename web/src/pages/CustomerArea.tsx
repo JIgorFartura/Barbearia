@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarCheck, CalendarX, Camera, Clock, Download, Gift, History, LogOut, Receipt, Repeat, Scissors, ShieldCheck, Ticket, Trash2 } from 'lucide-react';
+import { ArrowLeft, CalendarCheck, CalendarX, Camera, Clock, Download, Gift, History, LogOut, PackageCheck, Receipt, Repeat, Scissors, ShieldCheck, Ticket, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Section } from '../components/CustomerSection';
 import { StampCard, type Progress } from '../components/StampCard';
@@ -123,6 +123,8 @@ interface MeData {
   history: Appointment[];
   /** Fotos dos cortes tiradas na barbearia. */
   photos: CutPhoto[];
+  /** Pacotes pré-pagos (os valendo e os dos últimos meses). */
+  packages: { id: number; name: string; service_name: string | null; uses: number; used: number; left: number; expires_on: string; status: 'active' | 'used' | 'expired' | 'cancelled' }[];
   card: { id: number; name: string; unit_label: string; reward: string; progress: Progress }[];
   offers: Offer[];
   vouchers: Voucher[];
@@ -528,6 +530,34 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
       </Section>
 
       <ClubSection slug={slug} accent={brand.accent_color} onPaid={reload} />
+      {me.packages.length > 0 && (
+        <Section icon={<PackageCheck />} title="Meus pacotes">
+          <ul className="space-y-3">
+            {me.packages.map((p) => (
+              <li key={p.id} className={p.status === 'active' ? '' : 'opacity-60'}>
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  <b>{p.name}</b>
+                  <span className="text-zinc-500">
+                    {p.status === 'active'
+                      ? `${p.left} de ${p.uses} sobrando · até ${p.expires_on.slice(8, 10)}/${p.expires_on.slice(5, 7)}/${p.expires_on.slice(0, 4)}`
+                      : p.status === 'used'
+                        ? 'todos usados'
+                        : p.status === 'expired'
+                          ? 'venceu'
+                          : 'cancelado'}
+                  </span>
+                </div>
+                <div className="mt-1 flex gap-1" aria-hidden>
+                  {Array.from({ length: p.uses }, (_, i) => (
+                    <span key={i} className="h-2 flex-1 rounded-full" style={{ background: i < p.used ? '#e4e4e7' : brand.accent_color }} />
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-zinc-500">Na hora de pagar, o barbeiro marca “pelo pacote” e o uso sai daqui.</p>
+        </Section>
+      )}
       {me.referral && <ReferralSection referral={me.referral} shopName={brand.name} accent={brand.accent_color} />}
       {me.birthday.enabled && <BirthdaySection slug={slug} birthday={me.birthday} onSaved={reload} />}
 

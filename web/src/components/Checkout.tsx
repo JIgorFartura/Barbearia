@@ -1,4 +1,4 @@
-import { CheckCircle2, Minus, Plus, Search, Trash2 } from 'lucide-react';
+import { CheckCircle2, Gift, Minus, Plus, Search, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { METHODS, parseMoney, type Method } from '../lib/finance';
@@ -44,6 +44,18 @@ interface Line {
   club?: boolean;
   /** Desconto do horário vazio já aplicado no preço. */
   promo?: number;
+  /** Pacote pré-pago do cliente usado nesta linha (sai por R$ 0). */
+  pack?: number | null;
+}
+
+/** Pacote pré-pago do cliente, valendo. */
+interface CustomerPack {
+  id: number;
+  name: string;
+  service_id: number;
+  left: number;
+  uses: number;
+  expires_on: string;
 }
 
 /** O que o clube de assinatura do cliente cobre hoje. */
@@ -56,7 +68,7 @@ interface Coverage {
 }
 
 export interface SaleResult {
-  sale: { id: number; total_cents: number };
+  sale: { id: number; total_cents: number; gift_cents: number };
   stamps: { campaign: string; qty: number; unit: string; available: number }[];
 }
 
@@ -68,6 +80,7 @@ export interface CheckoutEndpoints {
   sales: string;
   customers: string;
   club: string;
+  giftCards: string;
 }
 
 const OWNER: CheckoutEndpoints = {
@@ -75,6 +88,7 @@ const OWNER: CheckoutEndpoints = {
   sales: '/api/shop/finance/sales',
   customers: '/api/shop/customers',
   club: '/api/shop/finance/club',
+  giftCards: '/api/shop/gift-cards',
 };
 
 /**
@@ -104,6 +118,10 @@ export function CheckoutModal({
   const [notes, setNotes] = useState('');
   const [adding, setAdding] = useState('');
   const [club, setClub] = useState<Coverage | null>(null);
+  const [packs, setPacks] = useState<CustomerPack[]>([]);
+  const [giftInput, setGiftInput] = useState('');
+  const [gift, setGift] = useState<{ code: string; balance: number } | null>(null);
+  const [giftError, setGiftError] = useState<string | null>(null);
   const [result, setResult] = useState<SaleResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -146,42 +164,71 @@ export function CheckoutModal({
     return () => clearTimeout(t);
   }, [q, customer, endpoints.customers]);
 
-  // Assinante do clube: o que o plano cobre já entra por R$ 0, até o limite do mês.
+  // Assinante do clube: o que o plano cobre já entra por R$ 0, até o limite do mês. Pacote pré-pago:
+  // o serviço do pacote entra "pelo pacote" (o clube tem a vez, para não gastar uso do pacote à toa).
   useEffect(() => {
     setClub(null);
+    setPacks([]);
     if (!customer) {
-      setLines((ls) => ls.map((l) => ({ ...l, club: false })));
+      setLines((ls) => ls.map((l) => ({ ...l, club: false, pack: null })));
       return;
     }
     let alive = true;
-    api<Coverage | null>('GET', `${endpoints.club}?customer_id=${customer.id}`).then(
-      (c) => {
-        if (!alive) return;
-        setClub(c);
-        let left = c?.left ?? Infinity;
-        setLines((ls) =>
-          ls.map((l) => {
-            const covered = Boolean(c && l.catalog_item_id && c.itemIds.includes(l.catalog_item_id) && l.qty <= left);
-            if (covered) left -= l.qty;
-            return { ...l, club: covered };
-          }),
-        );
-      },
-      () => undefined,
-    );
+    Promise.all([
+      api<Coverage | null>('GET', `${endpoints.club}?customer_id=${customer.id}`).catch(() => null),
+      api<CustomerPack[]>('GET', `${endpoints.customers}/${customer.id}/packages`).catch(() => []),
+    ]).then(([c, p]) => {
+      if (!alive) return;
+      setClub(c);
+      setPacks(p);
+      let left = c?.left ?? Infinity;
+      const packLeft = new Map(p.map((x) => [x.id, x.left]));
+      setLines((ls) =>
+        ls.map((l) => {
+          const covered = Boolean(c && l.catalog_item_id && c.itemIds.includes(l.catalog_item_id) && l.qty <= left);
+          if (covered) {
+            left -= l.qty;
+            return { ...l, club: true, pack: null };
+          }
+          const pack = p.find((x) => x.service_id === l.catalog_item_id && (packLeft.get(x.id) ?? 0) >= l.qty);
+          if (pack) packLeft.set(pack.id, packLeft.get(pack.id)! - l.qty);
+          return { ...l, club: false, pack: pack?.id ?? null };
+        }),
+      );
+    });
     return () => {
       alive = false;
     };
-  }, [customer, endpoints.club]);
+  }, [customer, endpoints.club, endpoints.customers]);
+
+  /** Usos que sobram em cada pacote, descontando as linhas desta comanda. */
+  const packLeft = (id: number) => (packs.find((p) => p.id === id)?.left ?? 0) - lines.filter((l) => l.pack === id).reduce((s, l) => s + l.qty, 0);
+  const packFor = (l: Line) => packs.find((p) => p.service_id === l.catalog_item_id && (l.pack === p.id || packLeft(p.id) >= l.qty)) ?? null;
+
+  async function applyGift() {
+    setGiftError(null);
+    try {
+      const g = await api<{ code: string; balance_cents: number; status: string; expires_on: string }>('GET', `${endpoints.giftCards}/${encodeURIComponent(giftInput.trim())}`);
+      if (g.status !== 'active' || g.balance_cents <= 0) throw new Error(g.status === 'expired' ? 'Esse vale-presente venceu.' : 'Esse vale-presente não tem mais saldo.');
+      setGift({ code: g.code, balance: g.balance_cents });
+    } catch (err) {
+      setGift(null);
+      setGiftError((err as Error).message);
+    }
+  }
 
   const defaultBarber = data?.appointment?.barber_id ?? data?.barbers[0]?.id ?? null;
-  const price = (l: Line) => (l.club ? 0 : l.unit_price_cents * l.qty);
-  const subtotal = useMemo(() => lines.reduce((s, l) => s + (l.club ? 0 : l.unit_price_cents * l.qty), 0), [lines]);
+  const free = (l: Line) => l.club || Boolean(l.pack);
+  const price = (l: Line) => (free(l) ? 0 : l.unit_price_cents * l.qty);
+  const subtotal = useMemo(() => lines.reduce((s, l) => s + (l.club || l.pack ? 0 : l.unit_price_cents * l.qty), 0), [lines]);
   const clubQty = lines.filter((l) => l.club).reduce((s, l) => s + l.qty, 0);
   const clubOver = club?.left != null && clubQty > club.left;
   const coveredBy = (l: Line) => Boolean(club && l.catalog_item_id && club.itemIds.includes(l.catalog_item_id));
   const discountCents = Math.min(parseMoney(discount), subtotal);
   const total = subtotal - discountCents;
+  // Vale-presente: paga até o saldo dele; o resto vai na forma de pagamento escolhida.
+  const giftCents = gift ? Math.min(gift.balance, total) : 0;
+  const toPay = total - giftCents;
 
   const update = (key: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
@@ -190,7 +237,11 @@ export function CheckoutModal({
     if (!c) return;
     const left = club?.left == null ? Infinity : club.left - clubQty;
     const covered = Boolean(club?.itemIds.includes(c.id) && left >= 1);
-    setLines((ls) => [...ls, { key: nextKey++, catalog_item_id: c.id, kind: c.kind, name: c.name, qty: 1, unit_price_cents: c.price_cents, barber_id: defaultBarber, club: covered }]);
+    const pack = covered ? null : packs.find((p) => p.service_id === c.id && packLeft(p.id) >= 1);
+    setLines((ls) => [
+      ...ls,
+      { key: nextKey++, catalog_item_id: c.id, kind: c.kind, name: c.name, qty: 1, unit_price_cents: c.price_cents, barber_id: defaultBarber, club: covered, pack: pack?.id ?? null },
+    ]);
     setAdding('');
   }
 
@@ -209,8 +260,11 @@ export function CheckoutModal({
           unit_price_cents: l.unit_price_cents,
           barber_id: l.barber_id,
           club: l.club || null,
+          package_id: l.pack || null,
         })),
         discount_cents: discountCents,
+        gift_code: giftCents > 0 ? gift!.code : null,
+        gift_cents: giftCents > 0 ? giftCents : null,
         method,
         notes: notes || null,
       });
@@ -228,6 +282,11 @@ export function CheckoutModal({
         <div className="space-y-4 text-center">
           <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
           <p className="text-2xl font-bold">{money(result.sale.total_cents)}</p>
+          {result.sale.gift_cents > 0 && (
+            <p className="text-sm text-zinc-600">
+              {money(result.sale.gift_cents)} pagos com o vale-presente{gift && gift.balance - result.sale.gift_cents > 0 ? ` (sobrou ${money(gift.balance - result.sale.gift_cents)} no vale)` : ''}.
+            </p>
+          )}
           <p className="text-sm text-zinc-500">Entrou no caixa e a comissão do barbeiro já foi calculada.</p>
           {result.stamps.map((s) => (
             <p key={s.campaign} className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -289,7 +348,7 @@ export function CheckoutModal({
               <div key={l.key} className="rounded-xl ring-1 ring-zinc-200 px-3 py-2">
                 <div className="flex items-center gap-2">
                   <p className="min-w-0 flex-1 font-medium">{l.name}</p>
-                  {l.club && <span className="text-xs whitespace-nowrap text-zinc-400 line-through tabular-nums">{money(l.unit_price_cents * l.qty)}</span>}
+                  {free(l) && <span className="text-xs whitespace-nowrap text-zinc-400 line-through tabular-nums">{money(l.unit_price_cents * l.qty)}</span>}
                   <span className="font-semibold whitespace-nowrap tabular-nums">{money(price(l))}</span>
                   <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-zinc-400 hover:text-red-600" aria-label="Remover item">
                     <Trash2 className="size-4" />
@@ -317,8 +376,23 @@ export function CheckoutModal({
                     </button>
                   </div>
                   <span className="text-zinc-500">× {money(l.unit_price_cents)}</span>
-                  {l.promo && !l.club && <span className="text-xs font-medium text-emerald-700">horário vazio −{l.promo}%</span>}
-                  {coveredBy(l) && (
+                  {l.promo && !free(l) && <span className="text-xs font-medium text-emerald-700">horário vazio −{l.promo}%</span>}
+                  {!l.club &&
+                    (() => {
+                      const p = packFor(l);
+                      if (!p) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => update(l.key, { pack: l.pack ? null : p.id })}
+                          className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${l.pack ? 'bg-sky-100 text-sky-900 ring-sky-300' : 'text-zinc-500 ring-zinc-200 hover:bg-zinc-100'}`}
+                          aria-pressed={Boolean(l.pack)}
+                        >
+                          {l.pack ? `✓ Pelo pacote (sobram ${packLeft(p.id)})` : `Usar o pacote (${packLeft(p.id)})`}
+                        </button>
+                      );
+                    })()}
+                  {coveredBy(l) && !l.pack && (
                     <button
                       type="button"
                       onClick={() => update(l.key, { club: !l.club })}
@@ -377,6 +451,27 @@ export function CheckoutModal({
             </Field>
           </div>
 
+          {gift ? (
+            <p className="flex items-center justify-between gap-2 rounded-xl bg-violet-50 px-3 py-2 text-sm text-violet-950 ring-1 ring-violet-200">
+              <span>
+                <Gift className="mb-0.5 inline size-4" /> Vale <b>{gift.code}</b>: saldo {money(gift.balance)}
+              </span>
+              <button type="button" className="text-violet-700 underline" onClick={() => setGift(null)}>
+                Tirar
+              </button>
+            </p>
+          ) : (
+            <div>
+              <div className="flex gap-2">
+                <Input placeholder="Vale-presente (código)" value={giftInput} onChange={(e) => setGiftInput(e.target.value.toUpperCase())} aria-label="Código do vale-presente" />
+                <Button type="button" variant="ghost" disabled={giftInput.trim().length < 4} onClick={applyGift}>
+                  Usar vale
+                </Button>
+              </div>
+              {giftError && <p className="mt-1 text-xs text-red-600">{giftError}</p>}
+            </div>
+          )}
+
           <div>
             <p className="mb-1 text-sm font-medium text-zinc-700">Forma de pagamento</p>
             <div className="flex flex-wrap gap-2">
@@ -404,10 +499,20 @@ export function CheckoutModal({
             <p className="flex justify-between text-lg font-bold">
               <span>Total</span> <span className="tabular-nums">{money(total)}</span>
             </p>
+            {giftCents > 0 && (
+              <>
+                <p className="flex justify-between text-violet-800">
+                  <span>Pago com o vale-presente</span> <span className="tabular-nums">− {money(giftCents)}</span>
+                </p>
+                <p className="flex justify-between font-semibold">
+                  <span>Falta pagar</span> <span className="tabular-nums">{money(toPay)}</span>
+                </p>
+              </>
+            )}
           </div>
           <ErrorText error={error ?? (clubOver ? `O plano ${club!.plan} só tem mais ${club!.left} ${club!.left === 1 ? 'uso' : 'usos'} neste mês.` : null)} />
           <Button className="w-full" loading={busy} disabled={!lines.length || clubOver} onClick={submit}>
-            Registrar {money(total)} em {METHODS.find((m) => m.id === method)?.label}
+            {toPay > 0 || !giftCents ? `Registrar ${money(toPay)} em ${METHODS.find((m) => m.id === method)?.label}` : 'Registrar (pago com o vale-presente)'}
           </Button>
         </div>
       )}

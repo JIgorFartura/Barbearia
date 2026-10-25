@@ -16,6 +16,7 @@ import { claimVoucher, customerVouchers, offersFor } from '../offers.js';
 import { customerPayments } from '../payments.js';
 import { notifyReceipt, receiptInfo, saveReceipt, sendReceipt } from '../receipts.js';
 import { customerPhotos, deletePhoto, sendPhoto } from '../profile.js';
+import { customerPackages } from '../prepaid.js';
 import { removeSubscription, saveSubscription, zPushEndpoint, zPushSubscription } from '../push.js';
 import { activeBarbers, book, cancel, freeTimes, historyFor, services, upcomingFor } from '../scheduling.js';
 import { confirmAppointment } from '../attendance.js';
@@ -61,6 +62,8 @@ customerRouter.get('/me', (req, res) => {
     // Dias em que ele está na lista de espera (o robô avisa quando abrir vaga).
     waitlist: customerWaitlist(customerId).map(({ id, date, period, barber_id, barber_name, service_name, offers }) => ({ id, date, period, barber_id, barber_name, service_name, offers })),
     history: historyFor(customerId).slice(0, 10),
+    // Pacotes pré-pagos (quantos usos sobram e até quando).
+    packages: customerPackages(shopId, customerId).filter((p) => p.status === 'active' || p.created_at >= new Date(Date.now() - 90 * 86400000).toISOString()),
     // Fotos dos cortes que a barbearia tirou (ele pode mostrar para repetir ou apagar).
     photos: customerPhotos(customerId).map(({ id, created_at, barber_name, note }) => ({ id, created_at, barber_name, note })),
     // Os pagamentos dele (é dele por direito): compras e clube, com data, forma e o comprovante que ele mandou.

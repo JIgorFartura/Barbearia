@@ -64,6 +64,10 @@ export function exportCustomerData(shopId: number, customerId: number) {
       [customerId],
     ),
     lista_de_espera: all('SELECT date AS dia, period AS periodo, status AS situacao, created_at AS quando FROM waitlist WHERE customer_id = ? ORDER BY id', [customerId]),
+    pacotes: all(
+      'SELECT name AS pacote, uses AS usos, used AS usados, price_cents AS valor_centavos, expires_on AS validade, status AS situacao, created_at AS comprado_em FROM customer_packages WHERE customer_id = ? ORDER BY id',
+      [customerId],
+    ),
     horarios: all(
       `SELECT a.starts_at AS quando, b.name AS barbeiro, a.service_name AS servico, a.price_cents AS valor_centavos, a.status AS situacao
          FROM appointments a JOIN barbers b ON b.id = a.barber_id WHERE a.customer_id = ? ORDER BY a.starts_at DESC`,

@@ -360,7 +360,7 @@ function CashTab({ period }: { period: Period }) {
           <b className="tabular-nums">{`${paidIn < paidOut ? '−\u00a0' : ''}${money(Math.abs(paidIn - paidOut))}`}</b>
         </p>
         <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => setEditing({ type: 'in', status: 'paid', date: todayStr(), category: IN_CATEGORIES[2] })}>
+          <Button variant="ghost" onClick={() => setEditing({ type: 'in', status: 'paid', date: todayStr(), category: 'Anúncios e parcerias' })}>
             <ArrowDownCircle className="size-4" /> Entrada
           </Button>
           <Button onClick={() => setEditing({ type: 'out', status: 'paid', date: todayStr(), category: OUT_CATEGORIES[2] })}>

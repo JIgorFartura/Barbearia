@@ -10,6 +10,7 @@ import type { HistoryItem } from '../messaging.js';
 import { activeBarbers, services, upcomingFor } from '../scheduling.js';
 import { customerWaitlist, describeWait } from '../waitlist.js';
 import { idleWindow } from '../promo.js';
+import { customerPackages } from '../prepaid.js';
 import { shopNow } from '../clock.js';
 import { addDays, dayLabel, hourLabel, WEEKDAYS } from '../time.js';
 import { runTool, toolDefinitions, type BotContext } from './tools.js';
@@ -87,6 +88,16 @@ export function buildContext(ctx: BotContext): string {
     );
   }
 
+  const packs = all<{ name: string; uses: number; price_cents: number; valid_days: number }>(
+    'SELECT name, uses, price_cents, valid_days FROM packages WHERE barbershop_id = ? AND active = 1 ORDER BY price_cents',
+    [shop.id],
+  );
+  if (packs.length) {
+    lines.push(
+      `Pacotes pré-pagos (compra no balcão ou com a equipe): ${packs.map((p) => `${p.name}, ${money(p.price_cents)} por ${p.uses} usos (vale ${p.valid_days} dias)`).join('; ')}. Vale-presente também é vendido no balcão.`,
+    );
+  }
+
   const growth = growthSettings(shop.id);
   if (growth.referral_enabled && growth.referrer_reward) {
     lines.push(
@@ -127,6 +138,8 @@ export function buildContext(ctx: BotContext): string {
     lines.push(
       `Próximos horários: ${upcoming.length ? upcoming.map((a) => `${dayLabel(a.starts_at.slice(0, 10))} às ${hourLabel(a.starts_at.slice(11))} com ${a.barber_name} (${a.service_name}, id ${a.id}${a.confirmed_at ? ', presença confirmada' : ''})`).join('; ') : 'nenhum'}.`,
     );
+    const mine = customerPackages(shop.id, c.id, { activeOnly: true, now: ctx.now });
+    if (mine.length) lines.push(`Pacotes dele: ${mine.map((p) => `${p.name}: ${p.left} de ${p.uses} usos sobrando, até ${p.expires_on.slice(8, 10)}/${p.expires_on.slice(5, 7)}`).join('; ')}.`);
     const waiting = customerWaitlist(c.id, ctx.now);
     if (waiting.length) lines.push(`Na lista de espera: ${waiting.map(describeWait).join('; ')}.`);
     if (c.reminders_opt_out) lines.push('Ele pediu para não receber lembretes automáticos.');

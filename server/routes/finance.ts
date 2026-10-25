@@ -241,11 +241,14 @@ export function registerFinanceRoutes(router: Router): void {
               unit_price_cents: z.number().int().min(0).max(10_000_000).nullish(),
               barber_id: zId.nullish(),
               club: z.boolean().nullish(),
+              package_id: zId.nullish(),
             }),
           )
           .min(1, 'Inclua pelo menos um item.')
           .max(30),
         discount_cents: z.number().int().min(0).max(10_000_000).default(0),
+        gift_code: z.string().trim().max(20).nullish(),
+        gift_cents: z.number().int().min(1).max(10_000_000).nullish(),
         method: zMethod,
         notes: zText(300),
       }),
@@ -258,6 +261,8 @@ export function registerFinanceRoutes(router: Router): void {
       customerId: body.customer_id,
       items: body.items,
       discountCents: body.discount_cents,
+      giftCode: body.gift_code,
+      giftCents: body.gift_cents,
       method: body.method,
       notes: body.notes,
     });

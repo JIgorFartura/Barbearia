@@ -1011,6 +1011,65 @@ const MIGRATIONS: (string | Rebuild)[] = [
   CREATE UNIQUE INDEX platform_messages_external ON platform_messages (external_id) WHERE external_id IS NOT NULL;
   CREATE INDEX platform_messages_phone ON platform_messages (phone, created_at);
   `,
+  // 19) Pacotes pré-pagos (ex.: 5 cortes) e vale-presente (valor com código, usado como pagamento).
+  `
+  CREATE TABLE packages (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    service_id INTEGER NOT NULL REFERENCES catalog_items(id),
+    uses INTEGER NOT NULL CHECK (uses BETWEEN 2 AND 50),
+    price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+    valid_days INTEGER NOT NULL DEFAULT 180,
+    description TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  );
+
+  -- Pacote comprado: os usos ficam com o cliente (o nome, o serviço e o preço do dia da compra).
+  CREATE TABLE customer_packages (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    package_id INTEGER REFERENCES packages(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    service_id INTEGER NOT NULL REFERENCES catalog_items(id),
+    uses INTEGER NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    price_cents INTEGER NOT NULL,
+    expires_on TEXT NOT NULL,
+    sale_id INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'used', 'expired', 'cancelled')),
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX customer_packages_customer ON customer_packages (customer_id, status);
+  ALTER TABLE sale_items ADD COLUMN customer_package_id INTEGER REFERENCES customer_packages(id) ON DELETE SET NULL;
+
+  CREATE TABLE gift_cards (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    code TEXT NOT NULL UNIQUE,
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    balance_cents INTEGER NOT NULL,
+    buyer_name TEXT,
+    recipient_name TEXT,
+    message TEXT,
+    expires_on TEXT NOT NULL,
+    sale_id INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'used', 'expired', 'cancelled')),
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX gift_cards_shop ON gift_cards (barbershop_id, status);
+  CREATE TABLE gift_card_uses (
+    id INTEGER PRIMARY KEY,
+    gift_card_id INTEGER NOT NULL REFERENCES gift_cards(id) ON DELETE CASCADE,
+    sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+    amount_cents INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  -- Parte da venda paga com vale-presente (não é dinheiro novo no caixa: entrou quando o vale foi vendido).
+  ALTER TABLE sales ADD COLUMN gift_cents INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 function migrate(): void {

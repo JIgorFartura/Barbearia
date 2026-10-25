@@ -15,6 +15,7 @@ import {
   Megaphone,
   Menu,
   Package,
+  PackageCheck,
   Palette,
   Scissors,
   Sparkles,
@@ -46,6 +47,7 @@ import { Counter } from './panel/Counter';
 import { Finance } from './panel/Finance';
 import { Club } from './panel/Club';
 import { Growth } from './panel/Growth';
+import { Prepaid } from './panel/Prepaid';
 import { Reports } from './panel/Reports';
 import { Reviews } from './panel/Reviews';
 import { Stock } from './panel/Stock';
@@ -62,6 +64,7 @@ const SECTIONS = [
   { id: 'robo', label: 'Robô WhatsApp', icon: BotIcon },
   { id: 'avaliacoes', label: 'Avaliações', icon: Star },
   { id: 'clube', label: 'Clube de assinatura', icon: Crown },
+  { id: 'pacotes', label: 'Pacotes e vale-presente', icon: PackageCheck },
   { id: 'campanhas', label: 'Campanhas', icon: Gift },
   { id: 'beneficios', label: 'Benefícios', icon: Ticket },
   { id: 'indicacoes', label: 'Indicação e promoções', icon: UserPlus },
@@ -183,6 +186,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       break;
     case 'relatorios':
       content = <Reports />;
+      break;
+    case 'pacotes':
+      content = <Prepaid shopName={me.shop?.name ?? ''} />;
       break;
     case 'clube':
       content = <Club key={pixRefresh} />;

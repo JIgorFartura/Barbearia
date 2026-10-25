@@ -14,7 +14,7 @@ import { addDays, daysBetween } from './time.js';
 
 export const METHODS = ['dinheiro', 'pix', 'debito', 'credito', 'outro'] as const;
 export type Method = (typeof METHODS)[number];
-export const IN_CATEGORIES = ['Atendimentos', 'Clube de assinatura', 'Anúncios e parcerias', 'Outras entradas'];
+export const IN_CATEGORIES = ['Atendimentos', 'Clube de assinatura', 'Pacotes e vale-presente', 'Anúncios e parcerias', 'Outras entradas'];
 export const OUT_CATEGORIES = [
   'Comissões',
   'Salários',
@@ -66,6 +66,8 @@ export interface SaleItemInput {
   barber_id?: number | null;
   /** Usa o clube de assinatura do cliente: sai por R$ 0 e conta no limite do mês. */
   club?: boolean | null;
+  /** Usa um pacote pré-pago do cliente (id do pacote comprado): sai por R$ 0 e gasta um uso. */
+  package_id?: number | null;
 }
 
 export interface SaleInput {
@@ -77,6 +79,11 @@ export interface SaleInput {
   discountCents?: number;
   method: Method;
   notes?: string | null;
+  /** Vale-presente usado para pagar parte (ou tudo) da conta. */
+  giftCode?: string | null;
+  giftCents?: number | null;
+  /** Categoria da entrada no caixa (padrão: Atendimentos). */
+  category?: string;
   now?: Date;
 }
 
@@ -89,6 +96,8 @@ export interface SaleView {
   subtotal_cents: number;
   discount_cents: number;
   total_cents: number;
+  /** Parte paga com vale-presente. */
+  gift_cents: number;
   method: Method;
   notes: string | null;
   status: 'closed' | 'cancelled';
@@ -110,7 +119,7 @@ export interface SaleView {
 
 export function saleView(id: number): SaleView {
   const sale = get<Omit<SaleView, 'items'>>(
-    `SELECT s.id, s.date, s.customer_id, c.name AS customer_name, s.appointment_id, s.subtotal_cents, s.discount_cents, s.total_cents,
+    `SELECT s.id, s.date, s.customer_id, c.name AS customer_name, s.appointment_id, s.subtotal_cents, s.discount_cents, s.total_cents, s.gift_cents,
             s.method, s.notes, s.status, s.created_at
        FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?`,
     [id],
@@ -130,6 +139,12 @@ export interface SaleResult {
   /** Carimbos dados automaticamente (ex.: cerveja ligada ao Clube da Cerveja). */
   stamps: { campaign: string; qty: number; unit: string; available: number }[];
 }
+
+/** "vp k7p2q9" → "VP-K7P2Q9". */
+export const normalizeGiftCode = (code: string) => {
+  const c = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return c.startsWith('VP') ? `VP-${c.slice(2)}` : `VP-${c}`;
+};
 
 export function createSale(input: SaleInput): SaleResult {
   return tx(() => {
@@ -157,6 +172,8 @@ export function createSale(input: SaleInput): SaleResult {
     const club = input.items.some((i) => i.club) ? (customerId ? clubCoverage(shop, customerId, date) : null) : null;
     if (input.items.some((i) => i.club) && !club) throw new HttpError(409, 'Esse cliente não está com o clube de assinatura em dia.');
     let clubLeft = club?.left ?? null;
+    // Pacotes pré-pagos usados nesta comanda (quantos usos sobram em cada um).
+    const packLeft = new Map<number, number>();
 
     const items = input.items.map((i) => {
       const barberId = i.barber_id ?? defaultBarber;
@@ -167,6 +184,20 @@ export function createSale(input: SaleInput): SaleResult {
           [i.catalog_item_id, shop],
         );
         if (!c) throw new HttpError(404, 'Item do catálogo não encontrado.');
+        if (i.package_id) {
+          const p = get<{ id: number; customer_id: number; service_id: number; name: string; uses: number; used: number; price_cents: number; status: string; expires_on: string }>(
+            'SELECT id, customer_id, service_id, name, uses, used, price_cents, status, expires_on FROM customer_packages WHERE id = ? AND barbershop_id = ?',
+            [i.package_id, shop],
+          );
+          if (!p || p.customer_id !== customerId) throw new HttpError(404, 'Pacote não encontrado para este cliente.');
+          if (p.status !== 'active' || p.expires_on < date) throw new HttpError(409, `O pacote ${p.name} não está mais valendo.`);
+          if (p.service_id !== c.id) throw new HttpError(409, `${c.name} não faz parte do pacote ${p.name}.`);
+          const left = packLeft.get(p.id) ?? p.uses - p.used;
+          if (i.qty > left) throw new HttpError(409, `O pacote ${p.name} só tem mais ${left} ${left === 1 ? 'uso' : 'usos'}.`);
+          packLeft.set(p.id, left - i.qty);
+          // Sai por R$ 0; a comissão do barbeiro é sobre o valor de cada uso do pacote.
+          return { catalogId: c.id, kind: c.kind, name: c.name, unit: 0, qty: i.qty, barberId, clubMemberId: null, listCents: Math.round(p.price_cents / p.uses) * i.qty, packageId: p.id };
+        }
         if (i.club && club) {
           if (!club.itemIds.includes(c.id)) throw new HttpError(409, `${c.name} não faz parte do plano ${club.plan}.`);
           if (clubLeft != null) {
@@ -174,23 +205,46 @@ export function createSale(input: SaleInput): SaleResult {
             clubLeft -= i.qty;
           }
           // Sai por R$ 0; a comissão do barbeiro usa o preço normal (na % que o dono definiu).
-          return { catalogId: c.id, kind: c.kind, name: c.name, unit: 0, qty: i.qty, barberId, clubMemberId: club.memberId, listCents: c.price_cents * i.qty };
+          return { catalogId: c.id, kind: c.kind, name: c.name, unit: 0, qty: i.qty, barberId, clubMemberId: club.memberId, listCents: c.price_cents * i.qty, packageId: null };
         }
-        return { catalogId: c.id, kind: c.kind, name: c.name, unit: i.unit_price_cents ?? c.price_cents, qty: i.qty, barberId, clubMemberId: null, listCents: 0 };
+        return { catalogId: c.id, kind: c.kind, name: c.name, unit: i.unit_price_cents ?? c.price_cents, qty: i.qty, barberId, clubMemberId: null, listCents: 0, packageId: null };
       }
-      if (i.club) throw new HttpError(400, 'Só itens do catálogo entram no clube.');
+      if (i.club || i.package_id) throw new HttpError(400, 'Só itens do catálogo entram no clube ou no pacote.');
       if (!i.name?.trim() || !i.kind) throw new HttpError(400, 'Item avulso precisa de nome e tipo.');
-      return { catalogId: null, kind: i.kind, name: i.name.trim(), unit: i.unit_price_cents ?? 0, qty: i.qty, barberId, clubMemberId: null, listCents: 0 };
+      return { catalogId: null, kind: i.kind, name: i.name.trim(), unit: i.unit_price_cents ?? 0, qty: i.qty, barberId, clubMemberId: null, listCents: 0, packageId: null };
     });
 
     const subtotal = items.reduce((s, i) => s + i.unit * i.qty, 0);
     const discount = Math.min(Math.max(0, input.discountCents ?? 0), subtotal);
     const total = subtotal - discount;
+
+    // Vale-presente: paga parte (ou tudo) da conta com o saldo dele.
+    let gift: { id: number; amount: number } | null = null;
+    if (input.giftCode) {
+      const card = get<{ id: number; balance_cents: number; status: string; expires_on: string }>(
+        'SELECT id, balance_cents, status, expires_on FROM gift_cards WHERE barbershop_id = ? AND code = ?',
+        [shop, normalizeGiftCode(input.giftCode)],
+      );
+      if (!card) throw new HttpError(404, 'Vale-presente não encontrado. Confira o código.');
+      if (card.status !== 'active' || card.expires_on < date || card.balance_cents <= 0) throw new HttpError(409, 'Esse vale-presente não tem mais saldo ou venceu.');
+      const amount = Math.min(input.giftCents ?? card.balance_cents, card.balance_cents, total);
+      if (amount <= 0) throw new HttpError(400, 'Nada a pagar com o vale nesta conta.');
+      gift = { id: card.id, amount };
+    }
+
     const saleId = run(
-      `INSERT INTO sales (barbershop_id, customer_id, appointment_id, date, subtotal_cents, discount_cents, total_cents, method, notes, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [shop, customerId, input.appointmentId ?? null, date, subtotal, discount, total, input.method, input.notes ?? null, input.userId, nowIso()],
+      `INSERT INTO sales (barbershop_id, customer_id, appointment_id, date, subtotal_cents, discount_cents, total_cents, gift_cents, method, notes, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [shop, customerId, input.appointmentId ?? null, date, subtotal, discount, total, gift?.amount ?? 0, input.method, input.notes ?? null, input.userId, nowIso()],
     ).lastInsertRowid;
+    if (gift) {
+      run("UPDATE gift_cards SET balance_cents = balance_cents - ?, status = CASE WHEN balance_cents - ? <= 0 THEN 'used' ELSE status END WHERE id = ?", [
+        gift.amount,
+        gift.amount,
+        gift.id,
+      ]);
+      run('INSERT INTO gift_card_uses (gift_card_id, sale_id, amount_cents, created_at) VALUES (?, ?, ?, ?)', [gift.id, saleId, gift.amount, nowIso()]);
+    }
 
     for (const i of items) {
       const gross = i.unit * i.qty;
@@ -198,23 +252,30 @@ export function createSale(input: SaleInput): SaleResult {
       const net = subtotal ? Math.round((gross * total) / subtotal) : 0;
       const commission = i.clubMemberId
         ? Math.round((commissionFor(i.barberId, i.kind, i.catalogId, i.qty, i.listCents) * (club?.commissionPct ?? 100)) / 100)
-        : commissionFor(i.barberId, i.kind, i.catalogId, i.qty, net);
+        : i.packageId
+          ? commissionFor(i.barberId, i.kind, i.catalogId, i.qty, i.listCents)
+          : commissionFor(i.barberId, i.kind, i.catalogId, i.qty, net);
       run(
-        `INSERT INTO sale_items (sale_id, catalog_item_id, kind, name, qty, unit_price_cents, total_cents, barber_id, commission_cents, club_member_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [saleId, i.catalogId, i.kind, i.name, i.qty, i.unit, gross, i.barberId, commission, i.clubMemberId],
+        `INSERT INTO sale_items (sale_id, catalog_item_id, kind, name, qty, unit_price_cents, total_cents, barber_id, commission_cents, club_member_id, customer_package_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [saleId, i.catalogId, i.kind, i.name, i.qty, i.unit, gross, i.barberId, commission, i.clubMemberId, i.packageId],
       );
+      if (i.packageId) {
+        run("UPDATE customer_packages SET used = used + ?, status = CASE WHEN used + ? >= uses THEN 'used' ELSE status END WHERE id = ?", [i.qty, i.qty, i.packageId]);
+      }
     }
 
     // Produtos com controle de estoque saem da prateleira.
     stockOutForSale(shop, saleId, items, input.userId);
 
     const customerName = customerId ? get<{ name: string }>('SELECT name FROM customers WHERE id = ?', [customerId])?.name : null;
-    if (total > 0) {
+    // O que foi pago com vale-presente já entrou no caixa quando o vale foi vendido.
+    const received = total - (gift?.amount ?? 0);
+    if (received > 0) {
       run(
         `INSERT INTO cash_entries (barbershop_id, type, category, description, amount_cents, method, date, status, sale_id, created_by, created_at)
-         VALUES (?, 'in', 'Atendimentos', ?, ?, ?, ?, 'paid', ?, ?, ?)`,
-        [shop, `Venda #${saleId}${customerName ? ` · ${customerName}` : ''}`, total, input.method, date, saleId, input.userId, nowIso()],
+         VALUES (?, 'in', ?, ?, ?, ?, ?, 'paid', ?, ?, ?)`,
+        [shop, input.category ?? 'Atendimentos', `Venda #${saleId}${customerName ? ` · ${customerName}` : ''}`, received, input.method, date, saleId, input.userId, nowIso()],
       );
     }
 
@@ -236,7 +297,10 @@ export function createSale(input: SaleInput): SaleResult {
   });
 }
 
-/** Cancela a venda: tira a entrada do caixa e os carimbos que ela deu. */
+/**
+ * Cancela a venda: tira a entrada do caixa e os carimbos que ela deu, devolve os usos de pacote e o
+ * saldo do vale-presente. A venda de um pacote ou vale só cancela se ele ainda não foi usado.
+ */
 export function cancelSale(shopId: number, saleId: number, userId: number | null = null): SaleView {
   return tx(() => {
     const sale = get<{ status: string }>('SELECT status FROM sales WHERE id = ? AND barbershop_id = ?', [saleId, shopId]);
@@ -245,6 +309,22 @@ export function cancelSale(shopId: number, saleId: number, userId: number | null
     if (get('SELECT 1 AS ok FROM sale_items WHERE sale_id = ? AND payout_id IS NOT NULL', [saleId])) {
       throw new HttpError(409, 'A comissão desta venda já foi paga ao barbeiro. Lance um ajuste no caixa.');
     }
+    if (get("SELECT 1 AS ok FROM customer_packages WHERE sale_id = ? AND used > 0 AND status <> 'cancelled'", [saleId])) {
+      throw new HttpError(409, 'O pacote desta venda já foi usado. Cancele antes os atendimentos feitos com ele.');
+    }
+    if (get("SELECT 1 AS ok FROM gift_cards WHERE sale_id = ? AND balance_cents < amount_cents AND status <> 'cancelled'", [saleId])) {
+      throw new HttpError(409, 'O vale-presente desta venda já foi usado. Cancele antes as vendas pagas com ele.');
+    }
+    run("UPDATE customer_packages SET status = 'cancelled' WHERE sale_id = ?", [saleId]);
+    run("UPDATE gift_cards SET status = 'cancelled' WHERE sale_id = ?", [saleId]);
+    // Usos de pacote e saldo de vale voltam para o cliente.
+    for (const i of all<{ customer_package_id: number; qty: number }>('SELECT customer_package_id, qty FROM sale_items WHERE sale_id = ? AND customer_package_id IS NOT NULL', [saleId])) {
+      run("UPDATE customer_packages SET used = used - ?, status = CASE WHEN status = 'used' THEN 'active' ELSE status END WHERE id = ?", [i.qty, i.customer_package_id]);
+    }
+    for (const u of all<{ gift_card_id: number; amount_cents: number }>('SELECT gift_card_id, amount_cents FROM gift_card_uses WHERE sale_id = ?', [saleId])) {
+      run("UPDATE gift_cards SET balance_cents = balance_cents + ?, status = CASE WHEN status = 'used' THEN 'active' ELSE status END WHERE id = ?", [u.amount_cents, u.gift_card_id]);
+    }
+    run('DELETE FROM gift_card_uses WHERE sale_id = ?', [saleId]);
     run("UPDATE sales SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [nowIso(), saleId]);
     run('DELETE FROM cash_entries WHERE sale_id = ?', [saleId]);
     run('DELETE FROM loyalty_events WHERE sale_id = ?', [saleId]);

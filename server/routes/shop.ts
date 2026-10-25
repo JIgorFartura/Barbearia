@@ -20,6 +20,7 @@ import { registerFinanceRoutes } from './finance.js';
 import { registerStockRoutes } from './stock.js';
 import { registerClubRoutes } from './club.js';
 import { registerReportRoutes } from './reports.js';
+import { registerPrepaidRoutes } from './prepaid.js';
 import { lowStock } from '../stock.js';
 import { reviewsOverview, shopRating } from '../reviews.js';
 import { shopCardStatus } from '../cardSettings.js';
@@ -41,6 +42,7 @@ registerFinanceRoutes(shopRouter);
 registerStockRoutes(shopRouter);
 registerClubRoutes(shopRouter);
 registerReportRoutes(shopRouter);
+registerPrepaidRoutes(shopRouter);
 
 // ---------- marca (o que aparece na landing page)
 
