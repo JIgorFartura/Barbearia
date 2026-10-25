@@ -4,6 +4,7 @@ import { checkLoginRate, createSession, destroySession, hashPassword, hasMaster,
 import { get, nowIso, run } from '../db.js';
 import { HttpError, normalizePhone, parseBody, rateLimit } from '../http.js';
 import { consumePasswordCode, findLogin, requestPasswordCode } from '../passwordReset.js';
+import { removeSubscription, saveSubscription, zPushEndpoint, zPushSubscription } from '../push.js';
 
 export const authRouter = Router();
 
@@ -63,6 +64,19 @@ authRouter.put('/profile', (req, res) => {
   if (!phone && !req.user.email) throw new HttpError(400, 'Seu login é pelo celular: ele não pode ficar em branco.');
   if (phone && get('SELECT 1 AS ok FROM users WHERE phone = ? AND id <> ?', [phone, req.user.id])) throw new HttpError(409, 'Esse celular já está em outro login.');
   run('UPDATE users SET name = ?, phone = ? WHERE id = ?', [body.name, phone, req.user.id]);
+  res.json({ ok: true });
+});
+
+/** Avisos no celular do dono e do barbeiro (horário novo, cancelado). */
+authRouter.post('/push', (req, res) => {
+  if (!req.user?.barbershopId) throw new HttpError(401, 'Faça login para continuar.');
+  saveSubscription({ shopId: req.user.barbershopId, userId: req.user.id }, parseBody(zPushSubscription, req.body), req.get('user-agent') ?? null);
+  res.json({ ok: true });
+});
+
+authRouter.delete('/push', (req, res) => {
+  if (!req.user?.barbershopId) throw new HttpError(401, 'Faça login para continuar.');
+  removeSubscription({ shopId: req.user.barbershopId, userId: req.user.id }, parseBody(zPushEndpoint, req.body).endpoint);
   res.json({ ok: true });
 });
 

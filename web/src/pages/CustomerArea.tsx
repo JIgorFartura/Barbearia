@@ -1,11 +1,12 @@
 import { ArrowLeft, CalendarCheck, CalendarX, Camera, Clock, Download, Gift, History, LogOut, Receipt, Repeat, Scissors, ShieldCheck, Ticket, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Section } from '../components/CustomerSection';
 import { StampCard, type Progress } from '../components/StampCard';
 import { ClubSection } from './CustomerClub';
 import { BirthdaySection, ReferralSection } from './CustomerGrowth';
 import type { ReceiptInfo } from '../components/Receipt';
 import { PhotoThumb, photoDate, type CutPhoto } from '../components/Profile';
+import { AppSection } from '../components/AppInstall';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import { methodLabel } from '../lib/finance';
@@ -26,6 +27,8 @@ interface Brand {
 
 interface Appointment {
   id: number;
+  barber_id?: number;
+  service_id?: number | null;
   barber_name: string;
   service_name: string;
   price_cents: number;
@@ -133,6 +136,32 @@ interface MeData {
 }
 
 const firstName = (name: string) => name.split(/\s+/)[0];
+
+/** Agendar já com o serviço, o barbeiro, o dia e a hora escolhidos (repetir o último corte). */
+interface BookingPreset {
+  serviceId?: number | null;
+  barberId?: number | null;
+  date?: string;
+  time?: string;
+}
+
+/**
+ * O último corte para repetir: mesmo serviço e mesmo barbeiro, no dia em que ele costuma voltar (o corte
+ * mais o ritmo dele) ou no próximo dia útil. Mostra a foto do corte, se a barbearia tirou.
+ */
+function lastCutPreset(me: MeData): { appt: Appointment; preset: BookingPreset; photo: CutPhoto | null } | null {
+  const appt = me.history.find((a) => a.status === 'scheduled');
+  if (!appt) return null;
+  const today = todayStr();
+  let date: string | undefined;
+  const interval = me.habit?.intervalDays;
+  if (interval) {
+    const due = addDays(appt.starts_at.slice(0, 10), interval);
+    if (due > today && due <= addDays(today, 13) && weekdayOf(due) !== 0) date = due;
+  }
+  const photo = me.photos.find((p) => p.created_at.slice(0, 10) >= appt.starts_at.slice(0, 10)) ?? null;
+  return { appt, preset: { serviceId: appt.service_id ?? null, barberId: appt.barber_id ?? null, date, time: appt.starts_at.slice(11, 16) }, photo };
+}
 
 /** Área logada do cliente: /b/:slug/conta. */
 export function CustomerArea({ slug }: { slug: string }) {
@@ -332,7 +361,8 @@ function Login({ slug, brand, onDone }: { slug: string; brand: Brand; onDone: ()
 }
 
 function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me: MeData; reload: () => void }) {
-  const [booking, setBooking] = useState(false);
+  /** Agendar (com o serviço, o barbeiro e o dia já escolhidos, no "repetir o último corte"). */
+  const [booking, setBooking] = useState<false | BookingPreset>(false);
   const [prefs, setPrefs] = useState(false);
   const [voucher, setVoucher] = useState<Voucher | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -341,6 +371,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
   const habit = me.habit;
   const habitBarber = habit?.barberId ? me.barbers.find((b) => b.id === habit.barberId)?.name : null;
   const activeVouchers = me.vouchers.filter((v) => v.status === 'active');
+  const repeat = me.upcoming.length === 0 && me.barbers.length > 0 ? lastCutPreset(me) : null;
 
   async function cancelAppt(a: Appointment) {
     if (!confirm(`Cancelar ${stampLabel(a.starts_at)} com ${a.barber_name}?`)) return;
@@ -399,7 +430,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
         title="Meus horários"
         action={
           me.barbers.length > 0 && (
-            <Button className="!py-1.5" style={accent} onClick={() => setBooking(true)}>
+            <Button className="!py-1.5" style={accent} onClick={() => setBooking({})}>
               Agendar
             </Button>
           )
@@ -449,7 +480,27 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
             ))}
           </ul>
         )}
+        {repeat && (
+          <div className="mt-3 flex items-center gap-3 rounded-xl p-3 ring-1 ring-zinc-200">
+            {repeat.photo ? (
+              <PhotoThumb url={`/api/customer/${slug}/photos/${repeat.photo.id}`} photo={repeat.photo} className="size-14" />
+            ) : (
+              <Scissors className="size-5 shrink-0 text-zinc-400" />
+            )}
+            <div className="min-w-0 flex-1 text-sm">
+              <p className="font-semibold">Repetir o último corte</p>
+              <p className="text-zinc-500">
+                {repeat.appt.service_name} com {repeat.appt.barber_name} · {repeat.appt.starts_at.slice(8, 10)}/{repeat.appt.starts_at.slice(5, 7)}
+              </p>
+            </div>
+            <Button className="!py-1.5" style={accent} onClick={() => setBooking(repeat.preset)}>
+              Repetir
+            </Button>
+          </div>
+        )}
       </Section>
+
+      <AppSection slug={slug} shopName={brand.name} accent={brand.accent_color} />
 
       <Section
         icon={<Repeat />}
@@ -572,6 +623,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
         <BookingModal
           slug={slug}
           me={me}
+          preset={booking}
           accent={brand.accent_color}
           onClose={() => setBooking(false)}
           onDone={() => {
@@ -733,11 +785,30 @@ function DeleteAccountModal({ slug, shopName, onClose }: { slug: string; shopNam
   );
 }
 
-function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me: MeData; accent: string; onClose: () => void; onDone: () => void }) {
+function BookingModal({
+  slug,
+  me,
+  preset,
+  accent,
+  onClose,
+  onDone,
+}: {
+  slug: string;
+  me: MeData;
+  preset: BookingPreset;
+  accent: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const defaultService = me.services.find((s) => /^corte/i.test(s.name)) ?? me.services[0];
-  const [serviceId, setServiceId] = useState<number | null>(defaultService?.id ?? null);
-  const [barberId, setBarberId] = useState<number | null>(me.habit?.barberId ?? null);
+  const [serviceId, setServiceId] = useState<number | null>(
+    preset.serviceId && me.services.some((s) => s.id === preset.serviceId) ? preset.serviceId : (defaultService?.id ?? null),
+  );
+  const [barberId, setBarberId] = useState<number | null>(
+    preset.barberId !== undefined ? (me.barbers.some((b) => b.id === preset.barberId) ? preset.barberId : null) : (me.habit?.barberId ?? null),
+  );
   const [date, setDate] = useState(() => {
+    if (preset.date) return preset.date;
     let d = todayStr();
     for (let i = 0; i < 7 && weekdayOf(d) === 0; i++) d = addDays(d, 1);
     return d;
@@ -768,8 +839,20 @@ function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me:
     setSlots(null);
     setChoice(null);
     const q = new URLSearchParams({ date, ...(barberId ? { barber_id: String(barberId) } : {}), ...(serviceId ? { service_id: String(serviceId) } : {}) });
-    api<typeof slots>('GET', `/api/customer/${slug}/availability?${q}`).then(setSlots, (e) => setError(e.message));
-  }, [slug, date, barberId, serviceId]);
+    api<NonNullable<typeof slots>>('GET', `/api/customer/${slug}/availability?${q}`).then((s) => {
+      setSlots(s);
+      // Repetir o último corte: o mesmo horário já vem escolhido, se estiver livre nesse dia.
+      const same = date === preset.date && preset.time ? s.find((d) => d.times.includes(preset.time!)) : undefined;
+      if (same) setChoice({ time: preset.time!, barberId: same.barber.id, barberName: same.barber.name });
+    }, (e) => setError(e.message));
+  }, [slug, date, barberId, serviceId, preset.date, preset.time]);
+
+  // O dia escolhido aparece na faixa de dias (quando vem do "repetir", pode estar fora da tela).
+  const strip = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = strip.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (el && strip.current) strip.current.scrollLeft = el.offsetLeft - strip.current.clientWidth / 2 + el.clientWidth / 2;
+  }, [date]);
 
   // Sem preferência de barbeiro: cada horário fica com o primeiro barbeiro livre.
   const times = useMemo(() => {
@@ -873,10 +956,11 @@ function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me:
         </div>
         <div>
           <p className="mb-1 text-sm font-medium text-zinc-700">Dia</p>
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+          <div ref={strip} className="relative -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
             {days.map((d) => (
               <button
                 key={d}
+                aria-pressed={date === d}
                 onClick={() => setDate(d)}
                 className={`flex min-w-14 flex-col items-center rounded-xl px-2 py-2 text-sm ring-1 ${date === d ? 'bg-zinc-900 text-white ring-zinc-900' : 'ring-zinc-200 hover:bg-zinc-100'}`}
               >

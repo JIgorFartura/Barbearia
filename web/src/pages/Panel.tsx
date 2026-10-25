@@ -49,6 +49,7 @@ import { Reviews } from './panel/Reviews';
 import { Stock } from './panel/Stock';
 import { Subscription } from './panel/Subscription';
 import { Summary } from './panel/Summary';
+import { PushBanner } from '../components/AppInstall';
 
 const SECTIONS = [
   { id: '', label: 'Resumo', icon: LayoutDashboard },
@@ -530,6 +531,7 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 </button>
               </div>
             ))}
+          {!locked && <PushBanner text="Receba no celular os horários que os clientes marcarem (pelo site e pelo robô) e os cancelados." />}
           {content}
         </main>
       </div>

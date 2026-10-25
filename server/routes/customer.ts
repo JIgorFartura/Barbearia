@@ -16,6 +16,7 @@ import { claimVoucher, customerVouchers, offersFor } from '../offers.js';
 import { customerPayments } from '../payments.js';
 import { notifyReceipt, receiptInfo, saveReceipt, sendReceipt } from '../receipts.js';
 import { customerPhotos, deletePhoto, sendPhoto } from '../profile.js';
+import { removeSubscription, saveSubscription, zPushEndpoint, zPushSubscription } from '../push.js';
 import { activeBarbers, book, cancel, freeTimes, historyFor, services, upcomingFor } from '../scheduling.js';
 import { confirmAppointment } from '../attendance.js';
 import { PERIOD_IDS, customerWaitlist, joinWaitlist, leaveWaitlist, slotFreed, type Period } from '../waitlist.js';
@@ -153,6 +154,19 @@ customerRouter.post('/waitlist', (req, res) => {
 customerRouter.delete('/waitlist/:id', (req, res) => {
   const { shopId, customerId } = ctx(req);
   leaveWaitlist(shopId, idParam(req), { customerId });
+  res.json({ ok: true });
+});
+
+/** Avisos no celular (lembrete do horário), no app instalado da barbearia. */
+customerRouter.post('/push', (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  saveSubscription({ shopId, customerId }, parseBody(zPushSubscription, req.body), req.get('user-agent') ?? null);
+  res.json({ ok: true });
+});
+
+customerRouter.delete('/push', (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  removeSubscription({ shopId, customerId }, parseBody(zPushEndpoint, req.body).endpoint);
   res.json({ ok: true });
 });
 

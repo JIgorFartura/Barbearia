@@ -116,7 +116,7 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
     // Clube: encerra a assinatura e as cobranças em aberto (as pagas ficam no caixa, sem identificar a pessoa).
     run("UPDATE club_members SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, ?) WHERE customer_id = ? AND status <> 'cancelled'", [nowIso(), customerId]);
     run("UPDATE charges SET status = 'cancelled' WHERE customer_id = ? AND status = 'open'", [customerId]);
-    for (const table of ['loyalty_events', 'vouchers', 'bot_offers', 'bot_questions', 'customer_codes', 'customer_sessions', 'reviews', 'waitlist', 'cut_photos']) {
+    for (const table of ['loyalty_events', 'vouchers', 'bot_offers', 'bot_questions', 'customer_codes', 'customer_sessions', 'reviews', 'waitlist', 'cut_photos', 'push_subscriptions']) {
       run(`DELETE FROM ${table} WHERE customer_id = ?`, [customerId]);
     }
     run(

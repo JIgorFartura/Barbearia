@@ -9,6 +9,7 @@ import { syncCardLinks } from './cards.js';
 import { askPresence, presenceText, releaseUnconfirmed } from './attendance.js';
 import { offerFreedSlots } from './waitlist.js';
 import { idleOffers } from './idle.js';
+import { pushTo } from './push.js';
 import { errorAlerts } from './errors.js';
 import { invoiceReminders } from './invoiceReminders.js';
 import { accessStatus, ensureInvoices } from './billing.js';
@@ -146,6 +147,17 @@ export async function appointmentReminders(shop: ShopBot, now: Date): Promise<nu
       `Oi, ${firstName(r.name)}! Lembrete do ${shop.bot_name} 💈: seu horário na ${shop.name} é ${when} com ${r.barber_name} (${r.service_name}).${tail}`,
       { kind: 'lembrete', params: [firstName(r.name), shop.name, when, r.barber_name] },
     );
+    // Quem instalou o app e ligou os avisos recebe também no celular (de graça).
+    await pushTo(
+      { shopId: shop.id, customerId: r.id },
+      {
+        title: shop.name,
+        body: `Lembrete: seu horário é ${when} com ${r.barber_name}.${r.confirmed_at ? '' : ' Toque para confirmar.'}`,
+        url: `/b/${shop.slug}/conta`,
+        tag: `lembrete-${r.appt_id}`,
+        icon: `/b/${shop.slug}/icons/192.png`,
+      },
+    ).catch((err) => console.error('[aviso no celular]', err));
     sent++;
   }
   return sent;

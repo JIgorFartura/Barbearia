@@ -4,6 +4,7 @@ import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
 import { CheckoutModal, type CheckoutEndpoints } from '../components/Checkout';
 import { ProfileLine, ProfileModal, type ProfileSummary } from '../components/Profile';
+import { PushBanner } from '../components/AppInstall';
 import { Badge, Button, Card, ErrorText } from '../components/ui';
 import { api } from '../lib/api';
 import { addDays, cap, date as fmtDate, dayLabel, money, todayStr, whatsappLink } from '../lib/format';
@@ -121,7 +122,10 @@ export function BarberApp({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ))}
         </nav>
       </header>
-      <main className="mx-auto max-w-3xl px-4 py-5">{tab === 'agenda' ? <BarberAgenda info={info} /> : <EarningsTab />}</main>
+      <main className="mx-auto max-w-3xl px-4 py-5">
+        <PushBanner text="Receba no celular os horários novos e os cancelados da sua agenda." />
+        {tab === 'agenda' ? <BarberAgenda info={info} /> : <EarningsTab />}
+      </main>
       {account && <AccountModal me={me} onClose={() => setAccount(false)} onSaved={onLogout} />}
     </div>
   );

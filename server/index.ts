@@ -10,6 +10,7 @@ import { llmEnabled } from './bot/brain.js';
 import { config } from './config.js';
 import { recordError } from './errors.js';
 import { HttpError, errorHandler, parseBody, rateLimit, setErrorReporter } from './http.js';
+import { pwaRouter, renderIndex } from './pwa.js';
 import { authRouter } from './routes/auth.js';
 import { barberRouter } from './routes/barber.js';
 import { customerRouter } from './routes/customer.js';
@@ -96,13 +97,16 @@ app.use('/api', () => {
 });
 
 app.use('/uploads', express.static(config.uploadsDir, { maxAge: '30d', immutable: true, fallthrough: false }));
+// App instalável: manifest e ícones (da plataforma e de cada barbearia).
+app.use(pwaRouter);
 
 // Interface (build do Vite). Qualquer outra rota abre o app, que decide a tela pela URL.
 const webDir = path.resolve('dist/web');
 if (fs.existsSync(webDir)) {
   app.use(express.static(webDir, { index: false, maxAge: '1h' }));
-  app.get('/{*path}', (_req, res) => {
-    res.sendFile(path.join(webDir, 'index.html'));
+  app.get('/{*path}', (req, res) => {
+    res.setHeader('cache-control', 'no-cache');
+    res.type('html').send(renderIndex(path.join(webDir, 'index.html'), req.path));
   });
 }
 

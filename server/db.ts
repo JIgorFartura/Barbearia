@@ -984,6 +984,25 @@ const MIGRATIONS: (string | Rebuild)[] = [
   -- Desconto prometido na oferta do robô (vale mesmo se o dono mudar a regra depois).
   ALTER TABLE bot_offers ADD COLUMN discount_percent INTEGER;
   `,
+  // 17) Avisos no celular (Web Push): cada aparelho em que o dono, o barbeiro ou o cliente ligou os avisos.
+  `
+  CREATE TABLE push_subscriptions (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT,
+    fails INTEGER NOT NULL DEFAULT 0,
+    last_ok_at TEXT,
+    created_at TEXT NOT NULL,
+    CHECK ((user_id IS NULL) <> (customer_id IS NULL))
+  );
+  CREATE INDEX push_subscriptions_user ON push_subscriptions (user_id);
+  CREATE INDEX push_subscriptions_customer ON push_subscriptions (customer_id);
+  `,
 ];
 
 function migrate(): void {

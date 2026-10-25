@@ -12,6 +12,7 @@ import { llmEnabled } from '../bot/brain.js';
 import { customerByPhone, sendMessage, shopBot } from '../messaging.js';
 import { shopCardStatus } from '../cardSettings.js';
 import { legalInfo } from '../privacy.js';
+import { vapidKeys } from '../push.js';
 
 /** Dados da landing page de cada barbearia (/b/:slug) e login da área do cliente — sem login. */
 export const publicRouter = Router();
@@ -30,6 +31,11 @@ function shopBySlug(slug: string): Shop & Record<string, unknown> {
   if (!shop) throw new HttpError(404, 'Barbearia não encontrada.');
   return shop;
 }
+
+/** Chave pública dos avisos no celular (o navegador usa para se inscrever). */
+publicRouter.get('/push-key', (_req, res) => {
+  res.json({ key: vapidKeys().publicKey });
+});
 
 publicRouter.get('/shops/:slug', (req, res) => {
   const { id, ...profile } = shopBySlug(String(req.params.slug));

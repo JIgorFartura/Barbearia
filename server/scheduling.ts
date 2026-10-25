@@ -2,6 +2,7 @@ import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { customerNow, shopNow } from './clock.js';
 import { discounted, idleDiscount } from './promo.js';
+import { notifyBooked, notifyCancelled } from './push.js';
 import { addDays, addMinutes, fromMinutes, isDate, isTime, toMinutes, weekdayOf } from './time.js';
 
 export const DEFAULT_DURATION = 30;
@@ -185,7 +186,7 @@ export interface BookInput {
 /** Marca um horário conferindo expediente, conflitos e limites. Tudo numa transação: dois pedidos simultâneos não pegam a mesma vaga. */
 export function book(input: BookInput): AppointmentView {
   if (!isDate(input.date) || !isTime(input.time)) throw new HttpError(400, 'Data ou hora inválida.');
-  return tx(() => {
+  const a = tx(() => {
     const barber = get<Barber>('SELECT id, name, photo_url, active FROM barbers WHERE id = ? AND barbershop_id = ?', [input.barberId, input.shopId]);
     if (!barber || !barber.active) throw new HttpError(404, 'Barbeiro não encontrado.');
     if (!get('SELECT 1 AS ok FROM customers WHERE id = ? AND barbershop_id = ?', [input.customerId, input.shopId])) {
@@ -241,6 +242,9 @@ export function book(input: BookInput): AppointmentView {
     run("UPDATE waitlist SET status = 'booked' WHERE customer_id = ? AND date = ? AND status = 'waiting'", [input.customerId, input.date]);
     return appointment(lastInsertRowid)!;
   });
+  // Aviso no celular do barbeiro (e do dono, se não foi ele que marcou).
+  void notifyBooked(input.shopId, a, input.source === 'painel').catch((err) => console.error('[aviso no celular]', err));
+  return a;
 }
 
 /** Cancela. Cliente só cancela os próprios horários futuros; o dono cancela qualquer um da barbearia. */
@@ -251,6 +255,7 @@ export function cancel(shopId: number, appointmentId: number, opts: { customerId
   if (a.status !== 'scheduled') throw new HttpError(409, 'Esse horário já foi cancelado.');
   if (opts.customerId && a.starts_at < shopNow(shopId, opts.now).stamp) throw new HttpError(409, 'Esse horário já passou.');
   run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [nowIso(), appointmentId]);
+  void notifyCancelled(shopId, a, !opts.customerId).catch((err) => console.error('[aviso no celular]', err));
   return appointment(appointmentId)!;
 }
 

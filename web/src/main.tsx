@@ -3,6 +3,7 @@ import './index.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { startPwa } from './lib/pwa';
 
 // Erro numa tela: avisa o servidor (o master vê na aba Sistema). No máximo 5 por página, sem repetir.
 const sent = new Set<string>();
@@ -26,6 +27,9 @@ window.addEventListener('unhandledrejection', (e) => {
   if (reason && typeof reason === 'object' && 'status' in reason) return;
   report(reason instanceof Error ? reason.message : String(reason), reason instanceof Error ? reason.stack : null);
 });
+
+// App instalável e avisos no celular.
+startPwa();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
