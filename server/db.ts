@@ -971,6 +971,19 @@ const MIGRATIONS: (string | Rebuild)[] = [
   );
   CREATE INDEX cut_photos_customer ON cut_photos (customer_id, created_at);
   `,
+  // 16) Horário vazio com desconto: nos dias e horários mais fracos, a vaga de hoje sai mais barata para
+  // quem marcar no mesmo dia (e o robô oferece de manhã para quem já está na hora de cortar).
+  `
+  -- Vazio = desligado.
+  ALTER TABLE barbershops ADD COLUMN idle_percent INTEGER;
+  ALTER TABLE barbershops ADD COLUMN idle_weekdays TEXT NOT NULL DEFAULT '2,3,4';
+  ALTER TABLE barbershops ADD COLUMN idle_from TEXT NOT NULL DEFAULT '09:00';
+  ALTER TABLE barbershops ADD COLUMN idle_until TEXT NOT NULL DEFAULT '17:00';
+  -- Desconto que o horário ganhou (o preço do horário já sai com ele).
+  ALTER TABLE appointments ADD COLUMN promo_percent INTEGER;
+  -- Desconto prometido na oferta do robô (vale mesmo se o dono mudar a regra depois).
+  ALTER TABLE bot_offers ADD COLUMN discount_percent INTEGER;
+  `,
 ];
 
 function migrate(): void {

@@ -5,6 +5,8 @@ import { charge, chargesToConfirm, confirmCharge, pixSettings, rejectClaim, save
 import { cancelMembership, clubCoverage, clubOverview, deletePlan, memberView, savePlan, sendClubCharge, subscribe } from '../club.js';
 import { shopNow } from '../clock.js';
 import { growthSettings, referralsOverview, saveGrowthSettings, upcomingBirthdays } from '../growth.js';
+import { IDLE_PER_DAY, idleStats } from '../idle.js';
+import { idleSettings, saveIdleSettings } from '../promo.js';
 import { shopOnlinePayments } from '../gatewayPayments.js';
 import { cancelMemberCard } from '../cards.js';
 import { cieloWebhookUrl, saveShopCielo, secretHint, shopCardStatus, shopCielo } from '../cardSettings.js';
@@ -16,6 +18,7 @@ import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
 import { shopBot } from '../messaging.js';
 import { PIX_KEY_TYPES, normalizePixKey, pixKeyType } from '../pix.js';
 import { receiptInfo, sendReceipt } from '../receipts.js';
+import { isTime } from '../time.js';
 
 const zPlan = z.object({
   name: z.string().trim().min(2, 'Dê um nome ao plano.').max(60),
@@ -178,9 +181,35 @@ export function registerClubRoutes(router: Router): void {
 
   // ---------- indique um amigo e aniversário
 
+  const growthData = (shop: number) => ({
+    settings: growthSettings(shop),
+    referrals: referralsOverview(shop),
+    birthdays: upcomingBirthdays(shop),
+    idle: { settings: idleSettings(shop), stats: idleStats(shop), perDay: IDLE_PER_DAY },
+  });
+
   router.get('/growth', (req, res) => {
+    res.json(growthData(shopId(req)));
+  });
+
+  /** Horário vazio com desconto: dias e horários mais fracos, desconto (vazio = desligado). */
+  router.put('/growth/idle', (req, res) => {
+    const zClock = z.string().refine(isTime, 'Hora no formato HH:MM.');
+    const body = parseBody(
+      z
+        .object({
+          percent: z.number().int().min(5, 'Desconto de 5% a 50%.').max(50, 'Desconto de 5% a 50%.').nullable(),
+          weekdays: z.array(z.number().int().min(0).max(6)).max(7),
+          from: zClock,
+          until: zClock,
+        })
+        .refine((s) => s.from < s.until, 'O fim da faixa deve ser depois do início.')
+        .refine((s) => !s.percent || s.weekdays.length > 0, 'Escolha pelo menos um dia da semana.'),
+      req.body,
+    );
     const shop = shopId(req);
-    res.json({ settings: growthSettings(shop), referrals: referralsOverview(shop), birthdays: upcomingBirthdays(shop) });
+    saveIdleSettings(shop, body);
+    res.json(growthData(shop));
   });
 
   router.put('/growth/settings', (req, res) => {
@@ -194,7 +223,7 @@ export function registerClubRoutes(router: Router): void {
     );
     const shop = shopId(req);
     saveGrowthSettings(shop, body);
-    res.json({ settings: growthSettings(shop), referrals: referralsOverview(shop), birthdays: upcomingBirthdays(shop) });
+    res.json(growthData(shop));
   });
 
   /** Na hora de fechar a comanda: o que o clube cobre para este cliente hoje. */

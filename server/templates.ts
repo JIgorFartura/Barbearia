@@ -43,6 +43,12 @@ export const TEMPLATES = {
     body: 'Olá, {{1}}! Aqui é da {{2}}. Bora garantir seu horário de sempre? Separei {{3}} com {{4}}. Responda SIM para confirmar ou me diga outro horário.',
     example: ['João', 'Barbearia Navalha de Ouro', 'sexta, 30/10 às 17h', 'Paulo'],
   },
+  vazio: {
+    label: 'Horário vazio com desconto',
+    category: 'MARKETING',
+    body: 'Olá, {{1}}! Hoje tem horário livre na {{2}}: {{3}} com {{4}}, e marcando hoje o serviço sai com {{5}} de desconto. Quer? Responda SIM para marcar.',
+    example: ['João', 'Barbearia Navalha de Ouro', 'hoje às 15h', 'Paulo', '20%'],
+  },
   sumido: {
     label: 'Cliente sumido',
     category: 'MARKETING',

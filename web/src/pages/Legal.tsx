@@ -266,8 +266,8 @@ export function ShopPrivacyPage({ slug }: { slug: string }) {
         <li>Agendar, lembrar e cancelar seus horários.</li>
         <li>Cartão fidelidade, benefícios e vouchers.</li>
         <li>
-          Sugerir seu horário de costume, chamar você quando faz tempo que não vem e mandar o presente de aniversário. Você pode parar quando quiser respondendo
-          PARAR no WhatsApp.
+          Sugerir seu horário de costume, chamar você quando faz tempo que não vem, oferecer horários vagos do dia com desconto e mandar o presente de aniversário.
+          Você pode parar quando quiser respondendo PARAR no WhatsApp.
         </li>
         <li>Avisar o barbeiro do que você pediu para deixar separado e perguntar como foi o atendimento.</li>
         <li>Repetir o corte do seu jeito, com qualquer barbeiro da casa (anotações e fotos do corte).</li>

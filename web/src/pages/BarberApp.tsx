@@ -34,6 +34,8 @@ interface Appointment {
   confirmed_at: string | null;
   /** Ficha do cliente: o jeito que ele gosta e as fotos dos cortes. */
   profile: ProfileSummary;
+  /** Desconto do horário vazio (o preço já sai com ele). */
+  promo_percent: number | null;
 }
 
 interface Earnings {
@@ -169,6 +171,7 @@ function BarberAgenda({ info }: { info: BarberMe }) {
                   </p>
                   <p className="text-sm text-zinc-500">
                     {a.service_name} · {money(a.price_cents)}
+                    {a.promo_percent ? <span className="font-medium text-emerald-700"> (−{a.promo_percent}% horário vazio)</span> : null}
                   </p>
                 </div>
                 {a.status === 'cancelled' ? (

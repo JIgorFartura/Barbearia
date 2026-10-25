@@ -60,7 +60,7 @@ const SECTIONS = [
   { id: 'clube', label: 'Clube de assinatura', icon: Crown },
   { id: 'campanhas', label: 'Campanhas', icon: Gift },
   { id: 'beneficios', label: 'Benefícios', icon: Ticket },
-  { id: 'indicacoes', label: 'Indicação e aniversário', icon: UserPlus },
+  { id: 'indicacoes', label: 'Indicação e promoções', icon: UserPlus },
   { id: 'parceiros', label: 'Parceiros', icon: Handshake },
   { id: 'anuncios', label: 'Anúncios', icon: Megaphone },
   { id: 'barbeiros', label: 'Barbeiros', icon: Users },

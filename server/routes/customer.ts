@@ -19,6 +19,7 @@ import { customerPhotos, deletePhoto, sendPhoto } from '../profile.js';
 import { activeBarbers, book, cancel, freeTimes, historyFor, services, upcomingFor } from '../scheduling.js';
 import { confirmAppointment } from '../attendance.js';
 import { PERIOD_IDS, customerWaitlist, joinWaitlist, leaveWaitlist, slotFreed, type Period } from '../waitlist.js';
+import { idleWindow } from '../promo.js';
 import { isDate, isTime } from '../time.js';
 
 /**
@@ -88,7 +89,9 @@ customerRouter.get('/availability', (req, res) => {
   const { shopId } = ctx(req);
   const date = String(req.query.date ?? '');
   const num = (v: unknown) => (v ? Number(v) : null);
-  res.json(freeTimes(shopId, date, { barberId: num(req.query.barber_id), serviceId: num(req.query.service_id) }));
+  // Horário vazio: marcando hoje, os horários da faixa saem com desconto (a tela mostra o selo).
+  const promo = isDate(date) ? idleWindow(shopId, date) : null;
+  res.json(freeTimes(shopId, date, { barberId: num(req.query.barber_id), serviceId: num(req.query.service_id) }).map((d) => ({ ...d, promo })));
 });
 
 customerRouter.post('/appointments', (req, res) => {

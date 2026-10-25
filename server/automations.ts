@@ -8,6 +8,7 @@ import { syncAsaasCharges } from './asaas.js';
 import { syncCardLinks } from './cards.js';
 import { askPresence, presenceText, releaseUnconfirmed } from './attendance.js';
 import { offerFreedSlots } from './waitlist.js';
+import { idleOffers } from './idle.js';
 import { errorAlerts } from './errors.js';
 import { invoiceReminders } from './invoiceReminders.js';
 import { accessStatus, ensureInvoices } from './billing.js';
@@ -291,6 +292,8 @@ export interface RunSummary {
   released: number;
   /** Vagas oferecidas para quem estava na lista de espera. */
   waitlist: number;
+  /** Horários vazios oferecidos com desconto. */
+  idle: number;
 }
 
 let running = false;
@@ -305,7 +308,7 @@ export const automationStatus: { lastRun: string | null; lastSummary: RunSummary
 
 /** Roda tudo uma vez. Chamado a cada minuto; cada envio é registrado para não repetir. */
 export async function runAutomations(now: Date = new Date()): Promise<RunSummary> {
-  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0 };
+  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0 };
   if (running) return summary;
   running = true;
   try {
@@ -354,6 +357,7 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
         summary.reviews += await askReviews(shop, now);
         summary.club += await clubBilling(shop, now);
         summary.birthdays += await birthdayGifts(shop, now);
+        summary.idle += await idleOffers(shop, now);
       } catch (err) {
         console.error(`[automações] ${shop.slug}:`, err);
       }

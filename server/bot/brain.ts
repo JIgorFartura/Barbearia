@@ -9,6 +9,7 @@ import { customerHabit } from '../habits.js';
 import type { HistoryItem } from '../messaging.js';
 import { activeBarbers, services, upcomingFor } from '../scheduling.js';
 import { customerWaitlist, describeWait } from '../waitlist.js';
+import { idleWindow } from '../promo.js';
 import { shopNow } from '../clock.js';
 import { addDays, dayLabel, hourLabel, WEEKDAYS } from '../time.js';
 import { runTool, toolDefinitions, type BotContext } from './tools.js';
@@ -93,6 +94,12 @@ export function buildContext(ctx: BotContext): string {
     );
   }
   if (growth.birthday_enabled && growth.birthday_reward) lines.push(`Aniversário: no dia, o cliente cadastrado ganha ${growth.birthday_reward.title}.`);
+  const idle = idleWindow(shop.id, now.date, ctx.now);
+  if (idle) {
+    lines.push(
+      `Horário vazio (promoção de hoje): marcando hoje para hoje, horários livres das ${hourLabel(idle.from)} às ${hourLabel(idle.until)} saem com ${idle.percent}% de desconto no serviço (o desconto entra sozinho ao agendar). Pode mencionar quando o cliente quiser horário hoje. Para outros dias, preço normal.`,
+    );
+  }
 
   if (ctx.customer) {
     const c = ctx.customer;
@@ -138,14 +145,14 @@ export function buildContext(ctx: BotContext): string {
         `PERGUNTA PENDENTE (você perguntou): posso avisar o barbeiro para separar ${describeItems(JSON.parse(question.payload))} (agendamento_id ${question.appointment_id})? Se o cliente aceitar ou ajustar, use reservar_consumo.`,
       );
     }
-    const offer = get<{ starts_at: string; barber: string; barber_id: number; service_id: number | null }>(
-      `SELECT o.starts_at, b.name AS barber, o.barber_id, o.service_id FROM bot_offers o JOIN barbers b ON b.id = o.barber_id
+    const offer = get<{ starts_at: string; barber: string; barber_id: number; service_id: number | null; discount_percent: number | null }>(
+      `SELECT o.starts_at, b.name AS barber, o.barber_id, o.service_id, o.discount_percent FROM bot_offers o JOIN barbers b ON b.id = o.barber_id
         WHERE o.customer_id = ? AND o.status = 'pending' AND o.starts_at > ? ORDER BY o.id DESC LIMIT 1`,
       [c.id, now.stamp],
     );
     if (offer) {
       lines.push(
-        `OFERTA PENDENTE (você ofereceu): ${dayLabel(offer.starts_at.slice(0, 10))} às ${hourLabel(offer.starts_at.slice(11))} com ${offer.barber} — data ${offer.starts_at.slice(0, 10)}, hora ${offer.starts_at.slice(11)}, barbeiro_id ${offer.barber_id}${offer.service_id ? `, servico_id ${offer.service_id}` : ''}.`,
+        `OFERTA PENDENTE (você ofereceu): ${dayLabel(offer.starts_at.slice(0, 10))} às ${hourLabel(offer.starts_at.slice(11))} com ${offer.barber} — data ${offer.starts_at.slice(0, 10)}, hora ${offer.starts_at.slice(11)}, barbeiro_id ${offer.barber_id}${offer.service_id ? `, servico_id ${offer.service_id}` : ''}${offer.discount_percent ? `, com ${offer.discount_percent}% de desconto (horário vazio; o desconto entra sozinho ao agendar)` : ''}.`,
       );
     }
   } else {

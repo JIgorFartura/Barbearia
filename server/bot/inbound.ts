@@ -30,6 +30,8 @@ export interface InboundInput {
   create?: CreateMessage;
 }
 
+const money = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
 const normalize = (t: string) =>
   t
     .normalize('NFD')
@@ -96,8 +98,8 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
       WHERE q.customer_id = ? AND q.status = 'pending' AND a.status = 'scheduled' AND a.starts_at > ? ORDER BY q.id DESC LIMIT 1`,
     [customer.id, nowStamp],
   );
-  const offer = get<{ id: number; kind: string; barber_id: number; service_id: number | null; starts_at: string; created_at: string }>(
-    "SELECT id, kind, barber_id, service_id, starts_at, created_at FROM bot_offers WHERE customer_id = ? AND status = 'pending' AND starts_at > ? ORDER BY id DESC LIMIT 1",
+  const offer = get<{ id: number; kind: string; barber_id: number; service_id: number | null; starts_at: string; discount_percent: number | null; created_at: string }>(
+    "SELECT id, kind, barber_id, service_id, starts_at, discount_percent, created_at FROM bot_offers WHERE customer_id = ? AND status = 'pending' AND starts_at > ? ORDER BY id DESC LIMIT 1",
     [customer.id, nowStamp],
   );
 
@@ -141,10 +143,13 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
   const date = offer.starts_at.slice(0, 10);
   const time = offer.starts_at.slice(11);
   try {
-    const a = book({ shopId: shop.id, customerId: customer.id, barberId: offer.barber_id, serviceId: offer.service_id, date, time, source: 'whatsapp', now });
+    // Oferta do horário vazio: vale o desconto prometido (mesmo que o dono mude a regra depois).
+    const promoPercent = offer.discount_percent ?? undefined;
+    const a = book({ shopId: shop.id, customerId: customer.id, barberId: offer.barber_id, serviceId: offer.service_id, date, time, source: 'whatsapp', promoPercent, now });
     run("UPDATE bot_offers SET status = 'accepted', appointment_id = ? WHERE id = ?", [a.id, offer.id]);
     const ask = askConsumption(shop.id, a.id, now);
-    return `Fechado, ${firstName(customer.name)}! ✅ ${dayLabel(date)} às ${hourLabel(time)} com ${a.barber_name} (${a.service_name}). Te espero!${ask ? `\n${ask}` : ''}`;
+    const price = a.promo_percent ? `, com ${a.promo_percent}% de desconto: ${money(a.price_cents)}` : '';
+    return `Fechado, ${firstName(customer.name)}! ✅ ${dayLabel(date)} às ${hourLabel(time)} com ${a.barber_name} (${a.service_name}${price}). Te espero!${ask ? `\n${ask}` : ''}`;
   } catch (err) {
     if (!(err instanceof HttpError)) throw err;
     run("UPDATE bot_offers SET status = 'expired' WHERE id = ?", [offer.id]);

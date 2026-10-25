@@ -31,6 +31,8 @@ interface Appointment {
   awaiting: boolean;
   /** Ficha do cliente: anotações e fotos do corte. */
   profile: ProfileSummary;
+  /** Desconto do horário vazio (o preço já sai com ele). */
+  promo_percent: number | null;
 }
 
 type Period = 'qualquer' | 'manha' | 'tarde' | 'noite';
@@ -166,7 +168,9 @@ export function Agenda() {
                             {item.appt.starts_at.slice(11)} <span className="font-normal">{item.appt.customer_name}</span>
                           </p>
                           <p className="text-xs text-zinc-500">
-                            {item.appt.service_name} · {money(item.appt.price_cents)} · {phone(item.appt.customer_phone)}
+                            {item.appt.service_name} · {money(item.appt.price_cents)}
+                            {item.appt.promo_percent ? <span className="font-medium text-emerald-700"> (−{item.appt.promo_percent}%)</span> : null} ·{' '}
+                            {phone(item.appt.customer_phone)}
                           </p>
                         </div>
                         <Badge tone={item.appt.status === 'scheduled' ? (item.appt.source === 'whatsapp' ? 'green' : 'zinc') : 'red'}>

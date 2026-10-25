@@ -34,6 +34,8 @@ interface Appointment {
   items?: { catalog_item_id: number; name: string; qty: number }[];
   /** Presença confirmada (pelo lembrete, aqui ou pela barbearia). */
   confirmed_at?: string | null;
+  /** Desconto do horário vazio (o preço já sai com ele). */
+  promo_percent?: number | null;
 }
 
 type Period = 'qualquer' | 'manha' | 'tarde' | 'noite';
@@ -413,6 +415,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
                   <p className="font-semibold">{cap(stampLabel(a.starts_at))}</p>
                   <p className="text-sm text-zinc-500">
                     {a.service_name} com {a.barber_name} · {money(a.price_cents)}
+                    {a.promo_percent ? <span className="font-medium text-emerald-700"> (−{a.promo_percent}% horário vazio)</span> : null}
                   </p>
                   {a.items && a.items.length > 0 && (
                     <p className="text-xs text-amber-800">🍺 Separado pra você: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
@@ -739,7 +742,8 @@ function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me:
     for (let i = 0; i < 7 && weekdayOf(d) === 0; i++) d = addDays(d, 1);
     return d;
   });
-  const [slots, setSlots] = useState<{ barber: { id: number; name: string }; times: string[] }[] | null>(null);
+  /** `promo`: horário vazio com desconto (só marcando hoje, dentro da faixa). */
+  const [slots, setSlots] = useState<{ barber: { id: number; name: string }; times: string[]; promo: { percent: number; from: string; until: string } | null }[] | null>(null);
   const [choice, setChoice] = useState<{ time: string; barberId: number; barberName: string } | null>(null);
   const [period, setPeriod] = useState<Period>('qualquer');
   const [error, setError] = useState<string | null>(null);
@@ -773,6 +777,9 @@ function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me:
     for (const d of slots ?? []) for (const t of d.times) if (!map.has(t)) map.set(t, { barberId: d.barber.id, barberName: d.barber.name });
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [slots]);
+  const promo = slots?.[0]?.promo ?? null;
+  const promoOn = (t: string) => Boolean(promo && t >= promo.from && t < promo.until);
+  const service = me.services.find((s) => s.id === serviceId);
 
   const [booked, setBooked] = useState<{ id: number; suggestion: Suggestion | null } | null>(null);
 
@@ -902,24 +909,37 @@ function BookingModal({ slug, me, accent, onClose, onDone }: { slug: string; me:
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-              {times.map(([t, b]) => (
-                <button
-                  key={t}
-                  onClick={() => setChoice({ time: t, ...b })}
-                  className={`rounded-lg py-2 text-sm font-semibold ring-1 ${choice?.time === t ? 'text-zinc-950 ring-transparent' : 'ring-zinc-200 hover:bg-zinc-100'}`}
-                  style={choice?.time === t ? { background: accent } : undefined}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
+            <>
+              {promo && times.some(([t]) => promoOn(t)) && (
+                <p className="mb-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200">
+                  🔥 Horário vazio: marcando hoje, os horários com selo saem com <b>{promo.percent}% de desconto</b> no serviço
+                  {service ? ` (${service.name.toLowerCase()} por ${money(Math.round((service.price_cents * (100 - promo.percent)) / 100))})` : ''}.
+                </p>
+              )}
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+                {times.map(([t, b]) => (
+                  <button
+                    key={t}
+                    onClick={() => setChoice({ time: t, ...b })}
+                    className={`relative rounded-lg py-2 text-sm font-semibold ring-1 ${choice?.time === t ? 'text-zinc-950 ring-transparent' : promoOn(t) ? 'ring-emerald-300 hover:bg-emerald-50' : 'ring-zinc-200 hover:bg-zinc-100'}`}
+                    style={choice?.time === t ? { background: accent } : undefined}
+                  >
+                    {t}
+                    {promoOn(t) && (
+                      <span className="absolute -top-2 -right-1 rounded-full bg-emerald-600 px-1.5 text-[10px] leading-4 font-bold text-white">−{promo!.percent}%</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </div>
         <ErrorText error={error} />
         <Button className="w-full" disabled={!choice} loading={busy} onClick={confirmBooking}>
           <Scissors className="size-4" />
-          {choice ? `Confirmar ${dayLabel(date)} às ${hourLabel(choice.time)} com ${choice.barberName}` : 'Escolha um horário'}
+          {choice
+            ? `Confirmar ${dayLabel(date)} às ${hourLabel(choice.time)} com ${choice.barberName}${promoOn(choice.time) ? ` (−${promo!.percent}%)` : ''}`
+            : 'Escolha um horário'}
         </Button>
       </div>
     </Modal>

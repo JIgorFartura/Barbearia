@@ -19,6 +19,7 @@ export type MessageKind =
   | 'assinatura'
   | 'espera'
   | 'liberado'
+  | 'vazio'
   | 'aviso';
 
 export interface ShopBot {

@@ -1,6 +1,7 @@
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { customerNow, shopNow } from './clock.js';
+import { discounted, idleDiscount } from './promo.js';
 import { addDays, addMinutes, fromMinutes, isDate, isTime, toMinutes, weekdayOf } from './time.js';
 
 export const DEFAULT_DURATION = 30;
@@ -42,11 +43,13 @@ export interface AppointmentView {
   notes: string | null;
   /** O cliente confirmou a presença (resposta ao lembrete, área do cliente ou o dono marcou). */
   confirmed_at: string | null;
+  /** Desconto do horário vazio (o preço já sai com ele). */
+  promo_percent: number | null;
 }
 
 const APPOINTMENT_SELECT = `
   SELECT a.id, a.customer_id, c.name AS customer_name, c.phone AS customer_phone, a.barber_id, b.name AS barber_name,
-         a.service_id, a.service_name, a.price_cents, a.starts_at, a.ends_at, a.status, a.source, a.notes, a.confirmed_at
+         a.service_id, a.service_name, a.price_cents, a.starts_at, a.ends_at, a.status, a.source, a.notes, a.confirmed_at, a.promo_percent
     FROM appointments a
     JOIN customers c ON c.id = a.customer_id
     JOIN barbers b ON b.id = a.barber_id`;
@@ -170,6 +173,12 @@ export interface BookInput {
   time: string;
   source: Source;
   notes?: string | null;
+  /**
+   * Desconto do horário vazio. Sem informar: vale a regra da barbearia para quem marca no mesmo dia
+   * (pela área ou pelo robô; no balcão, o dono dá o desconto na comanda se quiser). A oferta do robô
+   * informa o que prometeu.
+   */
+  promoPercent?: number | null;
   now?: Date;
 }
 
@@ -208,16 +217,19 @@ export function book(input: BookInput): AppointmentView {
     );
     if (clash) throw new HttpError(409, 'O cliente já tem um horário nesse momento.');
 
+    const promo = (input.promoPercent !== undefined ? input.promoPercent : byOwner ? null : idleDiscount(input.shopId, input.date, input.time, input.now)) || null;
+    const price = service?.price_cents ?? 0;
     const { lastInsertRowid } = run(
-      `INSERT INTO appointments (barbershop_id, customer_id, barber_id, service_id, service_name, price_cents, starts_at, ends_at, source, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO appointments (barbershop_id, customer_id, barber_id, service_id, service_name, price_cents, promo_percent, starts_at, ends_at, source, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.shopId,
         input.customerId,
         barber.id,
         service?.id ?? null,
         service?.name ?? 'Atendimento',
-        service?.price_cents ?? 0,
+        promo ? discounted(price, promo) : price,
+        promo,
         start,
         end,
         input.source,

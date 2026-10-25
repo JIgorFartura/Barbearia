@@ -159,7 +159,7 @@ describe('automações', () => {
     book({ shopId, customerId: maria, barberId: marcos, date: '2026-09-20', time: '10:00', source: 'painel' });
 
     const first = await runAutomations(MONDAY);
-    assert.deepEqual(first, { reminders: 0, habits: 1, winbacks: 1, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0 });
+    assert.deepEqual(first, { reminders: 0, habits: 1, winbacks: 1, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0 });
     const offer = lastOut(joao)!;
     assert.equal(offer.kind, 'costume');
     assert.equal(offer.status, 'simulated');
@@ -171,7 +171,7 @@ describe('automações', () => {
     assert.match(winback.body, /Faz 43 dias/);
     assert.match(winback.body, /PARAR/);
 
-    assert.deepEqual(await runAutomations(at('2026-11-02 09:30')), { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0 });
+    assert.deepEqual(await runAutomations(at('2026-11-02 09:30')), { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0 });
   });
 
   test('cliente responde SIM e o robô marca o horário oferecido', async () => {
@@ -185,7 +185,7 @@ describe('automações', () => {
 
   test('lembrete do horário 24h antes, uma vez só, e nunca de madrugada', async () => {
     book({ shopId, customerId: pedro, barberId: marcos, date: '2026-11-06', time: '18:00', source: 'painel' });
-    assert.deepEqual(await runAutomations(at('2026-11-05 22:00')), { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0 });
+    assert.deepEqual(await runAutomations(at('2026-11-05 22:00')), { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0 });
     const r = await runAutomations(at('2026-11-06 08:00'));
     assert.equal(r.reminders, 2);
     assert.match(lastOut(joao)!.body, /hoje \(sexta, 06\/11\) às 17h com Paulo/);

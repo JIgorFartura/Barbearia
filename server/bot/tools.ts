@@ -9,6 +9,7 @@ import { birthdayKey, customerReferral, setReferrer, welcomeReferred } from '../
 import type { CustomerRow, ShopBot } from '../messaging.js';
 import { claimVoucher, customerVouchers, offersFor } from '../offers.js';
 import { book, cancel, freeTimes, upcomingFor, type AppointmentView } from '../scheduling.js';
+import { idleWindow } from '../promo.js';
 import { confirmAppointment } from '../attendance.js';
 import { PERIOD_IDS, PERIODS, customerWaitlist, describeWait, joinWaitlist, slotFreed } from '../waitlist.js';
 import { dayLabel, hourLabel, isTime, WEEKDAYS } from '../time.js';
@@ -49,6 +50,7 @@ const describeAppointment = (a: AppointmentView) => ({
   barbeiro: a.barber_name,
   servico: a.service_name,
   preco: (a.price_cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+  desconto_horario_vazio: a.promo_percent ? `${a.promo_percent}%` : undefined,
   presenca_confirmada: Boolean(a.confirmed_at),
 });
 
@@ -63,10 +65,12 @@ export const TOOLS = {
     }),
     run: (ctx, input) => {
       const days = freeTimes(ctx.shop.id, input.data, { barberId: input.barbeiro_id, serviceId: input.servico_id, now: ctx.now });
+      const promo = idleWindow(ctx.shop.id, input.data, ctx.now);
       return {
         dia: dayLabel(input.data),
         barbeiros: days.map((d) => ({ id: d.barber.id, nome: d.barber.name, horarios_livres: d.times.slice(0, 20) })),
         aviso: days.every((d) => !d.times.length) ? 'Nenhum horário livre nesse dia.' : undefined,
+        horario_vazio: promo ? `Marcando hoje, horários das ${promo.from} às ${promo.until} saem com ${promo.percent}% de desconto no serviço.` : undefined,
       };
     },
   }),
@@ -76,6 +80,11 @@ export const TOOLS = {
     needsCustomer: true,
     schema: z.object({ data: zDate, hora: zTime, barbeiro_id: zId, servico_id: zId.optional() }),
     run: (ctx, input) => {
+      // Aceitou a oferta do robô: vale o desconto que ela prometeu (horário vazio).
+      const offer = get<{ id: number; discount_percent: number | null }>(
+        "SELECT id, discount_percent FROM bot_offers WHERE customer_id = ? AND status = 'pending' AND barber_id = ? AND starts_at = ? ORDER BY id DESC LIMIT 1",
+        [ctx.customer!.id, input.barbeiro_id, `${input.data} ${input.hora}`],
+      );
       const a = book({
         shopId: ctx.shop.id,
         customerId: ctx.customer!.id,
@@ -84,8 +93,10 @@ export const TOOLS = {
         date: input.data,
         time: input.hora,
         source: 'whatsapp',
+        promoPercent: offer?.discount_percent ?? undefined,
         now: ctx.now,
       });
+      if (offer) run("UPDATE bot_offers SET status = 'accepted', appointment_id = ? WHERE id = ?", [a.id, offer.id]);
       // Se o cliente costuma consumir algo (ex.: 1 cerveja), já deixa a pergunta pronta para o SIM/NÃO.
       const pergunta = askConsumption(ctx.shop.id, a.id, ctx.now);
       return { ok: true, agendamento: describeAppointment(a), pergunta_consumo: pergunta ?? undefined };
