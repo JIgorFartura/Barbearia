@@ -7,6 +7,7 @@ import { HttpError, idParam, normalizePhone, parseBody, zBool, zCents, zColor, z
 import { addStamps, customerCard, isRunning, redeemReward, type Campaign } from '../loyalty.js';
 import { issueAccessLink } from '../customerAuth.js';
 import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
+import { addPhoto, customerProfile, deletePhoto, saveNotes, sendPhoto, zNotes, zPhoto } from '../profile.js';
 import { customerByPhone } from '../messaging.js';
 import { findVoucher, redeemVoucher, shopVouchers } from '../offers.js';
 import { dayAgenda } from '../scheduling.js';
@@ -256,6 +257,34 @@ shopRouter.get('/customers/:id/export', (req, res) => {
 shopRouter.post('/customers/:id/anonymize', (req, res) => {
   parseBody(z.object({ confirm: z.literal('EXCLUIR', 'Digite EXCLUIR para confirmar.') }), req.body);
   anonymizeCustomer(shopId(req), idParam(req));
+  res.json({ ok: true });
+});
+
+// ---------- ficha do cliente: anotações das preferências e fotos do corte
+
+shopRouter.get('/customers/:id/profile', (req, res) => {
+  res.json(customerProfile(shopId(req), idParam(req)));
+});
+
+shopRouter.put('/customers/:id/notes', (req, res) => {
+  const { notes } = parseBody(zNotes, req.body);
+  saveNotes(shopId(req), idParam(req), notes);
+  res.json(customerProfile(shopId(req), idParam(req)));
+});
+
+shopRouter.post('/customers/:id/photos', (req, res) => {
+  const body = parseBody(zPhoto, req.body);
+  const shop = shopId(req);
+  addPhoto({ shopId: shop, customerId: idParam(req), dataUrl: body.dataUrl, thumbUrl: body.thumbUrl, appointmentId: body.appointment_id, note: body.note, userId: req.user!.id });
+  res.status(201).json(customerProfile(shop, idParam(req)));
+});
+
+shopRouter.get('/photos/:id', (req, res) => {
+  sendPhoto(res, shopId(req), idParam(req), { thumb: req.query.mini === '1' });
+});
+
+shopRouter.delete('/photos/:id', (req, res) => {
+  deletePhoto(shopId(req), idParam(req));
   res.json({ ok: true });
 });
 

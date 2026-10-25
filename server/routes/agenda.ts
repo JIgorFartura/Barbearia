@@ -8,6 +8,7 @@ import { reservedItems } from '../consumption.js';
 import { HttpError, idParam, normalizePhone, parseBody, zBool, zId, zText, zUrl } from '../http.js';
 import { book, cancel, dayAgenda, freeTimes, upcomingFor } from '../scheduling.js';
 import { confirmAppointment } from '../attendance.js';
+import { profileSummary } from '../profile.js';
 import { PERIOD_IDS, joinWaitlist, leaveWaitlist, shopWaitlist, slotFreed, type Period } from '../waitlist.js';
 import { shopNow } from '../clock.js';
 import { addDays, isDate, isTime, toMinutes } from '../time.js';
@@ -227,6 +228,8 @@ export function registerAgendaRoutes(router: Router): void {
       sale: get<{ id: number; total_cents: number; method: string }>("SELECT id, total_cents, method FROM sales WHERE appointment_id = ? AND status = 'closed'", [a.id]) ?? null,
       // O lembrete pediu a confirmação e ainda não veio a resposta.
       awaiting: !a.confirmed_at && Boolean(get("SELECT 1 AS ok FROM bot_questions WHERE appointment_id = ? AND kind = 'presenca' AND status = 'pending'", [a.id])),
+      // Ficha do cliente (o jeito que ele gosta e as fotos dos cortes).
+      profile: profileSummary(a.customer_id),
     }));
     res.json({ date, barbers: barbersWithHours(shop).filter((b) => b.active), appointments, blocks, waitlist: shopWaitlist(shop, date) });
   });

@@ -1,9 +1,7 @@
-import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import type { Response } from 'express';
 import { config } from './config.js';
 import { all, get, run } from './db.js';
+import { decodeDataUrl, privateDir, removePrivate, savePrivate, sendPrivate } from './files.js';
 import { HttpError } from './http.js';
 import { notifyOwners } from './platform.js';
 
@@ -13,26 +11,12 @@ import { notifyOwners } from './platform.js';
  * pasta pública /uploads: só o próprio cliente e a barbearia abrem, com login.
  */
 
-export const receiptsDir = path.join(config.dataDir, 'receipts');
+export const receiptsDir = privateDir('receipts');
 
-const TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' } as const;
-type ReceiptType = keyof typeof TYPES;
 export const RECEIPT_MAX_BYTES = 3 * 1024 * 1024;
 const INVALID = 'Envie uma foto (JPG, PNG ou WEBP) ou o PDF do comprovante.';
 
-/** Confere o tipo pelo conteúdo do arquivo (não pelo nome nem pelo que o navegador diz). */
-function sniff(bytes: Buffer): ReceiptType | null {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
-  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
-  if (bytes.length >= 12 && bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
-  if (bytes.length >= 5 && bytes.toString('latin1', 0, 5) === '%PDF-') return 'application/pdf';
-  return null;
-}
-
-const SAFE_NAME = /^[\w.-]+$/;
-const removeFile = (name: string | null | undefined) => {
-  if (name && SAFE_NAME.test(name)) fs.rmSync(path.join(receiptsDir, name), { force: true });
-};
+const removeFile = (name: string | null | undefined) => removePrivate(receiptsDir, name);
 
 interface ReceiptRow {
   id: number;
@@ -49,19 +33,17 @@ interface ReceiptRow {
  * tinha) e vale como "já paguei". Devolve se é para avisar o dono (não repete o aviso em 10 minutos).
  */
 export function saveReceipt(shopId: number, customerId: number, chargeId: number, dataUrl: string, now: Date = new Date()): { notify: boolean } {
-  const m = /^data:[\w.+-]+\/[\w.+-]+;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
-  if (!m) throw new HttpError(400, INVALID);
-  const bytes = Buffer.from(m[1], 'base64');
-  if (bytes.length > RECEIPT_MAX_BYTES) throw new HttpError(400, 'Arquivo muito grande (máximo 3 MB). Mande um print da tela do comprovante.');
-  const type = sniff(bytes);
-  if (!type) throw new HttpError(400, INVALID);
+  const { bytes, type } = decodeDataUrl(dataUrl, {
+    accept: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+    maxBytes: RECEIPT_MAX_BYTES,
+    invalid: INVALID,
+    tooBig: 'Arquivo muito grande (máximo 3 MB). Mande um print da tela do comprovante.',
+  });
   const c = get<ReceiptRow>('SELECT id, barbershop_id, customer_id, status, receipt_file, receipt_type, receipt_at FROM charges WHERE id = ?', [chargeId]);
   if (!c || c.barbershop_id !== shopId || c.customer_id !== customerId) throw new HttpError(404, 'Cobrança não encontrada.');
   if (c.status !== 'open') throw new HttpError(409, c.status === 'paid' ? 'Esse pagamento já foi confirmado pela barbearia.' : 'Essa cobrança foi cancelada.');
 
-  fs.mkdirSync(receiptsDir, { recursive: true });
-  const name = `${shopId}-${chargeId}-${crypto.randomBytes(8).toString('hex')}.${TYPES[type]}`;
-  fs.writeFileSync(path.join(receiptsDir, name), bytes, { mode: 0o600 });
+  const name = savePrivate(receiptsDir, `${shopId}-${chargeId}`, bytes, type);
   const at = now.toISOString();
   let changes = 0;
   try {
@@ -101,14 +83,8 @@ export const receiptInfo = (c: { receipt_file?: string | null; receipt_type?: st
 
 /** Abre o comprovante (imagem na tela; PDF baixa). Quem chama já conferiu que pode ver esta cobrança. */
 export function sendReceipt(res: Response, c: { id: number; receipt_file: string | null; receipt_type: string | null }): void {
-  const file = c.receipt_file && SAFE_NAME.test(c.receipt_file) ? path.join(receiptsDir, c.receipt_file) : null;
-  if (!file || !c.receipt_type || !fs.existsSync(file)) throw new HttpError(404, 'Comprovante não encontrado.');
-  const pdf = c.receipt_type === 'application/pdf';
-  res.setHeader('content-type', c.receipt_type);
-  res.setHeader('cache-control', 'private, no-store');
-  res.setHeader('x-content-type-options', 'nosniff');
-  res.setHeader('content-disposition', `${pdf ? 'attachment' : 'inline'}; filename="comprovante-${c.id}${path.extname(file)}"`);
-  res.sendFile(file);
+  if (!c.receipt_file) throw new HttpError(404, 'Comprovante não encontrado.');
+  sendPrivate(res, receiptsDir, c.receipt_file, c.receipt_type, `comprovante-${c.id}`);
 }
 
 /** Tira o comprovante da cobrança e apaga o arquivo. */

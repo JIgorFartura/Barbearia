@@ -1,10 +1,11 @@
-import { ArrowLeft, CalendarCheck, CalendarX, Clock, Download, Gift, History, LogOut, Receipt, Repeat, Scissors, ShieldCheck, Ticket, Trash2 } from 'lucide-react';
+import { ArrowLeft, CalendarCheck, CalendarX, Camera, Clock, Download, Gift, History, LogOut, Receipt, Repeat, Scissors, ShieldCheck, Ticket, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Section } from '../components/CustomerSection';
 import { StampCard, type Progress } from '../components/StampCard';
 import { ClubSection } from './CustomerClub';
 import { BirthdaySection, ReferralSection } from './CustomerGrowth';
 import type { ReceiptInfo } from '../components/Receipt';
+import { PhotoThumb, photoDate, type CutPhoto } from '../components/Profile';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import { methodLabel } from '../lib/finance';
@@ -115,6 +116,8 @@ interface MeData {
   upcoming: Appointment[];
   waitlist: WaitEntry[];
   history: Appointment[];
+  /** Fotos dos cortes tiradas na barbearia. */
+  photos: CutPhoto[];
   card: { id: number; name: string; unit_label: string; reward: string; progress: Progress }[];
   offers: Offer[];
   vouchers: Voucher[];
@@ -522,6 +525,8 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
 
       {me.payments.length > 0 && <PaymentsSection slug={slug} payments={me.payments} />}
 
+      {me.photos.length > 0 && <CutsSection slug={slug} photos={me.photos} onDeleted={reload} />}
+
       {me.history.length > 0 && (
         <Section icon={<History />} title="Histórico">
           <ul className="divide-y divide-zinc-100 text-sm">
@@ -609,6 +614,39 @@ const PAYMENT_STATUS: Record<Payment['status'], { label: string; className: stri
 };
 
 /** Meus pagamentos: só o que ele pagou (ou tem para pagar) à barbearia, com o comprovante que mandou. */
+/** Fotos dos cortes: para mostrar no próximo horário e repetir (ou apagar, se não quiser guardar). */
+function CutsSection({ slug, photos, onDeleted }: { slug: string; photos: CutPhoto[]; onDeleted: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  async function remove(p: CutPhoto) {
+    if (!confirm('Apagar esta foto? A barbearia também deixa de ver.')) return;
+    setError(null);
+    await api('DELETE', `/api/customer/${slug}/photos/${p.id}`).then(onDeleted, (e) => setError(e.message));
+  }
+  return (
+    <Section icon={<Camera />} title="Meus cortes">
+      <p className="mb-3 text-sm text-zinc-500">Fotos que a barbearia tirou no fim do corte. Toque para ampliar e mostre no próximo horário para repetir.</p>
+      <ErrorText error={error} />
+      <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+        {photos.map((p) => (
+          <li key={p.id} className="min-w-0 text-xs text-zinc-500">
+            <PhotoThumb url={`/api/customer/${slug}/photos/${p.id}`} photo={p} className="aspect-square w-full" />
+            <p className="mt-1 flex items-center justify-between gap-1">
+              <span className="truncate">
+                {photoDate(p.created_at)}
+                {p.barber_name ? ` · ${firstName(p.barber_name)}` : ''}
+              </span>
+              <button type="button" className="shrink-0 text-zinc-400 hover:text-red-600" onClick={() => remove(p)} aria-label="Apagar foto">
+                <Trash2 className="size-3.5" />
+              </button>
+            </p>
+            {p.note && <p className="line-clamp-2 text-zinc-600">{p.note}</p>}
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
 function PaymentsSection({ slug, payments }: { slug: string; payments: Payment[] }) {
   const [all, setAll] = useState(false);
   const shown = all ? payments : payments.slice(0, 6);

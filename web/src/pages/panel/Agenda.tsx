@@ -1,6 +1,7 @@
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, MessageCircle, Plus, Search, Users } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { CheckoutModal } from '../../components/Checkout';
+import { ProfileLine, ProfileModal, type ProfileSummary } from '../../components/Profile';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { methodLabel } from '../../lib/finance';
 import { api } from '../../lib/api';
@@ -28,6 +29,8 @@ interface Appointment {
   confirmed_at: string | null;
   /** O lembrete pediu a confirmação e a resposta ainda não veio. */
   awaiting: boolean;
+  /** Ficha do cliente: anotações e fotos do corte. */
+  profile: ProfileSummary;
 }
 
 type Period = 'qualquer' | 'manha' | 'tarde' | 'noite';
@@ -67,6 +70,7 @@ export function Agenda() {
   const [data, setData] = useState<AgendaData | null>(null);
   const [creating, setCreating] = useState(false);
   const [closing, setClosing] = useState<number | null>(null);
+  const [ficha, setFicha] = useState<Appointment | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -176,6 +180,7 @@ export function Agenda() {
                         ) : (
                           item.appt.awaiting && <p className="mt-1 text-xs font-medium text-amber-700">Aguardando a confirmação do cliente</p>
                         ))}
+                      {item.appt.status !== 'cancelled' && <ProfileLine base="/api/shop" summary={item.appt.profile} onOpen={() => setFicha(item.appt!)} />}
                       {item.appt.items.length > 0 && (
                         <p className="mt-1 text-xs font-medium text-amber-800">🍺 Separar: {item.appt.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
                       )}
@@ -275,6 +280,17 @@ export function Agenda() {
             setClosing(null);
             load();
           }}
+        />
+      )}
+
+      {ficha && (
+        <ProfileModal
+          base="/api/shop"
+          customerId={ficha.customer_id}
+          customerName={ficha.customer_name}
+          appointmentId={ficha.id}
+          onClose={() => setFicha(null)}
+          onChanged={load}
         />
       )}
 

@@ -1,6 +1,7 @@
 import { shopNow } from './clock.js';
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
+import { photoFilesOf, removePhotoFiles } from './profile.js';
 import { purgeReceipts } from './receipts.js';
 
 /**
@@ -52,10 +53,17 @@ export function exportCustomerData(shopId: number, customerId: number) {
     barbearia: shop.name,
     cliente: get(
       `SELECT name AS nome, phone AS celular, birth_date AS nascimento, created_at AS cadastro, pref_weekday AS dia_costume, pref_time AS hora_costume,
-              reminders_opt_out AS nao_quer_lembretes, privacy_accepted_at AS aceitou_privacidade
+              reminders_opt_out AS nao_quer_lembretes, privacy_accepted_at AS aceitou_privacidade, notes AS anotacoes_da_barbearia
          FROM customers WHERE id = ?`,
       [customerId],
     ),
+    // As fotos abrem e podem ser baixadas na área do cliente (Meus cortes).
+    fotos_do_corte: all(
+      `SELECT p.created_at AS quando, b.name AS barbeiro, p.note AS descricao FROM cut_photos p LEFT JOIN barbers b ON b.id = p.barber_id
+        WHERE p.customer_id = ? ORDER BY p.created_at DESC`,
+      [customerId],
+    ),
+    lista_de_espera: all('SELECT date AS dia, period AS periodo, status AS situacao, created_at AS quando FROM waitlist WHERE customer_id = ? ORDER BY id', [customerId]),
     horarios: all(
       `SELECT a.starts_at AS quando, b.name AS barbeiro, a.service_name AS servico, a.price_cents AS valor_centavos, a.status AS situacao
          FROM appointments a JOIN barbers b ON b.id = a.barber_id WHERE a.customer_id = ? ORDER BY a.starts_at DESC`,
@@ -93,13 +101,14 @@ export function exportCustomerData(shopId: number, customerId: number) {
 }
 
 /**
- * Exclui os dados pessoais do cliente: apaga mensagens, comprovantes, cartão, vouchers, ofertas e
- * sessões, cancela os horários futuros e tira nome e celular do cadastro. As vendas continuam no caixa
- * (obrigação fiscal), mas sem identificar a pessoa.
+ * Exclui os dados pessoais do cliente: apaga mensagens, comprovantes, fotos do corte, anotações, cartão,
+ * vouchers, ofertas e sessões, cancela os horários futuros e tira nome e celular do cadastro. As vendas
+ * continuam no caixa (obrigação fiscal), mas sem identificar a pessoa.
  */
 export function anonymizeCustomer(shopId: number, customerId: number, now: Date = new Date()): void {
   assertCustomer(shopId, customerId);
   const phone = get<{ phone: string }>('SELECT phone FROM customers WHERE id = ?', [customerId])!.phone;
+  const photos = photoFilesOf(customerId);
   tx(() => {
     const stamp = shopNow(shopId, now).stamp;
     run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE customer_id = ? AND status = 'scheduled' AND starts_at >= ?", [nowIso(), customerId, stamp]);
@@ -107,17 +116,19 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
     // Clube: encerra a assinatura e as cobranças em aberto (as pagas ficam no caixa, sem identificar a pessoa).
     run("UPDATE club_members SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, ?) WHERE customer_id = ? AND status <> 'cancelled'", [nowIso(), customerId]);
     run("UPDATE charges SET status = 'cancelled' WHERE customer_id = ? AND status = 'open'", [customerId]);
-    for (const table of ['loyalty_events', 'vouchers', 'bot_offers', 'bot_questions', 'customer_codes', 'customer_sessions', 'reviews']) {
+    for (const table of ['loyalty_events', 'vouchers', 'bot_offers', 'bot_questions', 'customer_codes', 'customer_sessions', 'reviews', 'waitlist', 'cut_photos']) {
       run(`DELETE FROM ${table} WHERE customer_id = ?`, [customerId]);
     }
     run(
       `UPDATE customers SET name = 'Cliente removido', phone = ?, wa_id = NULL, pref_weekday = NULL, pref_time = NULL, pref_barber_id = NULL,
-              pref_service_id = NULL, pref_interval_days = NULL, reminders_opt_out = 1, birth_date = NULL, referral_code = NULL, anonymized_at = ? WHERE id = ?`,
+              pref_service_id = NULL, pref_interval_days = NULL, reminders_opt_out = 1, birth_date = NULL, referral_code = NULL, notes = NULL,
+              anonymized_at = ? WHERE id = ?`,
       [`removido-${customerId}`, nowIso(), customerId],
     );
   });
-  // Os arquivos dos comprovantes saem depois que o banco já foi atualizado.
+  // Os arquivos (comprovantes e fotos) saem depois que o banco já foi atualizado.
   purgeReceipts({ customerId });
+  removePhotoFiles(photos);
 }
 
 /** Limpeza diária: o que não precisa mais ser guardado (mensagens e comprovantes antigos, códigos usados, sessões vencidas). */

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
 import { CheckoutModal, type CheckoutEndpoints } from '../components/Checkout';
+import { ProfileLine, ProfileModal, type ProfileSummary } from '../components/Profile';
 import { Badge, Button, Card, ErrorText } from '../components/ui';
 import { api } from '../lib/api';
 import { addDays, cap, date as fmtDate, dayLabel, money, todayStr, whatsappLink } from '../lib/format';
@@ -31,6 +32,8 @@ interface Appointment {
   sale: { id: number; commission_cents: number } | null;
   /** O cliente confirmou a presença. */
   confirmed_at: string | null;
+  /** Ficha do cliente: o jeito que ele gosta e as fotos dos cortes. */
+  profile: ProfileSummary;
 }
 
 interface Earnings {
@@ -126,6 +129,7 @@ function BarberAgenda({ info }: { info: BarberMe }) {
   const [date, setDate] = useState(todayStr());
   const [data, setData] = useState<{ appointments: Appointment[]; blocks: { id: number; starts_at: string; ends_at: string; reason: string | null }[] } | null>(null);
   const [closing, setClosing] = useState<number | 'balcao' | null>(null);
+  const [ficha, setFicha] = useState<Appointment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(() => {
     api<typeof data>('GET', `/api/barber/agenda?date=${date}`).then(setData, (e) => setError(e.message));
@@ -176,6 +180,7 @@ function BarberAgenda({ info }: { info: BarberMe }) {
                 ) : null}
               </div>
               {a.status === 'scheduled' && !a.sale && a.confirmed_at && <p className="mt-1 text-sm font-medium text-emerald-700">✓ Presença confirmada</p>}
+              {a.status !== 'cancelled' && <ProfileLine base="/api/barber" summary={a.profile} onOpen={() => setFicha(a)} />}
               {a.items.length > 0 && (
                 <p className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900">
                   🍺 Separar: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}
@@ -219,6 +224,16 @@ function BarberAgenda({ info }: { info: BarberMe }) {
         <Button variant="ghost" className="w-full" onClick={() => setClosing('balcao')}>
           Venda de balcão (sem horário)
         </Button>
+      )}
+      {ficha && (
+        <ProfileModal
+          base="/api/barber"
+          customerId={ficha.customer_id}
+          customerName={ficha.customer_name}
+          appointmentId={ficha.id}
+          onClose={() => setFicha(null)}
+          onChanged={load}
+        />
       )}
       {closing && (
         <CheckoutModal

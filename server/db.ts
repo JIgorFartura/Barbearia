@@ -951,6 +951,26 @@ const MIGRATIONS: (string | Rebuild)[] = [
   CREATE INDEX waitlist_shop ON waitlist (barbershop_id, status, date);
   CREATE INDEX waitlist_customer ON waitlist (customer_id, status);
   `,
+  // 15) Ficha do cliente: anotações das preferências e fotos do corte (arquivos fora da pasta pública).
+  `
+  ALTER TABLE customers ADD COLUMN notes TEXT;
+
+  CREATE TABLE cut_photos (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+    barber_id INTEGER REFERENCES barbers(id) ON DELETE SET NULL,
+    file TEXT NOT NULL,
+    type TEXT NOT NULL,
+    -- Miniatura (feita no aparelho) para o cartão do horário e a lista.
+    thumb TEXT,
+    note TEXT,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX cut_photos_customer ON cut_photos (customer_id, created_at);
+  `,
 ];
 
 function migrate(): void {

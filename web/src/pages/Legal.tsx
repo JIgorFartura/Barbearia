@@ -252,6 +252,8 @@ export function ShopPrivacyPage({ slug }: { slug: string }) {
         <li>Data de nascimento, se você informar (para o presente de aniversário).</li>
         <li>Seus pagamentos à barbearia (compras e clube de assinatura): valor, forma e data.</li>
         <li>O comprovante do PIX (foto ou PDF), se você enviar pela sua área.</li>
+        <li>Fotos do seu corte e anotações sobre como você gosta, se a barbearia registrar. As fotos você vê e apaga na sua área, em Meus cortes.</li>
+        <li>Os dias em que você pediu para ser avisado de vaga (lista de espera) e se confirmou a presença.</li>
       </ul>
       {p.online && (
         <p>
@@ -268,6 +270,8 @@ export function ShopPrivacyPage({ slug }: { slug: string }) {
           PARAR no WhatsApp.
         </li>
         <li>Avisar o barbeiro do que você pediu para deixar separado e perguntar como foi o atendimento.</li>
+        <li>Repetir o corte do seu jeito, com qualquer barbeiro da casa (anotações e fotos do corte).</li>
+        <li>Pedir a confirmação da presença no lembrete e avisar você quando abrir vaga num dia em que está na lista de espera.</li>
         <li>Guardar os registros de vendas que a lei exige.</li>
       </ul>
       {p.ai && (
@@ -292,7 +296,7 @@ export function ShopPrivacyPage({ slug }: { slug: string }) {
       <h2>{p.ai ? 7 : 6}. Por quanto tempo</h2>
       <p>
         Enquanto você for cliente. As mensagens do WhatsApp e os comprovantes de PIX são apagados depois de 12 meses. Se você excluir sua conta, apagamos nome,
-        celular, mensagens, comprovantes, cartão e vouchers; os registros de vendas ficam sem identificação, pelo prazo que a lei exige.
+        celular, mensagens, comprovantes, fotos do corte, anotações, cartão e vouchers; os registros de vendas ficam sem identificação, pelo prazo que a lei exige.
       </p>
       <h2>{p.ai ? 8 : 7}. Seus direitos</h2>
       <p>

@@ -1,5 +1,5 @@
 import { shopNow } from './clock.js';
-import { all, get, nowIso, run } from './db.js';
+import { all, get, run } from './db.js';
 import { HttpError } from './http.js';
 import { sendMessage, shopBot, type ShopBot } from './messaging.js';
 import { freeTimes } from './scheduling.js';
