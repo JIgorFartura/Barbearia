@@ -19,7 +19,7 @@ const sha256 = (value: string) => crypto.createHash('sha256').update(value).dige
 export interface LoginRow {
   id: number;
   name: string;
-  role: 'master' | 'owner' | 'barber';
+  role: 'master' | 'owner' | 'barber' | 'reception';
   email: string | null;
   phone: string | null;
   barbershop_id: number | null;
@@ -61,7 +61,7 @@ export async function requestPasswordCode(login: string): Promise<CodeResult> {
   if (!user.phone) {
     throw new HttpError(
       400,
-      user.role === 'barber'
+      user.role === 'barber' || user.role === 'reception'
         ? 'Seu login não tem celular cadastrado. Peça ao dono da barbearia para trocar sua senha.'
         : 'Esse login não tem celular cadastrado. Fale com o suporte da plataforma para trocar a senha.',
     );

@@ -8,6 +8,13 @@ A ideia: o cliente não vive só o corte, vive uma **experiência de comunidade*
 fidelidade, benefícios com voucher, clube de assinatura, indicação de amigos, presente de
 aniversário, comércios parceiros e um robô que lembra dele (até da cerveja de sempre).
 
+E o sistema trabalha pelo dono: a agenda se enche sozinha (lembrete com confirmação, lista de
+espera, horário vazio com desconto, o robô chamando quem sumiu), o PIX do clube tem **baixa
+automática** (e débito automático pelo **Pix Automático**), o dono pergunta ao **gerente virtual**
+no WhatsApp quanto entrou e recebe o **resumo da semana**, e os **relatórios** mostram a ocupação
+por dia e hora, quem está voltando e a previsão do mês. Cada barbearia tem o **app dela** para o
+cliente instalar, com avisos no celular. Serve da barbearia de uma cadeira à **rede com filiais**.
+
 | Área do cliente (celular) | Robô no WhatsApp (simulador do painel) |
 |---|---|
 | <img src="docs/img/area-cliente.png" width="260" alt="Área do cliente"> | <img src="docs/img/robo-simulador.png" width="520" alt="Simulador do robô"> |
@@ -36,7 +43,19 @@ aniversário, comércios parceiros e um robô que lembra dele (até da cerveja d
 |---|---|---|---|
 | <img src="docs/img/cartao-cliente.png" width="180" alt="Clube no cartão automático"> | <img src="docs/img/cartao-mensalidade.png" width="300" alt="Mensalidade no cartão automático"> | <img src="docs/img/cartao-barbearia.png" width="220" alt="Receber no cartão pela Cielo"> | <img src="docs/img/master-pagamentos.png" width="300" alt="Mensalidades pagas online no master"> |
 
-## Quatro perfis
+| Relatórios | Ficha do cliente (fotos do corte) | Horário vazio com desconto |
+|---|---|---|
+| <img src="docs/img/relatorios.png" width="300" alt="Relatórios"> | <img src="docs/img/ficha-cliente.png" width="300" alt="Ficha do cliente"> | <img src="docs/img/horario-vazio.png" width="180" alt="Horário vazio com desconto"> |
+
+| Repetir o último corte | PIX com confirmação automática | Pacote e vale-presente na comanda |
+|---|---|---|
+| <img src="docs/img/repetir-corte.png" width="180" alt="Repetir o último corte"> | <img src="docs/img/pix-automatico.png" width="180" alt="PIX com confirmação automática"> | <img src="docs/img/pacote-vale.png" width="300" alt="Pacote e vale-presente"> |
+
+| Recepção | Unidades da rede | Criar a barbearia (teste grátis) | Importar clientes |
+|---|---|---|---|
+| <img src="docs/img/recepcao.png" width="300" alt="Painel da recepção"> | <img src="docs/img/unidades.png" width="300" alt="Unidades da rede"> | <img src="docs/img/inicio.png" width="300" alt="Página inicial com o cadastro"> | <img src="docs/img/importar-planilha.png" width="260" alt="Importar clientes por planilha"> |
+
+## Cinco perfis
 
 - **Master** (dono da plataforma) cuida **só do controle geral**: cria a barbearia e entrega o
   acesso ao dono (plano, valor, dia de vencimento, dias grátis e a mensagem pronta com o link e a
@@ -48,9 +67,15 @@ aniversário, comércios parceiros e um robô que lembra dele (até da cerveja d
   clientes, conversas nem o que os clientes pagam às barbearias (é delas): a API recusa o master
   em qualquer rota do painel.
 - **Dono da barbearia**: agenda, balcão, financeiro (com os **recebimentos de todos os clientes** e a
-  cópia dos **comprovantes** do PIX), estoque, robô, avaliações, clube de assinatura, campanhas,
-  benefícios, indicação e aniversário, parceiros, anúncios, barbeiros, serviços, produtos, marca e a
-  própria mensalidade. Nunca vê dados de outra barbearia.
+  cópia dos **comprovantes** do PIX), **relatórios**, estoque, robô, avaliações, clube de assinatura,
+  **pacotes e vale-presente**, campanhas, benefícios, indicação e promoções, parceiros, anúncios,
+  barbeiros, serviços, produtos, marca, **unidades** e a própria mensalidade. Nunca vê dados de outra
+  barbearia. Com **várias unidades** (rede), troca de unidade no topo do menu e vê os números de
+  todas lado a lado.
+- **Recepção** (o dono cria o login em *Barbeiros → Recepção*): agenda, balcão (clientes,
+  carimbos, vouchers), ficha do cliente, comanda e venda de pacote e vale-presente. Não vê o caixa,
+  os relatórios, as comissões, a mensalidade nem as configurações (o servidor libera só uma lista
+  fechada de rotas para ela).
 - **Barbeiro** (o dono libera em *Barbeiros → Acesso ao sistema*): entra pelo **celular** ou
   e-mail e vê só a **própria agenda**, fecha os **próprios atendimentos** (se o dono permitir),
   marca falta e acompanha **Meus ganhos** e a nota que os clientes dão para ele. Do dinheiro, vê só
@@ -58,10 +83,12 @@ aniversário, comércios parceiros e um robô que lembra dele (até da cerveja d
   (não vê o total que o cliente pagou, o faturamento, o caixa nem a comissão dos colegas).
 - **Cliente** (`/b/<endereço>/conta`): entra pelo celular com um **código enviado pelo robô no
   WhatsApp** (ou pelo link que o robô manda) e fica logado por 180 dias. Agenda e cancela, assina o
-  **clube** e paga por PIX (mandando o **comprovante**) ou **cartão**, vê **Meus pagamentos** (só os
-  dele), o cartão fidelidade, pega vouchers, manda o **link de indicação**, informa o
-  **aniversário** e o horário de costume, **baixa os próprios dados** e pode **excluir a conta**
-  (LGPD).
+  **clube** e paga por PIX (com **confirmação automática** ou mandando o **comprovante**), pelo **Pix
+  Automático** ou no **cartão**, vê **Meus pagamentos** (só os
+  dele, com a **nota fiscal** quando a barbearia emite), o cartão fidelidade, pega vouchers, manda o
+  **link de indicação**, informa o **aniversário** e o horário de costume, vê **Meus cortes** (as
+  fotos), **repete o último corte** num toque, acompanha os **pacotes**, instala o **app da
+  barbearia** com avisos no celular, **baixa os próprios dados** e pode **excluir a conta** (LGPD).
 
 Todos (menos o cliente) têm **Minha conta** (nome, celular, senha) e **"Esqueci minha senha"**
 com código pelo WhatsApp da plataforma.
@@ -82,6 +109,9 @@ conversa naturalmente:
 - *"Paguei"* → avisa a barbearia do PIX da mensalidade do clube e manda o link para enviar o
   **comprovante** pela área do cliente. Foto ou arquivo no WhatsApp (o robô só lê texto): com a
   mensalidade em aberto, ele responde com esse mesmo link.
+- *"Vou sim"* / *"não vou conseguir"* ao lembrete → confirma a presença ou cancela e oferece a vaga
+  para a **lista de espera**. Dia lotado → *"me avisa se abrir vaga"* entra na lista de espera.
+- Sabe dos **pacotes** do cliente (quantos usos sobram) e do **horário vazio com desconto** do dia.
 
 **Ele aprende o consumo de cada cliente.** Se o João toma 1 cerveja em pelo menos metade das
 visitas, ao confirmar o horário vem a pergunta: *"Posso avisar o Paulo que você vai querer 1
@@ -111,7 +141,15 @@ pelo WhatsApp da plataforma (e o painel mostra uma faixa vermelha).
 Só das 8h às 21h (no fuso de cada barbearia), cada uma uma única vez, e quem responde PARAR deixa
 de receber as de marketing.
 
-- **Lembrete do horário** X horas antes (padrão 24h), com a opção de responder CANCELAR.
+- **Lembrete do horário** X horas antes (padrão 24h), pedindo a **confirmação** (SIM confirma; NÃO
+  libera a vaga). Se o dono quiser, quem não confirma até N horas antes tem o horário liberado.
+- **Lista de espera**: abriu vaga (cancelamento, horário liberado), o robô oferece na ordem da fila;
+  cada um tem 30 minutos para responder SIM.
+- **Horário vazio com desconto**: nos dias e horários fracos que o dono escolhe, às 9h o robô
+  oferece as vagas do dia (com o desconto) para até 10 clientes que já estão na hora de cortar.
+- **Resumo da semana** para o dono, toda segunda às 8h, no WhatsApp do sistema.
+- **Avisos no celular** (app instalado): horário novo e cancelado para o barbeiro, o dono e a
+  recepção; o lembrete do horário para o cliente.
 - **Horário de costume**: o sistema descobre pelo histórico o dia, a hora, o barbeiro e o ritmo de
   cada cliente e, no dia escolhido (padrão: segunda às 9h), oferece o horário de sempre.
 - **Cliente sumido** depois de N dias (padrão 30), com sugestão de horário.
@@ -123,9 +161,16 @@ de receber as de marketing.
 
 ## Agenda e barbeiros
 
-- **Agenda** por barbeiro, encaixe pelo balcão, falta, cancelamento e **fechar o atendimento**.
+- **Agenda** por barbeiro, encaixe pelo balcão, falta, cancelamento e **fechar o atendimento**,
+  com a **presença confirmada**, a **lista de espera** do dia e o preço do **horário vazio**.
+- **Ficha do cliente** no cartão do horário: o jeito que ele gosta ("máquina 2 nas laterais") e as
+  **fotos do corte** (tiradas no celular, com miniatura leve). Na próxima visita, qualquer barbeiro
+  repete igual. O barbeiro só abre a ficha de quem é da agenda dele; o cliente vê as fotos em *Meus
+  cortes* e pode apagar.
+- **Horário vazio com desconto** (*Indicação e promoções*): nos dias e horários escolhidos, a vaga
+  do dia sai com X% de desconto para quem marca no mesmo dia (marcando antes, preço normal).
 - **Barbeiros**: expediente com pausas, folgas, bloqueios, comissão (por serviço, inclusive valor
-  fixo) e acesso ao sistema.
+  fixo) e acesso ao sistema. **Recepção**: logins do balcão, sem o financeiro.
 
 ## Clube de assinatura
 
@@ -140,6 +185,16 @@ comanda, o que o plano cobre já sai por **R$ 0**, e a comissão do barbeiro é 
 preço normal (na % que o dono escolher). Atrasou, os benefícios pausam até o pagamento. Os planos
 aparecem no site da barbearia.
 
+**PIX com baixa automática (Asaas da barbearia).** Com a conta Asaas da própria barbearia ligada
+(*Clube de assinatura → PIX com baixa automática*), a mensalidade sai com o PIX do Asaas e o
+dinheiro cai direto na conta dela. Quando o cliente paga, o aviso do Asaas libera o mês, lança no
+caixa e manda a confirmação no WhatsApp: o dono não confere extrato. O cliente informa o CPF uma
+vez; sem ele, continua o PIX da chave com o comprovante.
+
+**Pix Automático** (opcional; o Asaas libera na conta): o cliente autoriza pagando o 1º mês e, com
+a autorização ativa, as mensalidades seguintes vão para o débito automático 8 dias antes do
+vencimento e caem sozinhas. Cancelar o clube ou desligar o débito cancela também no Asaas.
+
 ## Financeiro e estoque
 
 - **Fechar atendimento**: a comanda já vem com o serviço, o que o cliente pediu para separar e o
@@ -153,6 +208,54 @@ aparecem no site da barbearia.
 - **Estoque**: entrada de mercadoria (com lançamento no caixa), contagem, perda, consumo interno,
   baixa automática na venda (volta no cancelamento), reservado para os horários marcados e aviso
   de **estoque acabando** no resumo.
+- **Pacotes pré-pagos** (ex.: 5 cortes por R$ 200): vendidos no balcão, o dinheiro entra na hora;
+  na comanda o serviço sai por R$ 0 *pelo pacote* e o barbeiro ganha a comissão sobre o valor de
+  cada uso. O cliente vê os usos que sobram na área dele.
+- **Vale-presente** com código (VP-XXXXXX), pronto para mandar pelo WhatsApp: paga a conta até o
+  saldo e o resto vai na forma de pagamento. Cancelar a venda devolve o uso e o saldo.
+- **Nota fiscal de serviço (NFS-e)** pelo Asaas da barbearia: quando o dono pedir (botão em *Vendas*)
+  ou automática (toda venda com serviço de cliente com CPF e cada mensalidade do clube). Só os
+  serviços entram; o PDF aparece na venda e em *Meus pagamentos* do cliente.
+- **Relatórios**: entrou, atendimentos e ticket médio com a comparação, **previsão do mês**, mapa
+  de calor da **ocupação por dia e hora** (e por barbeiro), **retorno dos clientes** e quem está
+  passando do tempo de voltar (com botão para chamar no WhatsApp).
+
+## Gerente virtual do dono (WhatsApp do sistema)
+
+O dono conversa com o WhatsApp do sistema (o mesmo que avisa da mensalidade), do celular cadastrado
+no login dele: *"quanto entrou hoje?"*, *"e a semana?"*, *"previsão do mês"*, *"agenda de
+amanhã"*, *"quem está sumindo?"*, *"bloquear o Paulo amanhã das 14h às 16h"*, *"resumo"*. Com a IA
+ligada entende frases livres; sem ela, responde às palavras-chave. O barbeiro pergunta *"agenda"*,
+*"amanhã"* e *"ganhos"* (só os dele). Toda segunda às 8h chega o **resumo da semana** (entrou,
+comparação, atendimentos, ocupação, faltas, clientes novos, nota dos clientes e quem mais atendeu);
+dá para desligar em *Relatórios*. O master cadastra no WhatsApp da plataforma o endereço que recebe
+as mensagens (aba *Sistema*).
+
+## App instalável e avisos no celular
+
+Cada barbearia tem o **app dela** (nome, cores e ícone dela) para o cliente instalar pela área do
+cliente; o painel e o app do barbeiro instalam como o app da plataforma. Os **avisos no celular**
+usam o padrão dos navegadores (Web Push, sem custo por mensagem, criptografado e assinado com a
+chave da plataforma, gerada sozinha). No iPhone, os avisos funcionam com o app instalado (iOS 16.4
+ou mais novo). Na área do cliente, **Repetir o último corte** já abre com o mesmo serviço, o mesmo
+barbeiro, o dia em que ele costuma voltar e o horário de sempre.
+
+## Rede com filiais
+
+O dono abre mais unidades em *Unidades* (começam nos dias grátis, com as cores e o nome do robô da
+unidade atual) e troca de unidade no topo do menu. Cada unidade tem agenda, barbeiros, robô, caixa e
+mensalidade próprios; a tela *Unidades* mostra os números de todas lado a lado, e os avisos, o
+resumo da semana e as notificações chegam ao dono de todas. O master também liga um dono já
+cadastrado a outra barbearia.
+
+## Cadastro sozinho e importação de clientes
+
+- **Criar minha barbearia** na página inicial: nome, celular, senha e o aceite dos termos; começa
+  nos dias grátis e já entra no painel. O master recebe um aviso no WhatsApp a cada cadastro e pode
+  fechar o cadastro (*Financeiro → Cadastro aberto no site*, ao lado dos dias grátis).
+- **Importar planilha** (*Balcão*): CSV do Excel, do Google Planilhas ou do sistema antigo, com
+  nome, celular e aniversário. As colunas são achadas pelo cabeçalho, as primeiras linhas aparecem
+  antes de importar, quem já está cadastrado fica como está e cada linha pulada diz o motivo.
 
 ## Avaliações, indicação e aniversário
 
@@ -322,7 +425,11 @@ npm run dev    # interface em http://localhost:5173 (API na porta 3000)
 Outros comandos: `npm test` (agenda, costume, automações, robô, webhooks, área do cliente,
 vouchers, financeiro, comissões, consumo, estoque, clube, comprovante do PIX, o que cada perfil
 vê dos pagamentos, avaliações, indicação, aniversário, mensalidades, Asaas, cartão pela Cielo,
-LGPD, cópia de segurança, acesso do barbeiro, limites do master, isolamento entre barbearias), `npm run typecheck`, `npm run build && npm start`.
+LGPD, cópia de segurança, acesso do barbeiro, limites do master, isolamento entre barbearias,
+confirmação e lista de espera, ficha do cliente, horário vazio, app e avisos no celular (com o
+exemplo oficial da criptografia RFC 8291), gerente virtual e relatórios, pacotes e vale-presente,
+recepção e rede, cadastro e importação, PIX com baixa automática e Pix Automático, nota fiscal),
+`npm run typecheck`, `npm run build && npm start`. Os testes rodam no GitHub a cada envio.
 
 ## Hospedar
 
@@ -373,7 +480,15 @@ server/
   cards.ts          cartão: mensalidade e clube no automático, avisos da Cielo e conferência
   gatewayPayments.ts registro dos pagamentos online (o master vê só as mensalidades); asaasWebhook.ts: avisos do Asaas
   privacy.ts        LGPD; backup.ts: cópias de segurança; passwordReset.ts
-  routes/           master, painel (shop, agenda, bot, finance, stock, club), barbeiro, cliente, público, webhooks
+  attendance.ts     confirmação de presença; waitlist.ts: lista de espera
+  profile.ts        ficha do cliente (anotações e fotos); files.ts: arquivos privados
+  promo.ts, idle.ts horário vazio com desconto (a regra e a oferta da manhã)
+  push.ts, pwa.ts   avisos no celular (Web Push) e app instalável (manifest e ícones)
+  insights.ts       indicadores (ocupação, retorno, previsão); manager.ts: gerente virtual e resumo da semana
+  prepaid.ts        pacotes pré-pagos e vale-presente
+  shops.ts          cadastro de barbearias e unidades da rede; signup.ts; importCustomers.ts
+  shopAsaas.ts      Asaas da barbearia (PIX com baixa automática, Pix Automático); shopNfse.ts: nota fiscal
+  routes/           master, painel (shop, agenda, bot, finance, stock, club, reports, prepaid, team), barbeiro, cliente, público, webhooks
 web/src/
   pages/ShopLanding.tsx   site da barbearia
   pages/CustomerArea.tsx  área do cliente (+ CustomerClub, CustomerGrowth)
@@ -391,3 +506,15 @@ precisam ser conferidos com as contas reais, no piloto: o envio pelo **WhatsApp 
 e pela **Evolution** com os modelos aprovados, o **cartão e a cobrança automática na Cielo** e a
 **cobrança e a nota fiscal no Asaas** (testados com simuladores das APIs), o envio da cópia de segurança para o seu
 **armazenamento S3** e o **PIX** pago de verdade num aplicativo de banco.
+
+Também no piloto:
+
+- **Pix Automático**: o Asaas precisa liberar na conta da barbearia. Teste antes no sandbox: os
+  campos da autorização seguem a referência oficial do Asaas (`POST /v3/pix/automatic/authorizations`
+  com o QR Code do 1º pagamento e os avisos `PIX_AUTOMATIC_RECURRING_AUTHORIZATION_*`), conferida
+  pela busca porque o site de documentação não abria no ambiente em que o sistema foi feito.
+- **Nota fiscal da barbearia**: o cadastro na prefeitura e o certificado ficam na conta Asaas dela;
+  emita uma nota de teste antes de ligar a automática.
+- **Avisos no celular** num Android e num iPhone de verdade (no iPhone, com o app instalado).
+- **Gerente virtual**: cadastrar no WhatsApp da plataforma o endereço que o master vê na aba
+  *Sistema* e mandar uma mensagem do celular do dono.
