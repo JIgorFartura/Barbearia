@@ -1,18 +1,19 @@
-import { Bot, CalendarCheck, Gift, Handshake, Megaphone, Scissors, Ticket, Users } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { BarChart3, Bot, CalendarCheck, Camera, Crown, MessageCircle, Scissors, Smartphone, Wallet } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
 import type { Me } from '../App';
 import { Button, ErrorText, Field, Input } from '../components/ui';
 import { api } from '../lib/api';
 import { LegalLinks } from './Legal';
 
 const FEATURES = [
-  { icon: Bot, title: 'Robô no WhatsApp', text: 'Cada barbearia dá um nome ao seu robô. Ele agenda, consulta o cartão e entrega vouchers.' },
-  { icon: CalendarCheck, title: 'Lembretes que trazem o cliente', text: 'Lembra o horário marcado, oferece o horário de costume toda semana e chama quem sumiu.' },
-  { icon: Gift, title: 'Campanhas de fidelidade', text: 'Tomou 5 cervejas, ganhou um copo. Cartão digital na área do cliente.' },
-  { icon: Ticket, title: 'Benefícios com voucher', text: 'O cliente pega o voucher na área dele e mostra no balcão ou no parceiro.' },
-  { icon: Handshake, title: 'Parceiros', text: 'Comércios do bairro oferecem benefícios aos membros da comunidade.' },
-  { icon: Megaphone, title: 'Espaço de propaganda', text: 'Venda anúncios no site da barbearia e acompanhe visualizações e cliques.' },
-  { icon: Users, title: 'Comunidade', text: 'O cliente não vive só o corte: vive a experiência e se sente parte do grupo.' },
+  { icon: Bot, title: 'Robô no WhatsApp', text: 'Com o nome que você escolher: agenda, confirma a presença, avisa quando abre vaga e cobra o clube.' },
+  { icon: CalendarCheck, title: 'Agenda que se enche sozinha', text: 'Lembrete com confirmação, lista de espera, horário vazio com desconto e o robô chamando quem sumiu.' },
+  { icon: MessageCircle, title: 'Gerente virtual', text: 'Pergunte no WhatsApp quanto entrou hoje e como está a agenda. Toda segunda, o resumo da semana.' },
+  { icon: Wallet, title: 'Financeiro completo', text: 'Caixa, comissões, PIX e cartão, pacotes pré-pagos e vale-presente, tudo calculado na comanda.' },
+  { icon: BarChart3, title: 'Relatórios que mostram o caminho', text: 'Ocupação por dia e hora, clientes que voltam, quem está sumindo e a previsão do mês.' },
+  { icon: Crown, title: 'Clube e fidelidade', text: 'Assinatura mensal, cartão fidelidade, indique um amigo e presente de aniversário.' },
+  { icon: Smartphone, title: 'App com a sua marca', text: 'O cliente instala o app da sua barbearia e recebe os avisos no celular. Barbeiro e recepção também têm o deles.' },
+  { icon: Camera, title: 'Ficha do cliente', text: 'O jeito que ele gosta e as fotos do corte: na próxima visita, qualquer barbeiro repete igual.' },
 ];
 
 /** Página do sistema (não da barbearia): apresentação + entrada. */
@@ -25,10 +26,10 @@ export function Home({ me, onLogin }: { me: Me; onLogin: () => void }) {
             <Scissors className="size-6 text-gold" /> Sistema Barbearia
           </div>
           <h1 className="text-4xl font-extrabold leading-tight sm:text-5xl">
-            Mais que um corte: <span className="text-gold">uma comunidade</span> em volta da sua barbearia.
+            A agenda cheia e o caixa em dia: <span className="text-gold">o sistema trabalha por você</span> no WhatsApp.
           </h1>
           <p className="mt-4 max-w-xl text-lg text-zinc-400">
-            Site com a sua marca, catálogo de serviços e produtos, parceiros, anúncios e campanhas de fidelidade, tudo num painel só.
+            Agenda, robô, financeiro, clube, relatórios e app com a sua marca, num painel só. Para a barbearia de uma cadeira e para a rede com várias unidades.
           </p>
           <div className="mt-10 grid gap-4 sm:grid-cols-2">
             {FEATURES.map(({ icon: Icon, title, text }) => (
@@ -40,10 +41,103 @@ export function Home({ me, onLogin }: { me: Me; onLogin: () => void }) {
             ))}
           </div>
         </div>
-        <div className="lg:pt-16">{me.setupNeeded ? <SetupCard onDone={onLogin} /> : <LoginCard onDone={onLogin} />}</div>
+        <div className="lg:pt-16">{me.setupNeeded ? <SetupCard onDone={onLogin} /> : <EntryCard onDone={onLogin} />}</div>
       </div>
       <LegalLinks className="pb-8 text-zinc-500" />
     </div>
+  );
+}
+
+/** Entrar ou criar a barbearia (cadastro sozinho com os dias grátis, quando o master deixa aberto). */
+function EntryCard({ onDone }: { onDone: () => void }) {
+  const [signup, setSignup] = useState<{ enabled: boolean; trialDays: number } | null>(null);
+  const [mode, setMode] = useState<'login' | 'signup'>(() => (location.hash === '#cadastro' ? 'signup' : 'login'));
+  useEffect(() => {
+    api<{ enabled: boolean; trialDays: number }>('GET', '/api/public/signup').then(setSignup, () => undefined);
+  }, []);
+  if (mode === 'signup' && signup?.enabled) return <SignupCard trialDays={signup.trialDays} onBack={() => setMode('login')} onDone={onDone} />;
+  return (
+    <div className="space-y-3">
+      <LoginCard onDone={onDone} />
+      {signup?.enabled && (
+        <button
+          type="button"
+          onClick={() => setMode('signup')}
+          className="w-full rounded-2xl bg-gold px-4 py-3 text-center font-semibold text-zinc-950 shadow-lg transition hover:brightness-110"
+        >
+          Criar minha barbearia{signup.trialDays > 0 ? ` · ${signup.trialDays} dias grátis` : ''}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SignupCard({ trialDays, onBack, onDone }: { trialDays: number; onBack: () => void; onDone: () => void }) {
+  const [form, setForm] = useState({ shop_name: '', name: '', phone: '', email: '', password: '' });
+  const [accept, setAccept] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api('POST', '/api/public/signup', { ...form, email: form.email || null, accept });
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-4 rounded-2xl bg-white p-6 text-zinc-900 shadow-2xl">
+      <div>
+        <h2 className="text-xl font-bold">Criar minha barbearia</h2>
+        <p className="text-sm text-zinc-500">{trialDays > 0 ? `${trialDays} dias grátis, sem cartão. ` : ''}Em 2 minutos você já está no painel.</p>
+      </div>
+      <Field label="Nome da barbearia">
+        <Input required value={form.shop_name} onChange={set('shop_name')} placeholder="Ex.: Barbearia do Zé" />
+      </Field>
+      <Field label="Seu nome">
+        <Input required autoComplete="name" value={form.name} onChange={set('name')} />
+      </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Celular (WhatsApp)" hint="É o seu login e onde chegam os avisos.">
+          <Input required type="tel" autoComplete="tel" value={form.phone} onChange={set('phone')} placeholder="(11) 99999-0000" />
+        </Field>
+        <Field label="E-mail (opcional)">
+          <Input type="email" autoComplete="email" value={form.email} onChange={set('email')} />
+        </Field>
+      </div>
+      <Field label="Senha" hint="Pelo menos 8 caracteres.">
+        <Input required type="password" autoComplete="new-password" value={form.password} onChange={set('password')} />
+      </Field>
+      <label className="flex items-start gap-2 text-sm text-zinc-600">
+        <input type="checkbox" className="mt-0.5 size-4" checked={accept} onChange={(e) => setAccept(e.target.checked)} />
+        <span>
+          Li e aceito os{' '}
+          <a href="/termos" target="_blank" rel="noreferrer" className="font-medium underline">
+            termos de uso
+          </a>{' '}
+          e a{' '}
+          <a href="/privacidade" target="_blank" rel="noreferrer" className="font-medium underline">
+            política de privacidade
+          </a>
+          .
+        </span>
+      </label>
+      <ErrorText error={error} />
+      <Button type="submit" loading={busy} disabled={!accept} className="w-full">
+        Criar minha barbearia
+      </Button>
+      <button type="button" className="w-full text-center text-sm font-medium text-zinc-500 hover:text-zinc-900" onClick={onBack}>
+        Já tenho conta: entrar
+      </button>
+    </form>
   );
 }
 

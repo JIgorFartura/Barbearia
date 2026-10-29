@@ -693,6 +693,8 @@ interface Revenue {
 interface Settings {
   grace_days: number;
   trial_days: number;
+  /** Barbearias podem criar a conta sozinhas pelo site. */
+  signup_enabled: boolean;
   pix_type: 'cpf' | 'celular' | 'email' | 'aleatoria';
   pix_key: string;
   pix_name: string;
@@ -946,6 +948,12 @@ function SettingsCard() {
             <Input type="number" min={0} max={365} value={s.trial_days} onChange={(e) => set('trial_days', Number(e.target.value))} />
           </Field>
         </div>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 size-4" checked={s.signup_enabled} onChange={(e) => set('signup_enabled', e.target.checked)} />
+          <span>
+            <b>Cadastro aberto no site</b>: a barbearia cria a conta sozinha e começa nos dias grátis. Você recebe um aviso no WhatsApp a cada cadastro.
+          </span>
+        </label>
         <ErrorText error={error} />
         <div className="flex items-center gap-3">
           <Button type="submit">Salvar</Button>

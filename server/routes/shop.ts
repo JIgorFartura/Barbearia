@@ -9,6 +9,7 @@ import { issueAccessLink } from '../customerAuth.js';
 import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
 import { addPhoto, customerProfile, deletePhoto, photoOf, saveNotes, sendPhoto, zNotes, zPhoto } from '../profile.js';
 import { customerByPhone } from '../messaging.js';
+import { importCustomers } from '../importCustomers.js';
 import { findVoucher, redeemVoucher, shopVouchers } from '../offers.js';
 import { dayAgenda } from '../scheduling.js';
 import { TIMEZONES, addDays, localNow } from '../time.js';
@@ -228,6 +229,21 @@ shopRouter.post('/customers', (req, res) => {
     nowIso(),
   ]);
   res.status(201).json(get('SELECT * FROM customers WHERE id = ?', [lastInsertRowid]));
+});
+
+/** Importação por planilha (o dono): até 5.000 clientes por vez. */
+shopRouter.post('/customers/import', (req, res) => {
+  const { rows } = parseBody(
+    z.object({
+      rows: z
+        .array(z.object({ name: zText(200), phone: zText(40), birth: zText(20) }))
+        .min(1, 'A planilha está vazia.')
+        .max(5000, 'Até 5.000 clientes por vez: divida a planilha.'),
+    }),
+    req.body,
+  );
+  const r = importCustomers(shopId(req), rows);
+  res.json({ ...r, skipped: r.skipped.slice(0, 200), skippedTotal: r.skipped.length });
 });
 
 shopRouter.get('/customers/:id', (req, res) => {

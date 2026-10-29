@@ -1,11 +1,12 @@
-import { CalendarCheck, Download, Gift, Link2, Minus, Plus, Receipt, Repeat, Search, Ticket, Trash2, Undo2, UserPlus, Users } from 'lucide-react';
+import { CalendarCheck, Download, FileUp, Gift, Link2, Minus, Plus, Receipt, Repeat, Search, Ticket, Trash2, Undo2, UserPlus, Users } from 'lucide-react';
 import { CheckoutModal } from '../../components/Checkout';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal } from '../../components/ui';
+import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
 import { WEEKDAYS, hourLabel, phone, stampLabel, whatsappLink } from '../../lib/format';
 import { StampCard, type Progress } from '../../components/StampCard';
 import { useDesk } from '../../lib/role';
+import { guessColumns, parseCsv, readCsvFile } from '../../lib/csv';
 
 interface Customer {
   id: number;
@@ -29,6 +30,8 @@ interface Detail {
 
 /** Balcão: acha o cliente pelo nome/celular, lança carimbos e entrega prêmios. */
 export function Counter() {
+  const desk = useDesk();
+  const [importing, setImporting] = useState(false);
   const [q, setQ] = useState('');
   const [list, setList] = useState<Customer[] | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -49,9 +52,16 @@ export function Counter() {
           <h1 className="text-2xl font-bold">Balcão</h1>
           <p className="text-sm text-zinc-500">Ache o cliente pelo nome ou celular e lance o consumo das campanhas.</p>
         </div>
-        <Button onClick={() => setCreating(true)}>
-          <UserPlus className="size-4" /> Novo cliente
-        </Button>
+        <div className="flex gap-2">
+          {!desk && (
+            <Button variant="ghost" onClick={() => setImporting(true)}>
+              <FileUp className="size-4" /> Importar planilha
+            </Button>
+          )}
+          <Button onClick={() => setCreating(true)}>
+            <UserPlus className="size-4" /> Novo cliente
+          </Button>
+        </div>
       </div>
 
       <VoucherCheck />
@@ -102,6 +112,15 @@ export function Counter() {
         </div>
       </div>
 
+      {importing && (
+        <ImportModal
+          onClose={() => setImporting(false)}
+          onDone={() => {
+            setQ('');
+            search('');
+          }}
+        />
+      )}
       {creating && (
         <NewCustomerModal
           onClose={() => setCreating(false)}
@@ -452,6 +471,139 @@ function RemoveCustomerModal({ id, name, onClose, onDone }: { id: number; name: 
           Excluir dados
         </Button>
       </div>
+    </Modal>
+  );
+}
+
+/**
+ * Importar clientes de uma planilha (CSV): nome, celular e, se tiver, o aniversário. Mostra as colunas
+ * que achou e as primeiras linhas antes de importar; quem já está cadastrado fica como está.
+ */
+function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [rows, setRows] = useState<string[][] | null>(null);
+  const [cols, setCols] = useState({ name: -1, phone: -1, birth: -1 });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ created: number; skipped: { line: number; name: string; reason: string }[]; skippedTotal: number } | null>(null);
+
+  async function pick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError(null);
+    const parsed = parseCsv(await readCsvFile(file));
+    if (parsed.length < 2) return setError('Não achei linhas nessa planilha. Salve como CSV e tente de novo.');
+    setRows(parsed);
+    setCols(guessColumns(parsed[0]));
+  }
+
+  async function send() {
+    if (!rows) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const cell = (r: string[], i: number) => (i >= 0 ? (r[i] ?? '').trim() : '');
+      const body = rows.slice(1).map((r) => ({ name: cell(r, cols.name), phone: cell(r, cols.phone), birth: cell(r, cols.birth) || null }));
+      setResult(await api('POST', '/api/shop/customers/import', { rows: body }));
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const header = rows?.[0] ?? [];
+  const select = (label: string, key: keyof typeof cols, optional = false) => (
+    <Field label={label}>
+      <select className={inputClass} value={cols[key]} onChange={(e) => setCols({ ...cols, [key]: Number(e.target.value) })}>
+        <option value={-1}>{optional ? '— não tem —' : '— escolha a coluna —'}</option>
+        {header.map((h, i) => (
+          <option key={i} value={i}>
+            {h || `Coluna ${i + 1}`}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+
+  return (
+    <Modal title="Importar clientes" onClose={onClose}>
+      {result ? (
+        <div className="space-y-3 text-sm">
+          <p className="rounded-xl bg-emerald-50 px-4 py-3 text-emerald-950 ring-1 ring-emerald-200">
+            ✅ <b>{result.created}</b> {result.created === 1 ? 'cliente importado' : 'clientes importados'}.
+            {result.skippedTotal > 0 && ` ${result.skippedTotal} ${result.skippedTotal === 1 ? 'linha pulada' : 'linhas puladas'}.`}
+          </p>
+          {result.skipped.length > 0 && (
+            <ul className="max-h-60 divide-y divide-zinc-100 overflow-y-auto text-xs">
+              {result.skipped.map((s) => (
+                <li key={s.line} className="flex justify-between gap-2 py-1">
+                  <span>
+                    Linha {s.line}
+                    {s.name ? ` · ${s.name}` : ''}
+                  </span>
+                  <span className="text-zinc-500">{s.reason}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Button className="w-full" onClick={onClose}>
+            Concluir
+          </Button>
+        </div>
+      ) : !rows ? (
+        <div className="space-y-3 text-sm">
+          <p className="text-zinc-600">
+            Use a planilha do sistema antigo, do Excel ou do Google Planilhas com as colunas <b>nome</b>, <b>celular</b> e, se tiver, <b>aniversário</b>. Salve em
+            CSV (Arquivo → Salvar como / Baixar → CSV).
+          </p>
+          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-zinc-300 px-4 py-8 text-zinc-500 hover:border-zinc-400">
+            <FileUp className="size-6" /> Escolher o arquivo CSV
+            <input type="file" accept=".csv,text/csv,.txt" className="hidden" onChange={pick} />
+          </label>
+          <p className="text-xs text-zinc-500">Quem já está cadastrado (mesmo celular) fica como está. Os clientes importados recebem o aviso de privacidade da barbearia na primeira conversa com o robô.</p>
+          <ErrorText error={error} />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm text-zinc-600">{rows.length - 1} linhas na planilha. Confira as colunas:</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {select('Nome', 'name')}
+            {select('Celular', 'phone')}
+            {select('Aniversário', 'birth', true)}
+          </div>
+          <div className="overflow-x-auto rounded-lg ring-1 ring-zinc-200">
+            <table className="w-full text-xs">
+              <thead className="bg-zinc-50 text-left text-zinc-500">
+                <tr>
+                  <th className="px-2 py-1.5">Nome</th>
+                  <th className="px-2 py-1.5">Celular</th>
+                  <th className="px-2 py-1.5">Aniversário</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.slice(1, 6).map((r, i) => (
+                  <tr key={i} className="border-t border-zinc-100">
+                    <td className="px-2 py-1.5">{cols.name >= 0 ? r[cols.name] : '—'}</td>
+                    <td className="px-2 py-1.5">{cols.phone >= 0 ? r[cols.phone] : '—'}</td>
+                    <td className="px-2 py-1.5">{cols.birth >= 0 ? r[cols.birth] : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <ErrorText error={error} />
+          <div className="flex gap-2">
+            <Button className="flex-1" loading={busy} disabled={cols.name < 0 || cols.phone < 0} onClick={send}>
+              Importar {rows.length - 1} {rows.length === 2 ? 'cliente' : 'clientes'}
+            </Button>
+            <Button variant="ghost" onClick={() => setRows(null)}>
+              Outro arquivo
+            </Button>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

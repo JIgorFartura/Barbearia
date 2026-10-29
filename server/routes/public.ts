@@ -13,6 +13,10 @@ import { customerByPhone, sendMessage, shopBot } from '../messaging.js';
 import { shopCardStatus } from '../cardSettings.js';
 import { legalInfo } from '../privacy.js';
 import { vapidKeys } from '../push.js';
+import { createSession } from '../auth.js';
+import { platformSettings } from '../billing.js';
+import { signup } from '../signup.js';
+import { zPassword } from './auth.js';
 
 /** Dados da landing page de cada barbearia (/b/:slug) e login da área do cliente — sem login. */
 export const publicRouter = Router();
@@ -31,6 +35,31 @@ function shopBySlug(slug: string): Shop & Record<string, unknown> {
   if (!shop) throw new HttpError(404, 'Barbearia não encontrada.');
   return shop;
 }
+
+// ---------- cadastro sozinho (barbearia nova, com os dias grátis)
+
+publicRouter.get('/signup', (_req, res) => {
+  const s = platformSettings();
+  res.json({ enabled: s.signup_enabled, trialDays: s.trial_days });
+});
+
+publicRouter.post('/signup', (req, res) => {
+  rateLimit(`signup:${req.ip}`, 3, 3600000, 'Muitos cadastros deste endereço. Tente de novo mais tarde.');
+  const body = parseBody(
+    z.object({
+      shop_name: z.string().trim().min(2, 'Informe o nome da barbearia.').max(80),
+      name: z.string().trim().min(2, 'Informe o seu nome.').max(80),
+      phone: z.string().max(30),
+      email: z.string().trim().toLowerCase().email('E-mail inválido.').nullish().or(z.literal('')),
+      password: zPassword,
+      accept: z.literal(true, 'Para criar a conta, aceite os termos de uso e a política de privacidade.'),
+    }),
+    req.body,
+  );
+  const r = signup({ shopName: body.shop_name, name: body.name, phone: body.phone, email: body.email || null, password: body.password });
+  createSession(res, r.userId);
+  res.status(201).json({ ok: true, slug: r.slug });
+});
 
 /** Chave pública dos avisos no celular (o navegador usa para se inscrever). */
 publicRouter.get('/push-key', (_req, res) => {

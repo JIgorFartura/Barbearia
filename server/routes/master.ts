@@ -290,6 +290,7 @@ masterRouter.put('/settings', (req, res) => {
     z.object({
       grace_days: z.number().int().min(0).max(60),
       trial_days: z.number().int().min(0).max(365),
+      signup_enabled: z.boolean().default(true),
       pix_type: z.enum(PIX_KEY_TYPES).nullish(),
       pix_key: z.string().trim().max(77),
       pix_name: z.string().trim().max(60),

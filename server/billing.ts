@@ -13,6 +13,8 @@ import { addDays, isoToLocal, localNow } from './time.js';
 export interface PlatformSettings {
   grace_days: number;
   trial_days: number;
+  /** A barbearia pode criar a conta sozinha pelo site (com os dias grátis). */
+  signup_enabled: boolean;
   pix_key: string;
   pix_name: string;
   pix_city: string;
@@ -24,6 +26,7 @@ export function platformSettings(): PlatformSettings {
   return {
     grace_days: Number(map.grace_days ?? 5),
     trial_days: Number(map.trial_days ?? 14),
+    signup_enabled: map.signup_enabled !== 'false',
     pix_key: map.pix_key ?? '',
     pix_name: map.pix_name ?? '',
     pix_city: map.pix_city ?? '',
