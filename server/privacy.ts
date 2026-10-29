@@ -2,6 +2,7 @@ import { shopNow } from './clock.js';
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { photoFilesOf, removePhotoFiles } from './profile.js';
+import { cancelAsaasChargeOf, cancelPixAuto } from './shopAsaas.js';
 import { purgeReceipts } from './receipts.js';
 
 /**
@@ -53,7 +54,7 @@ export function exportCustomerData(shopId: number, customerId: number) {
     barbearia: shop.name,
     cliente: get(
       `SELECT name AS nome, phone AS celular, birth_date AS nascimento, created_at AS cadastro, pref_weekday AS dia_costume, pref_time AS hora_costume,
-              reminders_opt_out AS nao_quer_lembretes, privacy_accepted_at AS aceitou_privacidade, notes AS anotacoes_da_barbearia
+              reminders_opt_out AS nao_quer_lembretes, privacy_accepted_at AS aceitou_privacidade, notes AS anotacoes_da_barbearia, cpf
          FROM customers WHERE id = ?`,
       [customerId],
     ),
@@ -113,6 +114,9 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
   assertCustomer(shopId, customerId);
   const phone = get<{ phone: string }>('SELECT phone FROM customers WHERE id = ?', [customerId])!.phone;
   const photos = photoFilesOf(customerId);
+  // Débito automático e cobranças no Asaas da barbearia: cancelados lá também (depois do banco).
+  const members = all<{ id: number }>("SELECT id FROM club_members WHERE customer_id = ? AND status <> 'cancelled'", [customerId]).map((m) => m.id);
+  const asaasCharges = all<{ id: number }>("SELECT id FROM charges WHERE customer_id = ? AND status = 'open' AND asaas_payment_id IS NOT NULL", [customerId]).map((c) => c.id);
   tx(() => {
     const stamp = shopNow(shopId, now).stamp;
     run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE customer_id = ? AND status = 'scheduled' AND starts_at >= ?", [nowIso(), customerId, stamp]);
@@ -126,6 +130,7 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
     run(
       `UPDATE customers SET name = 'Cliente removido', phone = ?, wa_id = NULL, pref_weekday = NULL, pref_time = NULL, pref_barber_id = NULL,
               pref_service_id = NULL, pref_interval_days = NULL, reminders_opt_out = 1, birth_date = NULL, referral_code = NULL, notes = NULL,
+              cpf = NULL, asaas_shop_customer_id = NULL,
               anonymized_at = ? WHERE id = ?`,
       [`removido-${customerId}`, nowIso(), customerId],
     );
@@ -133,6 +138,8 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
   // Os arquivos (comprovantes e fotos) saem depois que o banco já foi atualizado.
   purgeReceipts({ customerId });
   removePhotoFiles(photos);
+  for (const id of members) void cancelPixAuto(id);
+  for (const id of asaasCharges) void cancelAsaasChargeOf(id);
 }
 
 /** Limpeza diária: o que não precisa mais ser guardado (mensagens e comprovantes antigos, códigos usados, sessões vencidas). */

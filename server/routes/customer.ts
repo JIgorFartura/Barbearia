@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { charge, chargePix, claimCharge } from '../charges.js';
+import { charge, chargePix, claimCharge, type ChargeView } from '../charges.js';
+import { asaasChargePix, cancelPixAuto, pixAutoOn, saveCustomerCpf, startPixAuto } from '../shopAsaas.js';
 import { cancelMemberCard, payChargeByCard } from '../cards.js';
 import { shopCardStatus } from '../cardSettings.js';
 import { birthdayKey, customerReferral, growthSettings } from '../growth.js';
@@ -264,6 +265,17 @@ customerRouter.post('/delete-account', (req, res) => {
 
 // ---------- clube de assinatura
 
+/**
+ * O PIX da mensalidade: com o Asaas da barbearia, com baixa automática (pede o CPF uma vez); sem ele,
+ * o PIX da chave da barbearia, com o "já paguei" e o comprovante.
+ */
+async function clubPix(open: ChargeView) {
+  const auto = await asaasChargePix(open);
+  if (auto && 'payload' in auto) return { ...auto, needsCpf: false };
+  const manual = await chargePix(open);
+  return manual ? { ...manual, auto: false, needsCpf: Boolean(auto && 'needsCpf' in auto) } : auto && 'needsCpf' in auto ? { payload: null, qr: null, auto: false, needsCpf: true } : null;
+}
+
 async function clubState(shopId: number, customerId: number) {
   const member = customerMembership(shopId, customerId);
   const open = member?.open_charge ?? null;
@@ -286,7 +298,11 @@ async function clubState(shopId: number, customerId: number) {
       paid_until: member.paid_until,
       /** No cartão automático: a Cielo cobra sozinha todo mês. */
       card: member.card.active,
+      /** Pix Automático: ACTIVE = débito sozinho todo mês; CREATED = falta pagar o 1º QR. */
+      pixAuto: get<{ pix_auto_status: string | null }>('SELECT pix_auto_status FROM club_members WHERE id = ?', [member.id])?.pix_auto_status ?? null,
     },
+    /** A barbearia oferece o débito automático (Pix Automático). */
+    pixAutoOffered: pixAutoOn(shopId),
     charge: open && {
       id: open.id,
       description: open.description,
@@ -294,7 +310,7 @@ async function clubState(shopId: number, customerId: number) {
       due_date: open.due_date,
       claimed: Boolean(open.claimed_at),
       receipt: receiptInfo(open),
-      pix: await chargePix(open),
+      pix: await clubPix(open),
     },
     /** A barbearia aceita cartão (página segura da Cielo). */
     online: shopCardStatus(shopId).available,
@@ -341,6 +357,28 @@ customerRouter.get('/charges/:id/receipt', (req, res) => {
   const c = charge(idParam(req), shopId);
   if (c.customer_id !== customerId) throw new HttpError(404, 'Comprovante não encontrado.');
   sendReceipt(res, c);
+});
+
+/** CPF para o PIX com baixa automática (o Asaas pede). */
+customerRouter.put('/cpf', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const { cpf } = parseBody(z.object({ cpf: z.string().max(20) }), req.body);
+  saveCustomerCpf(shopId, customerId, cpf);
+  res.json(await clubState(shopId, customerId));
+});
+
+/** Ligar o débito automático: devolve o QR Code do 1º pagamento (que autoriza os próximos meses). */
+customerRouter.post('/club/pix-auto', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const r = await startPixAuto(shopId, customerId);
+  res.json({ ...(await clubState(shopId, customerId)), pixAutoStart: 'payload' in r ? r : null, needsCpf: 'needsCpf' in r });
+});
+
+customerRouter.delete('/club/pix-auto', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const member = customerMembership(shopId, customerId);
+  if (member) await cancelPixAuto(member.id);
+  res.json(await clubState(shopId, customerId));
 });
 
 customerRouter.post('/club/cancel', async (req, res) => {

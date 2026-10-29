@@ -1104,6 +1104,29 @@ const MIGRATIONS: (string | Rebuild)[] = [
   );
   CREATE INDEX shop_members_shop ON shop_members (barbershop_id);
   `,
+  // 22) Asaas da própria barbearia: PIX do clube com baixa automática e o clube no Pix Automático.
+  `
+  ALTER TABLE barbershops ADD COLUMN asaas_shop_env TEXT;
+  ALTER TABLE barbershops ADD COLUMN asaas_shop_key TEXT;
+  -- Segredo do aviso (webhook) desta barbearia: vai na URL e no token de autenticação do Asaas.
+  ALTER TABLE barbershops ADD COLUMN asaas_shop_token TEXT;
+  ALTER TABLE barbershops ADD COLUMN asaas_shop_webhook_at TEXT;
+  ALTER TABLE barbershops ADD COLUMN pix_auto_enabled INTEGER NOT NULL DEFAULT 0;
+  CREATE UNIQUE INDEX barbershops_asaas_shop_token ON barbershops (asaas_shop_token) WHERE asaas_shop_token IS NOT NULL;
+  -- CPF do cliente (o PIX com baixa automática pede) e o cadastro dele na conta Asaas da barbearia.
+  ALTER TABLE customers ADD COLUMN cpf TEXT;
+  ALTER TABLE customers ADD COLUMN asaas_shop_customer_id TEXT;
+  ALTER TABLE charges ADD COLUMN asaas_payment_id TEXT;
+  ALTER TABLE charges ADD COLUMN asaas_pix_payload TEXT;
+  ALTER TABLE charges ADD COLUMN asaas_pix_qr TEXT;
+  -- Débito agendado no Pix Automático (não vai PIX pelo WhatsApp: cai sozinho no vencimento).
+  ALTER TABLE charges ADD COLUMN auto_debit INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX charges_asaas ON charges (asaas_payment_id) WHERE asaas_payment_id IS NOT NULL;
+  -- Autorização do Pix Automático do assinante (e a mensalidade que o 1º pagamento quita).
+  ALTER TABLE club_members ADD COLUMN pix_auto_id TEXT;
+  ALTER TABLE club_members ADD COLUMN pix_auto_status TEXT;
+  ALTER TABLE club_members ADD COLUMN pix_auto_charge_id INTEGER;
+  `,
 ];
 
 function migrate(): void {

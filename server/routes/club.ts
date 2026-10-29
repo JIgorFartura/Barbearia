@@ -11,6 +11,8 @@ import { shopOnlinePayments } from '../gatewayPayments.js';
 import { cancelMemberCard } from '../cards.js';
 import { cieloWebhookUrl, saveShopCielo, secretHint, shopCardStatus, shopCielo } from '../cardSettings.js';
 import { CieloError, testCielo } from '../cielo.js';
+import { AsaasError } from '../asaas.js';
+import { saveShopAsaas, shopAsaasView, testShopAsaas } from '../shopAsaas.js';
 import { config } from '../config.js';
 import { get, run } from '../db.js';
 import { METHODS } from '../finance.js';
@@ -164,6 +166,31 @@ export function registerClubRoutes(router: Router): void {
     const shop = shopId(req);
     saveShopCielo(shop, body);
     res.json(cardView(shop));
+  });
+
+  // ---------- Asaas da barbearia: PIX do clube com baixa automática e Pix Automático
+
+  router.get('/asaas', (req, res) => {
+    res.json(shopAsaasView(shopId(req), config.appUrl));
+  });
+
+  router.put('/asaas', (req, res) => {
+    const body = parseBody(
+      z.object({ env: z.enum(['sandbox', 'production']), apiKey: zText(300), pixAuto: z.boolean(), disconnect: z.boolean().default(false) }),
+      req.body,
+    );
+    saveShopAsaas(shopId(req), body);
+    res.json(shopAsaasView(shopId(req), config.appUrl));
+  });
+
+  router.post('/asaas/test', async (req, res) => {
+    try {
+      await testShopAsaas(shopId(req));
+    } catch (err) {
+      if (err instanceof AsaasError) throw new HttpError(502, err.message);
+      throw err;
+    }
+    res.json({ ok: true });
   });
 
   /** Confere as credenciais na Cielo. */

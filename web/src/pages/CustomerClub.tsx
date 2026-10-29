@@ -29,7 +29,11 @@ interface ClubData {
     paid_until: string | null;
     /** No cartão automático: a Cielo cobra sozinha todo mês. */
     card: boolean;
+    /** Pix Automático: ACTIVE = débito sozinho todo mês; CREATED = falta pagar o PIX que autoriza. */
+    pixAuto: string | null;
   } | null;
+  /** A barbearia oferece o débito automático (Pix Automático). */
+  pixAutoOffered: boolean;
   charge: {
     id: number;
     description: string;
@@ -38,7 +42,8 @@ interface ClubData {
     claimed: boolean;
     /** Comprovante do PIX que ele mandou (a barbearia recebe uma cópia). */
     receipt: ReceiptInfo | null;
-    pix: { payload: string; qr: string } | null;
+    /** auto: PIX com baixa automática (Asaas da barbearia). needsCpf: falta o CPF para gerar esse PIX. */
+    pix: { payload: string | null; qr: string | null; auto: boolean; needsCpf: boolean } | null;
   } | null;
   /** A barbearia aceita cartão (página segura da Cielo). */
   online: boolean;
@@ -51,6 +56,9 @@ export function ClubSection({ slug, accent, onPaid }: { slug: string; accent: st
   const [data, setData] = useState<ClubData | null>(null);
   const [joining, setJoining] = useState<Plan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cpf, setCpf] = useState('');
+  const [askCpf, setAskCpf] = useState(false);
+  const [autoStart, setAutoStart] = useState<{ payload: string; qr: string } | null>(null);
   const load = useCallback(() => api<ClubData>('GET', `/api/customer/${slug}/club`).then(setData, () => undefined), [slug]);
   useEffect(() => {
     load();
@@ -79,6 +87,52 @@ export function ClubSection({ slug, accent, onPaid }: { slug: string; accent: st
       setError((err as Error).message);
     }
   }
+  async function saveCpf() {
+    setError(null);
+    try {
+      setData(await api<ClubData>('PUT', `/api/customer/${slug}/cpf`, { cpf }));
+      setAskCpf(false);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function pixAuto(on: boolean) {
+    setError(null);
+    try {
+      if (!on) {
+        if (!confirm('Desligar o débito automático? As próximas mensalidades chegam pelo WhatsApp com o PIX.')) return;
+        setData(await api<ClubData>('DELETE', `/api/customer/${slug}/club/pix-auto`));
+        return;
+      }
+      const r = await api<ClubData & { pixAutoStart: { payload: string; qr: string } | null; needsCpf: boolean }>('POST', `/api/customer/${slug}/club/pix-auto`);
+      setData(r);
+      if (r.needsCpf) setAskCpf(true);
+      else setAutoStart(r.pixAutoStart);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  const cpfForm = (
+    <div className="space-y-2 rounded-lg bg-white p-3 ring-1 ring-zinc-200">
+      <p className="text-sm text-zinc-700">Para o PIX com confirmação automática, o banco pede o seu CPF (só uma vez).</p>
+      <div className="flex gap-2">
+        <input
+          inputMode="numeric"
+          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+          placeholder="000.000.000-00"
+          value={cpf}
+          onChange={(e) => setCpf(e.target.value)}
+          aria-label="CPF"
+        />
+        <Button className="shrink-0" style={style} disabled={cpf.replace(/\D/g, '').length !== 11} onClick={saveCpf}>
+          Salvar
+        </Button>
+      </div>
+    </div>
+  );
+
   // Comprovante enviado: atualiza o clube e a lista de pagamentos.
   const receiptDone = (d: ClubData) => {
     setData(d);
@@ -128,6 +182,14 @@ export function ClubSection({ slug, accent, onPaid }: { slug: string; accent: st
             </p>
           )}
           {m.state === 'ending' && m.period && <p className="text-sm text-zinc-600">Você cancelou. O clube vale até {br(m.period.end)}.</p>}
+          {m.pixAuto === 'ACTIVE' && m.status !== 'cancelled' && (
+            <p className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              <span>⚡ Pix Automático ligado: a mensalidade é debitada sozinha no vencimento.</span>
+              <button className="text-xs text-emerald-800 underline" onClick={() => pixAuto(false)}>
+                Desligar
+              </button>
+            </p>
+          )}
 
           {c && (
             <div className="rounded-xl bg-zinc-50 p-4">
@@ -152,11 +214,34 @@ export function ClubSection({ slug, accent, onPaid }: { slug: string; accent: st
                     />
                   </p>
                 </div>
-              ) : c.pix || data.online ? (
+              ) : c.pix?.needsCpf && !c.pix.payload ? (
+                <div className="mt-3">{cpfForm}</div>
+              ) : c.pix?.auto && c.pix.payload && c.pix.qr ? (
                 <div className="mt-3 space-y-3">
-                  {c.pix && (
+                  <PixPay pix={{ payload: c.pix.payload, qr: c.pix.qr }} />
+                  <p className="text-center text-xs font-medium text-emerald-700">⚡ Confirmação automática: assim que você pagar, o clube é liberado.</p>
+                  {data.pixAutoOffered && !m.card && m.pixAuto !== 'ACTIVE' && (
+                    <button className="w-full rounded-lg px-4 py-2 text-sm font-semibold ring-1 ring-zinc-300 hover:bg-zinc-100" onClick={() => pixAuto(true)}>
+                      Prefiro o débito automático todo mês (Pix Automático)
+                    </button>
+                  )}
+                  {data.online && (
+                    <OnlinePayButton slug={slug} chargeId={c.id} label="Pagar no cartão (automático)" hint="Página segura da Cielo. Ela cobra sozinha todo mês; cancele quando quiser." />
+                  )}
+                </div>
+              ) : (c.pix?.payload && c.pix.qr) || data.online ? (
+                <div className="mt-3 space-y-3">
+                  {c.pix?.needsCpf &&
+                    (askCpf ? (
+                      cpfForm
+                    ) : (
+                      <button className="w-full rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 ring-1 ring-emerald-200" onClick={() => setAskCpf(true)}>
+                        ⚡ Quer que o clube seja liberado sozinho quando você pagar? Informe seu CPF
+                      </button>
+                    ))}
+                  {c.pix?.payload && c.pix.qr && (
                     <>
-                      <PixPay pix={c.pix} />
+                      <PixPay pix={{ payload: c.pix.payload, qr: c.pix.qr }} />
                       <ReceiptUpload<ClubData>
                         url={`/api/customer/${slug}/club/charges/${c.id}/receipt`}
                         label="Paguei: enviar comprovante"
@@ -174,7 +259,7 @@ export function ClubSection({ slug, accent, onPaid }: { slug: string; accent: st
                   )}
                   {data.online && (
                     <>
-                      {c.pix && <p className="text-center text-xs text-zinc-400">ou</p>}
+                      {c.pix?.payload && <p className="text-center text-xs text-zinc-400">ou</p>}
                       <OnlinePayButton
                         slug={slug}
                         chargeId={c.id}
@@ -262,6 +347,20 @@ export function ClubSection({ slug, accent, onPaid }: { slug: string; accent: st
               }}
             >
               Assinar e pagar
+            </Button>
+          </div>
+        </Modal>
+      )}
+      {autoStart && (
+        <Modal title="Débito automático (Pix Automático)" onClose={() => setAutoStart(null)}>
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-600">
+              Pague este PIX para autorizar o débito automático. No app do banco, confirme a autorização: nos próximos meses a mensalidade cai sozinha no
+              vencimento, e você cancela quando quiser (aqui ou no banco).
+            </p>
+            <PixPay pix={autoStart} />
+            <Button className="w-full" style={style} onClick={() => setAutoStart(null)}>
+              Pronto
             </Button>
           </div>
         </Modal>

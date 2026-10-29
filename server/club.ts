@@ -7,6 +7,7 @@ import type { Method } from './finance.js';
 import { HttpError } from './http.js';
 import { sendMessage, sendsTemplate, type ShopBot } from './messaging.js';
 import { addDays, daysBetween } from './time.js';
+import { PIX_AUTO_ADVANCE_DAYS, asaasChargePix, cancelAsaasChargeOf, cancelPixAuto, schedulePixAutoCharge } from './shopAsaas.js';
 
 /**
  * Clube de assinatura: o cliente paga um valor por mês e usa os serviços do plano sem pagar na hora,
@@ -316,7 +317,13 @@ export function cancelMembership(shopId: number, memberId: number, now: Date = n
     if (!m) throw new HttpError(404, 'Assinatura não encontrada.');
     if (m.status === 'cancelled') throw new HttpError(409, 'Essa assinatura já foi cancelada.');
     run("UPDATE club_members SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [now.toISOString(), memberId]);
+    const open = all<{ id: number }>("SELECT id FROM charges WHERE club_member_id = ? AND status = 'open' AND claimed_at IS NULL", [memberId]);
     run("UPDATE charges SET status = 'cancelled' WHERE club_member_id = ? AND status = 'open' AND claimed_at IS NULL", [memberId]);
+    // No Asaas também: a cobrança em aberto e o débito automático (depois da transação, sem travar).
+    queueMicrotask(() => {
+      for (const c of open) void cancelAsaasChargeOf(c.id);
+      void cancelPixAuto(memberId);
+    });
     return memberView(memberId, now);
   });
 }
@@ -366,7 +373,10 @@ export function clubCoverage(shopId: number, customerId: number, date: string): 
 export async function sendClubCharge(shop: ShopBot, chargeId: number, opts: { late?: boolean; cardFailed?: boolean } = {}): Promise<boolean> {
   const c = charge(chargeId, shop.id);
   if (!c.club_member_id || !c.due_date) return false;
-  const payload = chargePayload(c);
+  // Com o Asaas da barbearia, o PIX tem baixa automática (o cliente nem precisa avisar que pagou).
+  const auto = await asaasChargePix(c);
+  const autoPayload = auto && 'payload' in auto ? auto.payload : null;
+  const payload = autoPayload ?? chargePayload(c);
   const area = shopCardStatus(shop.id).available ? issueAccessLink(c.customer_id, shop.slug) : null;
   // Sem chave PIX e sem cartão, a barbearia cobra no balcão.
   if (!payload && !area) return false;
@@ -377,7 +387,9 @@ export async function sendClubCharge(shop: ShopBot, chargeId: number, opts: { la
   const first = firstName(c.customer_name);
   const label = clubLabel(plan);
   const how = payload
-    ? `O PIX copia e cola vai na próxima mensagem; depois de pagar, é só responder *paguei*.${area ? `\nPrefere cartão? Pague pela sua área: ${area}` : ''}`
+    ? `O PIX copia e cola vai na próxima mensagem; ${autoPayload ? 'assim que você pagar, o clube é liberado sozinho.' : 'depois de pagar, é só responder *paguei*.'}${
+        area ? `\nPrefere cartão? Pague pela sua área: ${area}` : ''
+      }`
     : `Pague com cartão pela sua área: ${area}`;
   const text = opts.cardFailed
     ? `Oi, ${first}! A cobrança da mensalidade do ${label} (${money(c.amount_cents)}) no cartão não passou. Enquanto isso, os benefícios do clube ficam pausados. ${how}`
@@ -409,12 +421,37 @@ export async function clubBilling(shop: ShopBot, now: Date): Promise<number> {
   const onCard = `EXISTS (SELECT 1 FROM card_links l WHERE l.club_member_id = m.id AND l.recurrent = 1 AND l.status = 'active')`;
   const renewing = all<{ id: number; paid_until: string }>(
     `SELECT m.id, m.paid_until FROM club_members m
-      WHERE m.barbershop_id = ? AND m.status = 'active' AND m.paid_until IS NOT NULL AND m.paid_until <= ? AND NOT ${onCard} ${withoutNext}`,
+      WHERE m.barbershop_id = ? AND m.status = 'active' AND m.paid_until IS NOT NULL AND m.paid_until <= ? AND NOT ${onCard}
+        AND COALESCE(m.pix_auto_status, '') <> 'ACTIVE' ${withoutNext}`,
     [shop.id, addDays(today, ADVANCE_DAYS)],
   );
   for (const m of renewing) {
     const chargeId = createClubCharge(m.id, addDays(m.paid_until, 1), now);
     if (await sendClubCharge(shop, chargeId)) sent++;
+  }
+
+  // Pix Automático: a cobrança vai para o Asaas uns dias antes (o banco agenda o débito e ele cai no
+  // vencimento). Se o agendamento falhar, a mensalidade sai pelo WhatsApp como sempre.
+  const onPixAuto = all<{ id: number; paid_until: string }>(
+    `SELECT m.id, m.paid_until FROM club_members m
+      WHERE m.barbershop_id = ? AND m.status = 'active' AND m.pix_auto_status = 'ACTIVE' AND m.paid_until IS NOT NULL AND m.paid_until <= ?
+        AND NOT ${onCard} ${withoutNext}`,
+    [shop.id, addDays(today, PIX_AUTO_ADVANCE_DAYS)],
+  );
+  for (const m of onPixAuto) {
+    const chargeId = createClubCharge(m.id, addDays(m.paid_until, 1), now);
+    if (await schedulePixAutoCharge(chargeId)) {
+      const c = charge(chargeId, shop.id);
+      const r = await sendMessage({
+        shop,
+        customerId: c.customer_id,
+        phone: c.phone,
+        waId: c.wa_id,
+        kind: 'assinatura',
+        text: `Oi, ${firstName(c.customer_name)}! A mensalidade do clube (${money(c.amount_cents)}) vai ser debitada sozinha pelo Pix Automático em ${br(c.due_date!)}. Não precisa fazer nada. 👊`,
+      });
+      if (r.status !== 'failed') sent++;
+    } else if (await sendClubCharge(shop, chargeId)) sent++;
   }
 
   // Cartão que não passou (a Cielo tenta de novo por alguns dias): depois disso, a mensalidade vai
