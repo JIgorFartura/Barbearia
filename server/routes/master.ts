@@ -35,8 +35,9 @@ import { PROVIDERS, zEvolutionConfig, zMetaConfig } from '../whatsapp.js';
 import { config } from '../config.js';
 import { all, get, nowIso, run, tx } from '../db.js';
 import { HttpError, idParam, normalizePhone, parseBody, zId, zText } from '../http.js';
-import { addDays, isDate, localNow } from '../time.js';
+import { isDate, localNow } from '../time.js';
 import { zPassword } from './auth.js';
+import { assertFreeEmail, assertFreePhone, assertFreeSlug, createShop, linkOwner, zSlug } from '../shops.js';
 
 /**
  * Painel do dono da plataforma: cadastra cada barbearia (o "inquilino") e o login do dono dela,
@@ -44,12 +45,6 @@ import { zPassword } from './auth.js';
  */
 export const masterRouter = Router();
 masterRouter.use(requireRole('master'));
-
-const zSlug = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .regex(/^[a-z0-9](?:[a-z0-9-]{1,48}[a-z0-9])$/, 'Endereço só com letras minúsculas, números e hífen (ex.: barbearia-do-ze).');
 
 const zOwner = z.object({
   ownerName: z.string().trim().min(2, 'Informe o nome do dono.'),
@@ -60,20 +55,6 @@ const zOwner = z.object({
 });
 
 const ownerPhone = (raw: string | null | undefined) => (raw?.trim() ? normalizePhone(raw) : null);
-
-function assertFreePhone(phone: string | null, exceptId = 0): void {
-  if (phone && get('SELECT 1 AS ok FROM users WHERE phone = ? AND id <> ?', [phone, exceptId])) throw new HttpError(409, 'Esse celular já está em outro login.');
-}
-
-function assertFreeSlug(slug: string, exceptId = 0): void {
-  if (get('SELECT 1 AS ok FROM barbershops WHERE slug = ? AND id <> ?', [slug, exceptId])) {
-    throw new HttpError(409, 'Esse endereço já é usado por outra barbearia.');
-  }
-}
-
-function assertFreeEmail(email: string): void {
-  if (get('SELECT 1 AS ok FROM users WHERE email = ?', [email])) throw new HttpError(409, 'Já existe um usuário com esse e-mail.');
-}
 
 /**
  * Barbearias para o controle geral: cadastro, logins dos donos, mensalidade, conexão do WhatsApp e
@@ -154,22 +135,18 @@ masterRouter.post('/shops', (req, res) => {
     req.body,
   );
   assertPlan(body.plan_id ?? null);
-  const trialDays = body.trial_days ?? platformSettings().trial_days;
-  const trialUntil = trialDays > 0 ? addDays(localNow().date, trialDays) : null;
   const phone = ownerPhone(body.ownerPhone);
   const id = tx(() => {
-    assertFreeSlug(body.slug);
     assertFreeEmail(body.ownerEmail);
     assertFreePhone(phone);
-    const shop = run('INSERT INTO barbershops (slug, name, plan_id, monthly_price_cents, billing_day, trial_until, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [
-      body.slug,
-      body.name,
-      body.plan_id ?? null,
-      body.monthly_price_cents ?? null,
-      body.billing_day ?? 10,
-      trialUntil,
-      nowIso(),
-    ]).lastInsertRowid;
+    const shop = createShop({
+      name: body.name,
+      slug: body.slug,
+      planId: body.plan_id ?? null,
+      monthlyPriceCents: body.monthly_price_cents ?? null,
+      billingDay: body.billing_day ?? 10,
+      trialDays: body.trial_days ?? null,
+    });
     run("INSERT INTO users (barbershop_id, role, name, email, phone, password_hash, created_at) VALUES (?, 'owner', ?, ?, ?, ?, ?)", [
       shop,
       body.ownerName,
@@ -210,6 +187,17 @@ masterRouter.post('/shops/:id/owners', (req, res) => {
     hashPassword(body.ownerPassword),
     nowIso(),
   ]);
+  res.status(201).json({ ok: true });
+});
+
+/** Rede com filiais: liga o dono (já cadastrado) de outra unidade a esta barbearia. */
+masterRouter.post('/shops/:id/link-owner', (req, res) => {
+  const id = idParam(req);
+  const { email } = parseBody(z.object({ email: z.string().trim().toLowerCase().email('E-mail inválido.') }), req.body);
+  if (!get('SELECT 1 AS ok FROM barbershops WHERE id = ?', [id])) throw new HttpError(404, 'Barbearia não encontrada.');
+  const owner = get<{ id: number; barbershop_id: number }>("SELECT id, barbershop_id FROM users WHERE email = ? AND role = 'owner'", [email]);
+  if (!owner) throw new HttpError(404, 'Nenhum dono de barbearia com esse e-mail.');
+  if (owner.barbershop_id !== id) linkOwner(owner.id, id);
   res.status(201).json({ ok: true });
 });
 

@@ -12,6 +12,7 @@ import { idleOffers } from './idle.js';
 import { pushTo } from './push.js';
 import { weeklySummary } from './manager.js';
 import { notifyOwners } from './platform.js';
+import { shopOwnerIds } from './shops.js';
 import { errorAlerts } from './errors.js';
 import { invoiceReminders } from './invoiceReminders.js';
 import { accessStatus, ensureInvoices } from './billing.js';
@@ -300,7 +301,7 @@ async function sendWeeklySummary(shop: ShopBot, now: Date): Promise<number> {
   const msg = weeklySummary(shop, now);
   if (!msg) return 0;
   const sent = await notifyOwners(shop.id, msg.text, msg.template, { kind: 'resumo' });
-  const owners = all<{ id: number }>("SELECT id FROM users WHERE barbershop_id = ? AND role = 'owner'", [shop.id]).map((u) => u.id);
+  const owners = shopOwnerIds(shop.id);
   await pushTo({ shopId: shop.id, userIds: owners }, { ...msg.push, url: '/painel/relatorios', tag: 'resumo-semana' }).catch((err) => console.error('[aviso no celular]', err));
   return sent ? 1 : 0;
 }

@@ -1070,6 +1070,40 @@ const MIGRATIONS: (string | Rebuild)[] = [
   -- Parte da venda paga com vale-presente (não é dinheiro novo no caixa: entrou quando o vale foi vendido).
   ALTER TABLE sales ADD COLUMN gift_cents INTEGER NOT NULL DEFAULT 0;
   `,
+  // 20) Recepção: login com agenda e balcão, sem o financeiro nem as configurações.
+  {
+    rebuild: `
+    CREATE TABLE users_new (
+      id INTEGER PRIMARY KEY,
+      barbershop_id INTEGER REFERENCES barbershops(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('master', 'owner', 'barber', 'reception')),
+      name TEXT NOT NULL,
+      email TEXT UNIQUE COLLATE NOCASE,
+      phone TEXT,
+      barber_id INTEGER REFERENCES barbers(id) ON DELETE CASCADE,
+      password_hash TEXT NOT NULL,
+      terms_accepted_at TEXT,
+      created_at TEXT NOT NULL,
+      CHECK (email IS NOT NULL OR phone IS NOT NULL)
+    );
+    INSERT INTO users_new (id, barbershop_id, role, name, email, phone, barber_id, password_hash, terms_accepted_at, created_at)
+      SELECT id, barbershop_id, role, name, email, phone, barber_id, password_hash, terms_accepted_at, created_at FROM users;
+    DROP TABLE users;
+    ALTER TABLE users_new RENAME TO users;
+    CREATE UNIQUE INDEX users_phone ON users (phone) WHERE phone IS NOT NULL;
+    CREATE UNIQUE INDEX users_barber ON users (barber_id) WHERE barber_id IS NOT NULL;
+    `,
+  },
+  // 21) Redes: o dono com mais de uma unidade (a casa dele fica em users.barbershop_id; as outras aqui).
+  `
+  CREATE TABLE shop_members (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, barbershop_id)
+  );
+  CREATE INDEX shop_members_shop ON shop_members (barbershop_id);
+  `,
 ];
 
 function migrate(): void {

@@ -1,6 +1,6 @@
 import type { Request, Router } from 'express';
 import { z } from 'zod';
-import { shopId } from '../auth.js';
+import { isReception, shopId } from '../auth.js';
 import { accessStatus, billingInfo, informPayment, invoice, invoicePix, listInvoices, saveBillingInfo, shopBilling, monthlyPrice } from '../billing.js';
 import { asaasEnabled, asaasPix, chargeInvoice } from '../asaas.js';
 import { cancelSubscriptionCard, subscriptionCardLink, subscriptionCardState } from '../cards.js';
@@ -58,20 +58,24 @@ export function registerFinanceRoutes(router: Router): void {
   router.get('/status', (req, res) => {
     const shop = shopId(req);
     const status = accessStatus(shop);
+    // Recepção: sem mensalidade nem conferência de PIX (são do dono).
+    const desk = isReception(req);
     res.json({
       active: Boolean(get<{ active: number }>('SELECT active FROM barbershops WHERE id = ?', [shop])?.active),
       blocked: status.blocked,
-      blockOn: status.blockOn,
-      openInvoices: status.open.length,
-      overdue: status.open.some((i) => i.overdue),
-      trialUntil: status.trialUntil,
+      blockOn: desk ? null : status.blockOn,
+      openInvoices: desk ? 0 : status.open.length,
+      overdue: !desk && status.open.some((i) => i.overdue),
+      trialUntil: desk ? null : status.trialUntil,
       whatsapp: connectionInfo(shop),
-      pixToConfirm: get<{ n: number }>("SELECT COUNT(*) AS n FROM charges WHERE barbershop_id = ? AND status = 'open' AND claimed_at IS NOT NULL", [shop])!.n,
+      pixToConfirm: desk ? 0 : get<{ n: number }>("SELECT COUNT(*) AS n FROM charges WHERE barbershop_id = ? AND status = 'open' AND claimed_at IS NOT NULL", [shop])!.n,
       // Desses, quantos vieram com o comprovante.
-      receiptsToConfirm: get<{ n: number }>(
-        "SELECT COUNT(*) AS n FROM charges WHERE barbershop_id = ? AND status = 'open' AND claimed_at IS NOT NULL AND receipt_file IS NOT NULL",
-        [shop],
-      )!.n,
+      receiptsToConfirm: desk
+        ? 0
+        : get<{ n: number }>(
+            "SELECT COUNT(*) AS n FROM charges WHERE barbershop_id = ? AND status = 'open' AND claimed_at IS NOT NULL AND receipt_file IS NOT NULL",
+            [shop],
+          )!.n,
       announcements: all("SELECT id, title, body, level, created_at FROM announcements WHERE active = 1 ORDER BY id DESC LIMIT 5"),
     });
   });
@@ -266,6 +270,8 @@ export function registerFinanceRoutes(router: Router): void {
       method: body.method,
       notes: body.notes,
     });
+    // A recepção registra a venda, mas a comissão de cada barbeiro é assunto do dono.
+    if (isReception(req)) result.sale.items = result.sale.items.map((i) => ({ ...i, commission_cents: 0 }));
     res.status(201).json(result);
   });
 

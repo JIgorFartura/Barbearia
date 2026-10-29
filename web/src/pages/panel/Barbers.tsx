@@ -240,7 +240,129 @@ export function Barbers() {
           }}
         />
       )}
+      <ReceptionCard />
     </section>
+  );
+}
+
+interface DeskUser {
+  id: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+}
+
+/** Logins da recepção: agenda, balcão e comanda, sem o financeiro, os relatórios e as configurações. */
+function ReceptionCard() {
+  const [list, setList] = useState<DeskUser[] | null>(null);
+  const [form, setForm] = useState<{ name: string; phone: string; email: string; password: string } | null>(null);
+  const [reset, setReset] = useState<{ user: DeskUser; password: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<DeskUser[]>('GET', '/api/shop/reception').then(setList, (e) => setError(e.message));
+  }, []);
+
+  async function run(p: Promise<DeskUser[]>, after: () => void) {
+    setBusy(true);
+    setError(null);
+    try {
+      setList(await p);
+      after();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    if (!form) return;
+    await run(api<DeskUser[]>('POST', '/api/shop/reception', { ...form, email: form.email || null }), () => setForm(null));
+  }
+
+  return (
+    <Card className="mt-6 space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="flex items-center gap-2 font-semibold">
+            <KeyRound className="size-5 text-zinc-400" /> Recepção
+          </p>
+          <p className="text-sm text-zinc-500">
+            Login para quem fica no balcão: agenda, clientes, carimbos, comanda e venda de pacote e vale-presente. Não vê o caixa, os relatórios, as comissões
+            nem as configurações.
+          </p>
+        </div>
+        {!form && (
+          <Button variant="ghost" onClick={() => setForm({ name: '', phone: '', email: '', password: '' })}>
+            <Plus className="size-4" /> Novo login da recepção
+          </Button>
+        )}
+      </div>
+      {form && (
+        <form onSubmit={add} className="grid gap-3 rounded-xl bg-zinc-50 p-3 sm:grid-cols-2">
+          <Field label="Nome">
+            <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </Field>
+          <Field label="Celular (é o login)">
+            <Input required type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="(11) 99999-0000" />
+          </Field>
+          <Field label="E-mail (opcional)">
+            <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          </Field>
+          <Field label="Senha" hint="Pelo menos 8 caracteres.">
+            <Input required type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          </Field>
+          <div className="flex gap-2 sm:col-span-2">
+            <Button loading={busy}>Criar login</Button>
+            <Button type="button" variant="ghost" onClick={() => setForm(null)}>
+              Cancelar
+            </Button>
+          </div>
+        </form>
+      )}
+      <ErrorText error={error} />
+      {list && list.length === 0 && !form && <p className="text-sm text-zinc-400">Nenhum login da recepção ainda.</p>}
+      <ul className="divide-y divide-zinc-100 text-sm">
+        {list?.map((u) => (
+          <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+            <span>
+              <b>{u.name}</b> <span className="text-zinc-500">· {u.phone ? phone(u.phone) : u.email}</span>
+            </span>
+            <span className="flex items-center gap-3 text-xs">
+              <button className="text-zinc-500 hover:text-zinc-900" onClick={() => setReset({ user: u, password: '' })}>
+                Trocar senha
+              </button>
+              <button
+                className="text-red-600 hover:underline"
+                onClick={() => confirm(`Tirar o acesso de ${u.name}?`) && run(api<DeskUser[]>('DELETE', `/api/shop/reception/${u.id}`), () => undefined)}
+              >
+                Tirar acesso
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {reset && (
+        <Modal title={`Nova senha de ${reset.user.name}`} onClose={() => setReset(null)}>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(api<DeskUser[]>('PUT', `/api/shop/reception/${reset.user.id}/password`, { password: reset.password }), () => setReset(null));
+            }}
+          >
+            <Field label="Nova senha" hint="Pelo menos 8 caracteres. Quem estava logado precisa entrar de novo.">
+              <Input type="password" autoComplete="new-password" value={reset.password} onChange={(e) => setReset({ ...reset, password: e.target.value })} />
+            </Field>
+            <Button loading={busy} disabled={reset.password.length < 8}>
+              Salvar
+            </Button>
+          </form>
+        </Modal>
+      )}
+    </Card>
   );
 }
 

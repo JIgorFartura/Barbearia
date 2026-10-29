@@ -6,6 +6,7 @@ import { Badge, Button, Card, ErrorText, Field, Input, Modal, inputClass } from 
 import { api } from '../../lib/api';
 import { METHODS, parseMoney, type Method } from '../../lib/finance';
 import { date, money, phone } from '../../lib/format';
+import { useDesk } from '../../lib/role';
 
 interface SoldPackage {
   id: number;
@@ -227,6 +228,8 @@ function SellGiftModal({ shopName, onClose, onDone }: { shopName: string; onClos
 
 /** Pacotes pré-pagos e vale-presente: vender, acompanhar e cadastrar os pacotes. */
 export function Prepaid({ shopName }: { shopName: string }) {
+  // A recepção vende e confere; o cadastro dos pacotes (preços) é do dono.
+  const desk = useDesk();
   const [tab, setTab] = useState<'vendas' | 'cadastro'>('vendas');
   const [catalog, setCatalog] = useState<Row[]>([]);
   const [packages, setPackages] = useState<Row[]>([]);
@@ -275,7 +278,9 @@ export function Prepaid({ shopName }: { shopName: string }) {
             ['vendas', 'Vendidos'],
             ['cadastro', `Pacotes à venda (${packages.length})`],
           ] as const
-        ).map(([id, label]) => (
+        )
+          .filter(([id]) => !desk || id === 'vendas')
+          .map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}

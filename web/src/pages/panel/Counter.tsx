@@ -5,6 +5,7 @@ import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal } from 
 import { api } from '../../lib/api';
 import { WEEKDAYS, hourLabel, phone, stampLabel, whatsappLink } from '../../lib/format';
 import { StampCard, type Progress } from '../../components/StampCard';
+import { useDesk } from '../../lib/role';
 
 interface Customer {
   id: number;
@@ -117,6 +118,7 @@ export function Counter() {
 }
 
 function CustomerDetail({ id, onChange, onRemoved }: { id: number; onChange: () => void; onRemoved: () => void }) {
+  const desk = useDesk();
   const [data, setData] = useState<Detail | null>(null);
   const [removing, setRemoving] = useState(false);
   const [qty, setQty] = useState<Record<number, number>>({});
@@ -177,14 +179,17 @@ function CustomerDetail({ id, onChange, onRemoved }: { id: number; onChange: () 
             onChange();
           }}
         />
-        <p className="mt-3 flex flex-wrap gap-4 border-t border-zinc-100 pt-3 text-xs">
-          <a href={`/api/shop/customers/${id}/export`} download className="inline-flex items-center gap-1 font-medium text-zinc-500 hover:text-zinc-900">
-            <Download className="size-3.5" /> Exportar dados (LGPD)
-          </a>
-          <button className="inline-flex items-center gap-1 font-medium text-zinc-500 hover:text-red-600" onClick={() => setRemoving(true)}>
-            <Trash2 className="size-3.5" /> Excluir dados a pedido do cliente
-          </button>
-        </p>
+        {/* LGPD (cópia e exclusão dos dados): só o dono. */}
+        {!desk && (
+          <p className="mt-3 flex flex-wrap gap-4 border-t border-zinc-100 pt-3 text-xs">
+            <a href={`/api/shop/customers/${id}/export`} download className="inline-flex items-center gap-1 font-medium text-zinc-500 hover:text-zinc-900">
+              <Download className="size-3.5" /> Exportar dados (LGPD)
+            </a>
+            <button className="inline-flex items-center gap-1 font-medium text-zinc-500 hover:text-red-600" onClick={() => setRemoving(true)}>
+              <Trash2 className="size-3.5" /> Excluir dados a pedido do cliente
+            </button>
+          </p>
+        )}
       </Card>
       {removing && <RemoveCustomerModal id={id} name={data.customer.name} onClose={() => setRemoving(false)} onDone={onRemoved} />}
       {flash && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">{flash}</p>}

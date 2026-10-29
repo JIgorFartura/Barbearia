@@ -1,13 +1,13 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { requireRole, shopId } from '../auth.js';
+import { isReception, requireShopStaff, shopId } from '../auth.js';
 import { shopNow, shopTz } from '../clock.js';
 import { all, get, nowIso, run } from '../db.js';
 import { HttpError, idParam, normalizePhone, parseBody, zBool, zCents, zColor, zDate, zId, zText, zUrl } from '../http.js';
 import { addStamps, customerCard, isRunning, redeemReward, type Campaign } from '../loyalty.js';
 import { issueAccessLink } from '../customerAuth.js';
 import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
-import { addPhoto, customerProfile, deletePhoto, saveNotes, sendPhoto, zNotes, zPhoto } from '../profile.js';
+import { addPhoto, customerProfile, deletePhoto, photoOf, saveNotes, sendPhoto, zNotes, zPhoto } from '../profile.js';
 import { customerByPhone } from '../messaging.js';
 import { findVoucher, redeemVoucher, shopVouchers } from '../offers.js';
 import { dayAgenda } from '../scheduling.js';
@@ -21,13 +21,14 @@ import { registerStockRoutes } from './stock.js';
 import { registerClubRoutes } from './club.js';
 import { registerReportRoutes } from './reports.js';
 import { registerPrepaidRoutes } from './prepaid.js';
+import { registerTeamRoutes } from './team.js';
 import { lowStock } from '../stock.js';
 import { reviewsOverview, shopRating } from '../reviews.js';
 import { shopCardStatus } from '../cardSettings.js';
 
 /** Painel do dono da barbearia. Tudo aqui é filtrado pela barbearia do usuário logado. */
 export const shopRouter = Router();
-shopRouter.use(requireRole('owner'));
+shopRouter.use(requireShopStaff);
 // Barbearia suspensa ou com mensalidade em atraso: só a situação e a mensalidade.
 shopRouter.use((req, _res, next) => {
   if (req.path === '/status' || req.path.startsWith('/subscription')) return next();
@@ -43,6 +44,7 @@ registerStockRoutes(shopRouter);
 registerClubRoutes(shopRouter);
 registerReportRoutes(shopRouter);
 registerPrepaidRoutes(shopRouter);
+registerTeamRoutes(shopRouter);
 
 // ---------- marca (o que aparece na landing page)
 
@@ -266,21 +268,24 @@ shopRouter.post('/customers/:id/anonymize', (req, res) => {
 
 // ---------- ficha do cliente: anotações das preferências e fotos do corte
 
+// A recepção apaga só as fotos que ela mesma tirou.
+const profileOpts = (req: Request) => (isReception(req) ? { userId: req.user!.id } : {});
+
 shopRouter.get('/customers/:id/profile', (req, res) => {
-  res.json(customerProfile(shopId(req), idParam(req)));
+  res.json(customerProfile(shopId(req), idParam(req), profileOpts(req)));
 });
 
 shopRouter.put('/customers/:id/notes', (req, res) => {
   const { notes } = parseBody(zNotes, req.body);
   saveNotes(shopId(req), idParam(req), notes);
-  res.json(customerProfile(shopId(req), idParam(req)));
+  res.json(customerProfile(shopId(req), idParam(req), profileOpts(req)));
 });
 
 shopRouter.post('/customers/:id/photos', (req, res) => {
   const body = parseBody(zPhoto, req.body);
   const shop = shopId(req);
   addPhoto({ shopId: shop, customerId: idParam(req), dataUrl: body.dataUrl, thumbUrl: body.thumbUrl, appointmentId: body.appointment_id, note: body.note, userId: req.user!.id });
-  res.status(201).json(customerProfile(shop, idParam(req)));
+  res.status(201).json(customerProfile(shop, idParam(req), profileOpts(req)));
 });
 
 shopRouter.get('/photos/:id', (req, res) => {
@@ -288,6 +293,7 @@ shopRouter.get('/photos/:id', (req, res) => {
 });
 
 shopRouter.delete('/photos/:id', (req, res) => {
+  if (isReception(req) && photoOf(shopId(req), idParam(req)).created_by !== req.user!.id) throw new HttpError(403, 'Só quem tirou a foto (ou o dono) pode apagar.');
   deletePhoto(shopId(req), idParam(req));
   res.json({ ok: true });
 });

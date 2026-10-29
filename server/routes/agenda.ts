@@ -1,6 +1,6 @@
 import type { Router } from 'express';
 import { z } from 'zod';
-import { hashPassword, shopId } from '../auth.js';
+import { hashPassword, isReception, shopId } from '../auth.js';
 import { zPassword } from './auth.js';
 import { customerHabit } from '../habits.js';
 import { all, get, nowIso, run, tx } from '../db.js';
@@ -231,7 +231,11 @@ export function registerAgendaRoutes(router: Router): void {
       // Ficha do cliente (o jeito que ele gosta e as fotos dos cortes).
       profile: profileSummary(a.customer_id),
     }));
-    res.json({ date, barbers: barbersWithHours(shop).filter((b) => b.active), appointments, blocks, waitlist: shopWaitlist(shop, date) });
+    // Recepção: só o nome e o expediente de cada barbeiro (sem comissões nem os logins).
+    const barbers = barbersWithHours(shop)
+      .filter((b) => b.active)
+      .map((b) => (isReception(req) ? { id: b.id, name: b.name, photo_url: b.photo_url, active: b.active, hours: b.hours, blocks: b.blocks } : b));
+    res.json({ date, barbers, appointments, blocks, waitlist: shopWaitlist(shop, date) });
   });
 
   // ---------- lista de espera (o dono vê a fila do dia, coloca quem ligou e tira quem desistiu)

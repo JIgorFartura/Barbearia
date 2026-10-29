@@ -19,7 +19,7 @@ export interface Me {
     name: string;
     email: string | null;
     phone: string | null;
-    role: 'master' | 'owner' | 'barber';
+    role: 'master' | 'owner' | 'barber' | 'reception';
     barbershopId: number | null;
     barberId: number | null;
     termsAccepted: boolean;
@@ -57,7 +57,7 @@ function Routes() {
 
   if (!me) return null;
   if (me.user?.role === 'master') return <Master me={me} onLogout={refresh} />;
-  if (me.user?.role === 'owner') return <Panel me={me} onLogout={refresh} />;
+  if (me.user?.role === 'owner' || me.user?.role === 'reception') return <Panel me={me} onLogout={refresh} />;
   if (me.user?.role === 'barber') return <BarberApp me={me} onLogout={refresh} />;
   return <Home me={me} onLogin={refresh} />;
 }

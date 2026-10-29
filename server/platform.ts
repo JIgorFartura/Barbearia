@@ -92,9 +92,12 @@ export async function notifyOwners(
   template: TemplateUse | null = null,
   opts: { includeMaster?: boolean; kind?: PlatformKind } = {},
 ): Promise<number> {
+  // Donos da unidade: a casa do login ou uma unidade ligada a ele (rede com filiais).
   const people = all<{ id: number; phone: string }>(
-    `SELECT id, phone FROM users WHERE phone IS NOT NULL AND ((barbershop_id = ? AND role = 'owner')${opts.includeMaster ? " OR role = 'master'" : ''})`,
-    [shopId],
+    `SELECT id, phone FROM users WHERE phone IS NOT NULL AND ((role = 'owner' AND (barbershop_id = :s OR id IN (SELECT user_id FROM shop_members WHERE barbershop_id = :s)))${
+      opts.includeMaster ? " OR role = 'master'" : ''
+    })`,
+    { s: shopId },
   );
   let sent = 0;
   for (const p of people) {

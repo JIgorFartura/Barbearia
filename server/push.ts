@@ -188,10 +188,8 @@ export async function pushTo(target: { shopId: number; userIds?: number[]; custo
   const subs: SubRow[] = [];
   if (target.userIds?.length) {
     subs.push(
-      ...all<SubRow>(`SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE barbershop_id = ? AND user_id IN (${target.userIds.map(() => '?').join(', ')})`, [
-        target.shopId,
-        ...target.userIds,
-      ]),
+      // Logins já vêm da barbearia certa (o dono de uma rede recebe de todas as unidades dele).
+      ...all<SubRow>(`SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id IN (${target.userIds.map(() => '?').join(', ')})`, target.userIds),
     );
   }
   if (target.customerId) {
@@ -215,11 +213,12 @@ interface BookedView {
 
 const when = (stamp: string) => `${stamp.slice(8, 10)}/${stamp.slice(5, 7)} às ${stamp.slice(11)}`;
 
-/** Quem recebe os avisos da agenda: o barbeiro do horário e, se não foi o dono que mexeu, os donos. */
+/** Quem recebe os avisos da agenda: o barbeiro do horário e, se não foi o painel que mexeu, os donos (de todas as unidades da rede) e a recepção. */
 function agendaUsers(shopId: number, barberId: number, byOwner: boolean): number[] {
   return all<{ id: number }>(
-    `SELECT id FROM users WHERE barbershop_id = ? AND ((role = 'barber' AND barber_id = ?) OR (role = 'owner' AND ? = 0))`,
-    [shopId, barberId, byOwner ? 1 : 0],
+    `SELECT id FROM users WHERE (barbershop_id = :s AND role = 'barber' AND barber_id = :b)
+        OR (:panel = 0 AND role IN ('owner', 'reception') AND (barbershop_id = :s OR id IN (SELECT user_id FROM shop_members WHERE barbershop_id = :s)))`,
+    { s: shopId, b: barberId, panel: byOwner ? 1 : 0 },
   ).map((u) => u.id);
 }
 

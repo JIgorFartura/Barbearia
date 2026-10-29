@@ -43,9 +43,10 @@ export async function invoiceReminders(now: Date = new Date()): Promise<number> 
     const late = inv.due_date < n.date;
     run(`UPDATE invoices SET ${late ? 'overdue_reminded_at' : 'reminded_at'} = ? WHERE id = ?`, [now.toISOString(), inv.id]);
     if (inv.card && !late) continue;
-    const owners = all<{ id: number; name: string; phone: string }>("SELECT id, name, phone FROM users WHERE barbershop_id = ? AND role = 'owner' AND phone IS NOT NULL", [
-      inv.barbershop_id,
-    ]);
+    const owners = all<{ id: number; name: string; phone: string }>(
+      "SELECT id, name, phone FROM users WHERE role = 'owner' AND phone IS NOT NULL AND (barbershop_id = :s OR id IN (SELECT user_id FROM shop_members WHERE barbershop_id = :s))",
+      { s: inv.barbershop_id },
+    );
     for (const o of owners) {
       const how = auto ? 'pelo PIX da tela Mensalidade, no painel (a baixa é automática)' : 'pelo painel, na tela Mensalidade';
       const text = inv.card

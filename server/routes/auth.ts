@@ -5,6 +5,7 @@ import { get, nowIso, run } from '../db.js';
 import { HttpError, normalizePhone, parseBody, rateLimit } from '../http.js';
 import { consumePasswordCode, findLogin, requestPasswordCode } from '../passwordReset.js';
 import { removeSubscription, saveSubscription, zPushEndpoint, zPushSubscription } from '../push.js';
+import { isUnitOf, ownerUnits } from '../shops.js';
 
 export const authRouter = Router();
 
@@ -68,15 +69,33 @@ authRouter.put('/profile', (req, res) => {
 });
 
 /** Avisos no celular do dono e do barbeiro (horário novo, cancelado). */
+// A inscrição fica na unidade de origem do login (o dono de uma rede recebe os avisos de todas as unidades).
 authRouter.post('/push', (req, res) => {
-  if (!req.user?.barbershopId) throw new HttpError(401, 'Faça login para continuar.');
-  saveSubscription({ shopId: req.user.barbershopId, userId: req.user.id }, parseBody(zPushSubscription, req.body), req.get('user-agent') ?? null);
+  const shop = req.user?.homeShopId ?? req.user?.barbershopId;
+  if (!req.user || !shop) throw new HttpError(401, 'Faça login para continuar.');
+  saveSubscription({ shopId: shop, userId: req.user.id }, parseBody(zPushSubscription, req.body), req.get('user-agent') ?? null);
   res.json({ ok: true });
 });
 
 authRouter.delete('/push', (req, res) => {
-  if (!req.user?.barbershopId) throw new HttpError(401, 'Faça login para continuar.');
-  removeSubscription({ shopId: req.user.barbershopId, userId: req.user.id }, parseBody(zPushEndpoint, req.body).endpoint);
+  const shop = req.user?.homeShopId ?? req.user?.barbershopId;
+  if (!req.user || !shop) throw new HttpError(401, 'Faça login para continuar.');
+  removeSubscription({ shopId: shop, userId: req.user.id }, parseBody(zPushEndpoint, req.body).endpoint);
+  res.json({ ok: true });
+});
+
+// ---------- rede com filiais: o dono troca de unidade no painel
+
+authRouter.get('/units', (req, res) => {
+  if (req.user?.role !== 'owner') throw new HttpError(403, 'Só o dono tem unidades.');
+  res.json({ current: req.user.barbershopId, units: ownerUnits(req.user.id) });
+});
+
+authRouter.post('/units/switch', (req, res) => {
+  if (req.user?.role !== 'owner' || !req.sessionId) throw new HttpError(403, 'Só o dono tem unidades.');
+  const { shop_id } = parseBody(z.object({ shop_id: z.number().int().positive() }), req.body);
+  if (!isUnitOf(req.user.id, shop_id)) throw new HttpError(404, 'Unidade não encontrada.');
+  run('UPDATE sessions SET acting_shop_id = ? WHERE id = ?', [shop_id === req.user.homeShopId ? null : shop_id, req.sessionId]);
   res.json({ ok: true });
 });
 

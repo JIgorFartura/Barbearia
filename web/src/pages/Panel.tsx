@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Building2,
   Boxes,
   Bot as BotIcon,
   CalendarDays,
@@ -53,6 +54,8 @@ import { Reviews } from './panel/Reviews';
 import { Stock } from './panel/Stock';
 import { Subscription } from './panel/Subscription';
 import { Summary } from './panel/Summary';
+import { Units, switchUnit } from './panel/Units';
+import { DeskContext } from '../lib/role';
 import { PushBanner } from '../components/AppInstall';
 
 const SECTIONS = [
@@ -75,6 +78,7 @@ const SECTIONS = [
   { id: 'produtos', label: 'Produtos', icon: Package },
   { id: 'estoque', label: 'Estoque', icon: Boxes },
   { id: 'marca', label: 'Minha marca', icon: Palette },
+  { id: 'unidades', label: 'Unidades', icon: Building2 },
   { id: 'mensalidade', label: 'Mensalidade', icon: CreditCard },
 ];
 
@@ -107,10 +111,21 @@ const running = (r: Row) => Boolean(r.active) && (!r.starts_on || r.starts_on <=
 const period = (r: Row) =>
   r.starts_on || r.ends_on ? `${r.starts_on ? date(r.starts_on) : 'já'} até ${r.ends_on ? date(r.ends_on) : 'sem fim'}` : 'Sem data de término';
 
-/** Painel do dono da barbearia. */
+/** O que a recepção vê no painel (sem o financeiro, os relatórios e as configurações). */
+const DESK_SECTIONS = ['agenda', 'balcao', 'pacotes'];
+
+/** Painel do dono da barbearia (e, com menos telas, da recepção). */
 export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const path = usePath();
-  const section = path.replace(/^\/painel\/?/, '').split('/')[0];
+  const desk = me.user?.role === 'reception';
+  const asked = path.replace(/^\/painel\/?/, '').split('/')[0];
+  const section = desk && !DESK_SECTIONS.includes(asked) ? 'agenda' : asked;
+  const sections = desk ? SECTIONS.filter((s) => DESK_SECTIONS.includes(s.id)) : SECTIONS;
+  // Dono de rede: as unidades dele (troca no topo do menu).
+  const [units, setUnits] = useState<{ id: number; name: string }[]>([]);
+  useEffect(() => {
+    if (!desk) api<{ units: { id: number; name: string }[] }>('GET', '/api/auth/units').then((r) => setUnits(r.units), () => undefined);
+  }, [desk]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [partners, setPartners] = useState<Row[]>([]);
   const [products, setProducts] = useState<Row[]>([]);
@@ -160,8 +175,8 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
   // Cadastros de apoio só com o painel liberado (bloqueado, só a mensalidade funciona).
   const ready = Boolean(status && status.active && !locked);
   useEffect(() => {
-    if (ready) loadRefs();
-  }, [ready, loadRefs]);
+    if (ready && !desk) loadRefs();
+  }, [ready, desk, loadRefs]);
 
   useEffect(() => {
     if (!path.startsWith('/painel')) history.replaceState(null, '', '/painel');
@@ -399,6 +414,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
     case 'marca':
       content = <Brand />;
       break;
+    case 'unidades':
+      content = <Units />;
+      break;
     default:
       content = <Summary shopName={me.shop?.name ?? ''} onAccount={() => setAccount(true)} />;
   }
@@ -428,16 +446,34 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
         className={`fixed inset-y-0 left-0 z-40 w-64 transform bg-zinc-950 text-zinc-300 transition lg:static lg:translate-x-0 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="flex items-center justify-between px-5 py-5">
-          <div className="font-bold text-white">
-            <Scissors className="mr-2 inline size-5 text-gold" />
-            {me.shop?.name}
-          </div>
+          {units.length > 1 ? (
+            <label className="min-w-0 flex-1">
+              <span className="sr-only">Unidade</span>
+              <select
+                className="w-full rounded-lg bg-white/10 px-2 py-1.5 text-sm font-bold text-white"
+                value={me.shop?.id}
+                onChange={(e) => void switchUnit(Number(e.target.value))}
+                aria-label="Trocar de unidade"
+              >
+                {units.map((u) => (
+                  <option key={u.id} value={u.id} className="text-zinc-900">
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="font-bold text-white">
+              <Scissors className="mr-2 inline size-5 text-gold" />
+              {me.shop?.name}
+            </div>
+          )}
           <button className="lg:hidden" onClick={() => setMenuOpen(false)} aria-label="Fechar menu">
             <X className="size-5" />
           </button>
         </div>
         <nav className="space-y-1 px-3">
-          {SECTIONS.map(({ id, label, icon: Icon }) => (
+          {sections.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               disabled={locked && id !== 'mensalidade'}
@@ -543,8 +579,10 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 </button>
               </div>
             ))}
-          {!locked && <PushBanner text="Receba no celular os horários que os clientes marcarem (pelo site e pelo robô) e os cancelados." />}
-          {content}
+          {!locked && (
+            <PushBanner text={desk ? 'Receba no celular os horários marcados pelos clientes e os cancelados.' : 'Receba no celular os horários que os clientes marcarem (pelo site e pelo robô) e os cancelados.'} />
+          )}
+          <DeskContext.Provider value={desk}>{content}</DeskContext.Provider>
         </main>
       </div>
     </div>
