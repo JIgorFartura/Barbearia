@@ -1144,6 +1144,33 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE charges ADD COLUMN nfse_error TEXT;
   ALTER TABLE charges ADD COLUMN nfse_url TEXT;
   `,
+  // 24) Recontato de quem sumiu: pelo ritmo de cada cliente, com desconto de volta e segunda tentativa.
+  `
+  -- Quem já tem ritmo (3 visitas ou mais) é chamado quando passa bem do tempo dele; os outros, pelo prazo.
+  ALTER TABLE barbershops ADD COLUMN winback_rhythm INTEGER NOT NULL DEFAULT 1;
+  -- Desconto no próximo horário de quem recebe o recontato (null = sem desconto), marcando em até N dias.
+  ALTER TABLE barbershops ADD COLUMN winback_discount INTEGER;
+  ALTER TABLE barbershops ADD COLUMN winback_discount_days INTEGER NOT NULL DEFAULT 14;
+  -- Segunda mensagem para quem não respondeu nem marcou (0 = não manda).
+  ALTER TABLE barbershops ADD COLUMN winback_followup_days INTEGER NOT NULL DEFAULT 7;
+  ALTER TABLE barbershops ADD COLUMN winback_followup_message TEXT;
+  -- De onde veio o desconto do horário: horário vazio ou desconto de volta.
+  ALTER TABLE appointments ADD COLUMN promo_kind TEXT;
+  UPDATE appointments SET promo_kind = 'vazio' WHERE promo_percent IS NOT NULL;
+  -- Desconto de volta: vale no próximo horário marcado até valid_until (data local). Fica preso ao
+  -- horário marcado com ele; se esse horário for cancelado ou virar falta, volta a valer.
+  CREATE TABLE comeback_promos (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    percent INTEGER NOT NULL CHECK (percent BETWEEN 1 AND 90),
+    valid_until TEXT NOT NULL,
+    appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX comeback_promos_customer ON comeback_promos (customer_id, valid_until);
+  CREATE INDEX comeback_promos_shop ON comeback_promos (barbershop_id, created_at);
+  `,
 ];
 
 function migrate(): void {

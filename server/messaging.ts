@@ -9,6 +9,7 @@ export type MessageKind =
   | 'lembrete'
   | 'costume'
   | 'sumido'
+  | 'sumido2'
   | 'codigo'
   | 'teste'
   | 'manual'
@@ -44,6 +45,14 @@ export interface ShopBot {
   winback_enabled: number;
   winback_days: number;
   winback_message: string | null;
+  /** Quem já tem ritmo é chamado quando passa bem do tempo dele (senão, todos pelo prazo). */
+  winback_rhythm: number;
+  /** Desconto de volta no próximo horário (null = sem desconto), marcando em até N dias. */
+  winback_discount: number | null;
+  winback_discount_days: number;
+  /** Segunda mensagem para quem não respondeu nem marcou, N dias depois (0 = não manda). */
+  winback_followup_days: number;
+  winback_followup_message: string | null;
   /** Libera o horário de quem não confirmou até N horas antes (null = não libera). */
   confirm_release_hours: number | null;
   /** Resumo da semana para o dono, toda segunda (WhatsApp da plataforma). */

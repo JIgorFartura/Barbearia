@@ -65,6 +65,9 @@ export function exportCustomerData(shopId: number, customerId: number) {
       [customerId],
     ),
     lista_de_espera: all('SELECT date AS dia, period AS periodo, status AS situacao, created_at AS quando FROM waitlist WHERE customer_id = ? ORDER BY id', [customerId]),
+    descontos_de_volta: all('SELECT percent AS desconto_percentual, valid_until AS marcando_ate, created_at AS quando FROM comeback_promos WHERE customer_id = ? ORDER BY id', [
+      customerId,
+    ]),
     pacotes: all(
       'SELECT name AS pacote, uses AS usos, used AS usados, price_cents AS valor_centavos, expires_on AS validade, status AS situacao, created_at AS comprado_em FROM customer_packages WHERE customer_id = ? ORDER BY id',
       [customerId],
@@ -124,7 +127,19 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
     // Clube: encerra a assinatura e as cobranças em aberto (as pagas ficam no caixa, sem identificar a pessoa).
     run("UPDATE club_members SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, ?) WHERE customer_id = ? AND status <> 'cancelled'", [nowIso(), customerId]);
     run("UPDATE charges SET status = 'cancelled' WHERE customer_id = ? AND status = 'open'", [customerId]);
-    for (const table of ['loyalty_events', 'vouchers', 'bot_offers', 'bot_questions', 'customer_codes', 'customer_sessions', 'reviews', 'waitlist', 'cut_photos', 'push_subscriptions']) {
+    for (const table of [
+      'loyalty_events',
+      'vouchers',
+      'bot_offers',
+      'bot_questions',
+      'customer_codes',
+      'customer_sessions',
+      'reviews',
+      'waitlist',
+      'cut_photos',
+      'push_subscriptions',
+      'comeback_promos',
+    ]) {
       run(`DELETE FROM ${table} WHERE customer_id = ?`, [customerId]);
     }
     run(

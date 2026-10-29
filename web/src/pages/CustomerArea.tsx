@@ -10,7 +10,7 @@ import { AppSection } from '../components/AppInstall';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import { methodLabel } from '../lib/finance';
-import { WEEKDAYS, WEEKDAYS_SHORT, addDays, cap, dayLabel, hourLabel, money, phone as fmtPhone, stampLabel, todayStr, weekdayOf } from '../lib/format';
+import { WEEKDAYS, WEEKDAYS_SHORT, addDays, cap, dayLabel, hourLabel, money, phone as fmtPhone, promoLabel, stampLabel, todayStr, weekdayOf } from '../lib/format';
 
 interface Brand {
   slug: string;
@@ -37,8 +37,9 @@ interface Appointment {
   items?: { catalog_item_id: number; name: string; qty: number }[];
   /** Presença confirmada (pelo lembrete, aqui ou pela barbearia). */
   confirmed_at?: string | null;
-  /** Desconto do horário vazio (o preço já sai com ele). */
+  /** Desconto do horário vazio ou de volta (o preço já sai com ele). */
   promo_percent?: number | null;
+  promo_kind?: 'vazio' | 'volta' | null;
 }
 
 type Period = 'qualquer' | 'manha' | 'tarde' | 'noite';
@@ -125,6 +126,8 @@ interface MeData {
   history: Appointment[];
   /** Fotos dos cortes tiradas na barbearia. */
   photos: CutPhoto[];
+  /** Desconto de volta (a barbearia mandou pelo recontato): entra sozinho no próximo horário. */
+  comeback: { percent: number; valid_until: string } | null;
   /** Pacotes pré-pagos (os valendo e os dos últimos meses). */
   packages: { id: number; name: string; service_name: string | null; uses: number; used: number; left: number; expires_on: string; status: 'active' | 'used' | 'expired' | 'cancelled' }[];
   card: { id: number; name: string; unit_label: string; reward: string; progress: Progress }[];
@@ -429,6 +432,23 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
         </div>
       )}
 
+      {me.comeback && me.upcoming.length === 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-950 ring-1 ring-emerald-200">
+          <p className="flex items-start gap-2">
+            <Gift className="mt-0.5 size-4 shrink-0" />
+            <span>
+              Que bom te ver! Você tem <b>{me.comeback.percent}% de desconto</b> no próximo horário, marcando até{' '}
+              {me.comeback.valid_until.slice(8, 10)}/{me.comeback.valid_until.slice(5, 7)}. O desconto entra sozinho.
+            </span>
+          </p>
+          {me.barbers.length > 0 && (
+            <Button className="!py-1.5" style={accent} onClick={() => setBooking({})}>
+              Agendar com desconto
+            </Button>
+          )}
+        </div>
+      )}
+
       <Section
         icon={<CalendarCheck />}
         title="Meus horários"
@@ -450,7 +470,12 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
                   <p className="font-semibold">{cap(stampLabel(a.starts_at))}</p>
                   <p className="text-sm text-zinc-500">
                     {a.service_name} com {a.barber_name} · {money(a.price_cents)}
-                    {a.promo_percent ? <span className="font-medium text-emerald-700"> (−{a.promo_percent}% horário vazio)</span> : null}
+                    {a.promo_percent ? (
+                      <span className="font-medium text-emerald-700">
+                        {' '}
+                        (−{a.promo_percent}% {promoLabel(a.promo_kind)})
+                      </span>
+                    ) : null}
                   </p>
                   {a.items && a.items.length > 0 && (
                     <p className="text-xs text-amber-800">🍺 Separado pra você: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
@@ -899,6 +924,9 @@ function BookingModal({
   }, [slots]);
   const promo = slots?.[0]?.promo ?? null;
   const promoOn = (t: string) => Boolean(promo && t >= promo.from && t < promo.until);
+  // Desconto de volta vale em qualquer horário; com o do horário vazio, fica o maior.
+  const back = me.comeback?.percent ?? 0;
+  const discountAt = (t: string) => Math.max(back, promoOn(t) ? promo!.percent : 0);
   const service = me.services.find((s) => s.id === serviceId);
 
   const [booked, setBooked] = useState<{ id: number; suggestion: Suggestion | null } | null>(null);
@@ -965,6 +993,13 @@ function BookingModal({
   return (
     <Modal title="Agendar horário" onClose={onClose}>
       <div className="space-y-4">
+        {me.comeback && (
+          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200">
+            🎁 Seu desconto de volta: <b>{back}%</b> no horário que você escolher
+            {service ? ` (${service.name.toLowerCase()} por ${money(Math.round((service.price_cents * (100 - back)) / 100))})` : ''}, marcando até{' '}
+            {me.comeback.valid_until.slice(8, 10)}/{me.comeback.valid_until.slice(5, 7)}.
+          </p>
+        )}
         {me.services.length > 0 && (
           <Field label="Serviço">
             <select className={inputClass} value={serviceId ?? ''} onChange={(e) => setServiceId(e.target.value ? Number(e.target.value) : null)}>
@@ -1031,7 +1066,7 @@ function BookingModal({
             </div>
           ) : (
             <>
-              {promo && times.some(([t]) => promoOn(t)) && (
+              {promo && times.some(([t]) => promoOn(t)) && promo.percent > back && (
                 <p className="mb-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200">
                   🔥 Horário vazio: marcando hoje, os horários com selo saem com <b>{promo.percent}% de desconto</b> no serviço
                   {service ? ` (${service.name.toLowerCase()} por ${money(Math.round((service.price_cents * (100 - promo.percent)) / 100))})` : ''}.
@@ -1046,7 +1081,7 @@ function BookingModal({
                     style={choice?.time === t ? { background: accent } : undefined}
                   >
                     {t}
-                    {promoOn(t) && (
+                    {promoOn(t) && promo!.percent > back && (
                       <span className="absolute -top-2 -right-1 rounded-full bg-emerald-600 px-1.5 text-[10px] leading-4 font-bold text-white">−{promo!.percent}%</span>
                     )}
                   </button>
@@ -1059,7 +1094,7 @@ function BookingModal({
         <Button className="w-full" disabled={!choice} loading={busy} onClick={confirmBooking}>
           <Scissors className="size-4" />
           {choice
-            ? `Confirmar ${dayLabel(date)} às ${hourLabel(choice.time)} com ${choice.barberName}${promoOn(choice.time) ? ` (−${promo!.percent}%)` : ''}`
+            ? `Confirmar ${dayLabel(date)} às ${hourLabel(choice.time)} com ${choice.barberName}${discountAt(choice.time) ? ` (−${discountAt(choice.time)}%)` : ''}`
             : 'Escolha um horário'}
         </Button>
       </div>

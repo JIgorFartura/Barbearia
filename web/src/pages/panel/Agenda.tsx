@@ -5,7 +5,7 @@ import { ProfileLine, ProfileModal, type ProfileSummary } from '../../components
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { methodLabel } from '../../lib/finance';
 import { api } from '../../lib/api';
-import { addDays, cap, dayLabel, hourLabel, money, phone, todayStr, weekdayOf, whatsappLink } from '../../lib/format';
+import { addDays, cap, dayLabel, hourLabel, money, phone, promoLabel, todayStr, weekdayOf, whatsappLink } from '../../lib/format';
 import { navigate } from '../../lib/router';
 
 interface Appointment {
@@ -31,8 +31,9 @@ interface Appointment {
   awaiting: boolean;
   /** Ficha do cliente: anotações e fotos do corte. */
   profile: ProfileSummary;
-  /** Desconto do horário vazio (o preço já sai com ele). */
+  /** Desconto do horário vazio ou de volta (o preço já sai com ele). */
   promo_percent: number | null;
+  promo_kind: 'vazio' | 'volta' | null;
 }
 
 type Period = 'qualquer' | 'manha' | 'tarde' | 'noite';
@@ -169,7 +170,13 @@ export function Agenda() {
                           </p>
                           <p className="text-xs text-zinc-500">
                             {item.appt.service_name} · {money(item.appt.price_cents)}
-                            {item.appt.promo_percent ? <span className="font-medium text-emerald-700"> (−{item.appt.promo_percent}%)</span> : null} ·{' '}
+                            {item.appt.promo_percent ? (
+                              <span className="font-medium text-emerald-700" title={promoLabel(item.appt.promo_kind)}>
+                                {' '}
+                                (−{item.appt.promo_percent}%{item.appt.promo_kind === 'volta' ? ' de volta' : ''})
+                              </span>
+                            ) : null}{' '}
+                            ·{' '}
                             {phone(item.appt.customer_phone)}
                           </p>
                         </div>

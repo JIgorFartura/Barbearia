@@ -66,11 +66,12 @@ export function progress(campaign: Campaign, customerId: number): Progress {
 }
 
 /** Registra consumo (ex.: 2 cervejas) e devolve o cartão atualizado. */
-export function addStamps(shopId: number, campaignId: number, customerId: number, qty: number, userId: number | null, saleId: number | null = null): Progress {
+/** `at`: quando foi (a venda lançada com outra data dá o carimbo nesse dia). */
+export function addStamps(shopId: number, campaignId: number, customerId: number, qty: number, userId: number | null, saleId: number | null = null, at?: Date): Progress {
   return tx(() => {
     const c = campaignOf(shopId, campaignId);
     assertCustomer(shopId, customerId);
-    if (!isRunning(c, shopToday(shopId))) throw new HttpError(400, 'Esta campanha não está valendo hoje.');
+    if (!isRunning(c, shopToday(shopId, at))) throw new HttpError(400, 'Esta campanha não está valendo hoje.');
     run('INSERT INTO loyalty_events (campaign_id, customer_id, kind, qty, user_id, sale_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [
       c.id,
       customerId,
@@ -78,7 +79,7 @@ export function addStamps(shopId: number, campaignId: number, customerId: number
       qty,
       userId,
       saleId,
-      nowIso(),
+      at ? at.toISOString() : nowIso(),
     ]);
     return progress(c, customerId);
   });

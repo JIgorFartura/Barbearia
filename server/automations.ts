@@ -19,9 +19,10 @@ import { accessStatus, ensureInvoices } from './billing.js';
 import { config } from './config.js';
 import { askConsumption } from './consumption.js';
 import { all, get, nowIso, run } from './db.js';
-import { customerHabit, lastVisitDate, type Habit } from './habits.js';
-import { sendMessage, sendsTemplate, shopBot, type MessageKind, type ShopBot } from './messaging.js';
-import type { TemplateUse } from './templates.js';
+import { awayAfter, customerHabit, lastVisitDate, rhythmDays, shopVisitDays, type Habit } from './habits.js';
+import { availableComeback, availableComebacks, grantComeback } from './comeback.js';
+import { sendMessage, sendsTemplate, shopBot, waConfig, type MessageKind, type ShopBot } from './messaging.js';
+import { templateField, type TemplateKind, type TemplateUse } from './templates.js';
 import { freeTimes, upcomingFor } from './scheduling.js';
 import { shopNow, shopTz } from './clock.js';
 import { addDays, addMinutes, daysBetween, dayLabel, hourLabel, isoToLocal, relativeDay, toMinutes, weekdayOf } from './time.js';
@@ -48,8 +49,8 @@ function logged(shopId: number, customerId: number | null, kind: string, ref: st
   );
 }
 
-function log(shopId: number, customerId: number | null, kind: string, ref: string): void {
-  run('INSERT INTO automation_log (barbershop_id, customer_id, kind, ref, created_at) VALUES (?, ?, ?, ?, ?)', [shopId, customerId, kind, ref, nowIso()]);
+function log(shopId: number, customerId: number | null, kind: string, ref: string, at?: Date): void {
+  run('INSERT INTO automation_log (barbershop_id, customer_id, kind, ref, created_at) VALUES (?, ?, ?, ?, ?)', [shopId, customerId, kind, ref, at ? at.toISOString() : nowIso()]);
 }
 
 async function send(shop: ShopBot, c: CustomerLite, kind: MessageKind, text: string, template: TemplateUse | null = null): Promise<void> {
@@ -216,64 +217,147 @@ export interface AwayCustomer {
   phone: string;
   lastVisit: string;
   days: number;
+  /** De quantos em quantos dias costuma vir (null: ainda sem ritmo, vale o prazo da barbearia). */
+  rhythm: number | null;
+  /** Vira "sumido" com tantos dias sem vir. */
+  after: number;
+  /** Mensagens desta ausência (ISO, a mais recente): o recontato e a segunda tentativa. */
+  contactedAt: string | null;
+  followedUpAt: string | null;
   contacted: boolean;
+  /** Desconto de volta valendo. */
+  promo: { percent: number; validUntil: string } | null;
   optOut: boolean;
 }
 
+/** Até dois anos sem vir ainda entra no recontato. */
+const AWAY_LOOKBACK_DAYS = 730;
+
 /**
- * Clientes que não vêm há `winback_days` dias ou mais e não têm horário marcado. Uma consulta só por
- * barbearia (a última visita é o horário atendido ou o carimbo mais recente, como em lastVisitDate).
+ * Clientes sumidos, sem horário marcado: quem tem ritmo (3 visitas ou mais) passou bem do tempo dele;
+ * quem não tem, passou do prazo da barbearia. Poucas consultas por barbearia (a última visita é o
+ * horário atendido, a venda fechada ou o carimbo mais recente).
  */
 export function awayCustomers(shopId: number, now: Date = new Date()): AwayCustomer[] {
   const shop = shopBot(shopId);
   const n = shopNow(shopId, now);
-  const tz = shopTz(shopId);
-  const contacted = new Set(
-    all<{ customer_id: number; ref: string }>("SELECT customer_id, ref FROM automation_log WHERE barbershop_id = ? AND kind = 'sumido'", [shopId]).map(
-      (r) => `${r.customer_id}:${r.ref}`,
+  const visits = shopVisitDays(shopId, addDays(n.date, -AWAY_LOOKBACK_DAYS), now);
+  const sent = new Map<string, string>();
+  for (const r of all<{ customer_id: number; kind: string; ref: string; at: string }>(
+    "SELECT customer_id, kind, ref, MAX(created_at) AS at FROM automation_log WHERE barbershop_id = ? AND kind IN ('sumido', 'sumido2') GROUP BY customer_id, kind, ref",
+    [shopId],
+  )) {
+    sent.set(`${r.kind}:${r.customer_id}:${r.ref}`, r.at);
+  }
+  const upcoming = new Set(
+    all<{ customer_id: number }>("SELECT DISTINCT customer_id FROM appointments WHERE barbershop_id = ? AND status = 'scheduled' AND starts_at >= ?", [shopId, n.stamp]).map(
+      (r) => r.customer_id,
     ),
   );
-  const rows = all<{ id: number; name: string; phone: string; reminders_opt_out: number; last_appt: string | null; last_loyalty: string | null; upcoming: number }>(
-    `SELECT c.id, c.name, c.phone, c.reminders_opt_out,
-            (SELECT MAX(a.starts_at) FROM appointments a WHERE a.customer_id = c.id AND a.status = 'scheduled' AND a.starts_at < :now) AS last_appt,
-            (SELECT MAX(l.created_at) FROM loyalty_events l WHERE l.customer_id = c.id) AS last_loyalty,
-            EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.status = 'scheduled' AND a.starts_at >= :now) AS upcoming
-       FROM customers c WHERE c.barbershop_id = :shop AND c.anonymized_at IS NULL`,
-    { shop: shopId, now: n.stamp },
-  );
+  const promos = availableComebacks(shopId, n.date);
   const out: AwayCustomer[] = [];
-  for (const c of rows) {
-    const appt = c.last_appt?.slice(0, 10) ?? null;
-    const loyalty = c.last_loyalty ? isoToLocal(c.last_loyalty, tz).slice(0, 10) : null;
-    const last = appt && loyalty ? (appt > loyalty ? appt : loyalty) : (appt ?? loyalty);
-    if (!last || c.upcoming) continue;
-    const days = daysBetween(last, n.date);
-    if (days < shop.winback_days) continue;
-    out.push({ id: c.id, name: c.name, phone: c.phone, lastVisit: last, days, contacted: contacted.has(`${c.id}:${last}`), optOut: Boolean(c.reminders_opt_out) });
+  for (const c of all<{ id: number; name: string; phone: string; reminders_opt_out: number }>(
+    'SELECT id, name, phone, reminders_opt_out FROM customers WHERE barbershop_id = ? AND anonymized_at IS NULL',
+    [shopId],
+  )) {
+    const days = visits.get(c.id);
+    if (!days?.length || upcoming.has(c.id)) continue;
+    const last = days[days.length - 1];
+    const since = daysBetween(last, n.date);
+    const rhythm = shop.winback_rhythm ? rhythmDays(days) : null;
+    const after = awayAfter(rhythm, shop.winback_days);
+    if (since < after) continue;
+    const contactedAt = sent.get(`sumido:${c.id}:${last}`) ?? null;
+    const promo = promos.get(c.id);
+    out.push({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      lastVisit: last,
+      days: since,
+      rhythm,
+      after,
+      contactedAt,
+      followedUpAt: sent.get(`sumido2:${c.id}:${last}`) ?? null,
+      contacted: contactedAt !== null,
+      promo: promo ? { percent: promo.percent, validUntil: promo.valid_until } : null,
+      optOut: Boolean(c.reminders_opt_out),
+    });
   }
-  return out.sort((a, b) => a.days - b.days);
+  // Quem acabou de sumir primeiro: é quem mais volta.
+  return out.sort((a, b) => a.days - a.after - (b.days - b.after));
 }
 
-/** Mensagem de recontato (com sugestão de horário quando o cliente tem costume). */
+const shortDate = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+
+const WINBACK_TEXT = 'Oi, {nome}! Aqui é o {robo}, da {barbearia}. 💈 Faz {dias} dias que você não aparece por aqui... aconteceu alguma coisa? Bora deixar o visual em dia?';
+const FOLLOWUP_TEXT = 'Oi, {nome}! Aqui é o {robo} de novo, da {barbearia}. 💈 Passando pra lembrar que a sua cadeira está te esperando.';
+
+const fillWinback = (tpl: string, shop: ShopBot, c: CustomerLite, days: number) =>
+  tpl.replace(/\{nome\}/g, firstName(c.name)).replace(/\{dias\}/g, String(days)).replace(/\{barbearia\}/g, shop.name).replace(/\{robo\}/g, shop.bot_name);
+
+/** Horário para sugerir no recontato: o de costume do cliente, se ele tem um e está livre. */
+function winbackSlot(shop: ShopBot, customerId: number, now: Date): Suggestion | null {
+  const habit = customerHabit(customerId, now);
+  if (!habit) return null;
+  const date = nextHabitDate(habit, shopNow(shop.id, now).stamp);
+  return date ? suggestSlot(shop.id, habit, date, now) : null;
+}
+
+/** A barbearia cadastrou esse modelo na Meta? (Senão, vai o modelo sem desconto.) */
+const hasTemplate = (shop: ShopBot, kind: TemplateKind) => Boolean((waConfig(shop) as Record<string, string>)[templateField(kind)]);
+
+/** Mensagem de recontato: com o desconto de volta (se a barbearia dá) e a sugestão de horário de costume. */
 export async function sendWinback(shop: ShopBot, c: CustomerLite, days: number, lastVisit: string, now: Date): Promise<void> {
   const n = shopNow(shop.id, now);
-  const habit = customerHabit(c.id, now);
-  let slot: Suggestion | null = null;
-  if (habit) {
-    const date = nextHabitDate(habit, n.stamp);
-    if (date) slot = suggestSlot(shop.id, habit, date, now);
-  }
+  const slot = winbackSlot(shop, c.id, now);
   if (slot) createOffer(shop.id, c.id, slot, 'sumido');
-  const fill = (tpl: string) =>
-    tpl.replace(/\{nome\}/g, firstName(c.name)).replace(/\{dias\}/g, String(days)).replace(/\{barbearia\}/g, shop.name).replace(/\{robo\}/g, shop.bot_name);
-  const opening = fill(
-    shop.winback_message?.trim() ||
-      'Oi, {nome}! Aqui é o {robo}, da {barbearia}. 💈 Faz {dias} dias que você não aparece por aqui... aconteceu alguma coisa? Bora deixar o visual em dia?',
-  );
-  const ask = slot ? `Tenho *${offerLine(slot)}*. Responda *SIM* para marcar ou me diga o melhor horário.` : 'Me diga o dia e o horário que eu marco pra você.';
-  log(shop.id, c.id, 'sumido', lastVisit);
-  await send(shop, c, 'sumido', `${opening}\n${ask}\n${OPT_OUT_HINT}`, { kind: 'sumido', params: [firstName(c.name), shop.name, String(days)] });
+  const promo = shop.winback_discount ? grantComeback(shop.id, c.id, shop.winback_discount, addDays(n.date, shop.winback_discount_days), n.date) : null;
+  const text = [
+    fillWinback(shop.winback_message?.trim() || WINBACK_TEXT, shop, c, days),
+    promo ? `🎁 Pra você voltar: *${promo.percent}% de desconto* no próximo horário, marcando até ${shortDate(promo.valid_until)}.` : '',
+    slot ? `Tenho *${offerLine(slot)}*. Responda *SIM* para marcar ou me diga o melhor horário.` : 'Me diga o dia e o horário que eu marco pra você.',
+    OPT_OUT_HINT,
+  ];
+  const template: TemplateUse =
+    promo && hasTemplate(shop, 'sumido_desconto')
+      ? { kind: 'sumido_desconto', params: [firstName(c.name), shop.name, String(days), `${promo.percent}%`, shortDate(promo.valid_until)] }
+      : { kind: 'sumido', params: [firstName(c.name), shop.name, String(days)] };
+  log(shop.id, c.id, 'sumido', lastVisit, now);
+  await send(shop, c, 'sumido', text.filter(Boolean).join('\n'), template);
 }
+
+/** Segunda tentativa, para quem não respondeu nem marcou: lembra do desconto que ainda vale. */
+export async function sendFollowUp(shop: ShopBot, c: CustomerLite, days: number, lastVisit: string, now: Date): Promise<void> {
+  const n = shopNow(shop.id, now);
+  const slot = winbackSlot(shop, c.id, now);
+  if (slot) createOffer(shop.id, c.id, slot, 'sumido');
+  const promo = availableComeback(c.id, n.date);
+  const text = [
+    fillWinback(shop.winback_followup_message?.trim() || FOLLOWUP_TEXT, shop, c, days),
+    promo ? `🎁 Seu desconto de *${promo.percent}%* ainda vale, marcando até ${shortDate(promo.valid_until)}.` : '',
+    slot ? `Separei *${offerLine(slot)}*. Responda *SIM* para marcar ou me diga outro horário.` : 'É só me dizer o dia e o horário que eu marco pra você.',
+    OPT_OUT_HINT,
+  ];
+  log(shop.id, c.id, 'sumido2', lastVisit, now);
+  await send(shop, c, 'sumido2', text.filter(Boolean).join('\n'), { kind: 'sumido2', params: [firstName(c.name), shop.name] });
+}
+
+/** O cliente escreveu depois da última mensagem de recontato? (A conversa aconteceu: o robô não insiste.) */
+function repliedAfterWinback(shopId: number, c: CustomerLite): boolean {
+  const last = get<{ id: number | null }>("SELECT MAX(id) AS id FROM messages WHERE barbershop_id = ? AND customer_id = ? AND direction = 'out' AND kind = 'sumido'", [
+    shopId,
+    c.id,
+  ])?.id;
+  if (!last) return false;
+  return Boolean(
+    get("SELECT 1 AS ok FROM messages WHERE barbershop_id = ? AND direction = 'in' AND id > ? AND (customer_id = ? OR phone = ?) LIMIT 1", [shopId, last, c.id, c.phone]),
+  );
+}
+
+/** Recebeu hoje o convite do horário de costume ou a oferta do horário vazio? (Uma mensagem dessas por dia.) */
+const offeredToday = (shopId: number, customerId: number, today: string) =>
+  Boolean(get("SELECT 1 AS ok FROM automation_log WHERE barbershop_id = ? AND customer_id = ? AND kind IN ('costume', 'vazio') AND ref = ? LIMIT 1", [shopId, customerId, today]));
 
 // O recontato olha todos os clientes: basta uma vez por hora para cada barbearia.
 const lastWinbackCheck = new Map<number, number>();
@@ -283,15 +367,56 @@ export async function winbacks(shop: ShopBot, now: Date): Promise<number> {
   const last = lastWinbackCheck.get(shop.id);
   if (last !== undefined && Math.abs(now.getTime() - last) < 3600000) return 0;
   lastWinbackCheck.set(shop.id, now.getTime());
+  const today = shopNow(shop.id, now).date;
   let sent = 0;
   for (const a of awayCustomers(shop.id, now)) {
     if (sent >= WINBACK_PER_RUN) break;
-    if (a.contacted || a.optOut) continue;
+    if (a.optOut || offeredToday(shop.id, a.id, today)) continue;
     const c = get<CustomerLite>('SELECT id, name, phone, wa_id FROM customers WHERE id = ?', [a.id])!;
-    await sendWinback(shop, c, a.days, a.lastVisit, now);
+    if (!a.contactedAt) {
+      await sendWinback(shop, c, a.days, a.lastVisit, now);
+      sent++;
+      continue;
+    }
+    // Segunda tentativa: uma só, N dias depois, se ele não respondeu (quem marcou já saiu da lista).
+    if (!shop.winback_followup_days || a.followedUpAt) continue;
+    if (now.getTime() - Date.parse(a.contactedAt) < shop.winback_followup_days * 86400000) continue;
+    if (repliedAfterWinback(shop.id, c)) continue;
+    await sendFollowUp(shop, c, a.days, a.lastVisit, now);
     sent++;
   }
   return sent;
+}
+
+export interface WinbackResults {
+  /** Clientes que o robô chamou nos últimos 90 dias. */
+  contacted: number;
+  /** Desses, quantos vieram depois da mensagem. */
+  returned: number;
+  /** O que os que voltaram gastaram desde a mensagem (vendas fechadas). */
+  revenueCents: number;
+}
+
+/** Resultado do recontato nos últimos 90 dias (para o dono ver que funciona). */
+export function winbackResults(shopId: number, now: Date = new Date()): WinbackResults {
+  const n = shopNow(shopId, now);
+  const tz = shopTz(shopId);
+  const first = new Map(
+    all<{ customer_id: number; at: string }>(
+      "SELECT customer_id, MIN(created_at) AS at FROM automation_log WHERE barbershop_id = ? AND kind = 'sumido' AND customer_id IS NOT NULL AND created_at >= ? GROUP BY customer_id",
+      [shopId, new Date(now.getTime() - 90 * 86400000).toISOString()],
+    ).map((r) => [r.customer_id, isoToLocal(r.at, tz).slice(0, 10)]),
+  );
+  const visits = first.size ? shopVisitDays(shopId, addDays(n.date, -91), now) : new Map<number, string[]>();
+  let returned = 0;
+  let revenueCents = 0;
+  for (const [id, day] of first) {
+    if (!(visits.get(id) ?? []).some((d) => d >= day)) continue;
+    returned++;
+    revenueCents +=
+      get<{ v: number | null }>("SELECT SUM(total_cents) AS v FROM sales WHERE barbershop_id = ? AND customer_id = ? AND status = 'closed' AND date >= ?", [shopId, id, day])!.v ?? 0;
+  }
+  return { contacted: first.size, returned, revenueCents };
 }
 
 // ---------- resumo da semana para o dono

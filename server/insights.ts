@@ -1,6 +1,10 @@
 import { shopNow } from './clock.js';
 import { all, get } from './db.js';
+import { awayAfter, rhythmDays, shopVisitDays } from './habits.js';
 import { addDays, daysBetween, toMinutes, weekdayOf } from './time.js';
+
+/** Sem ritmo conhecido, o cliente está "passando do tempo" depois de 3 semanas sem vir. */
+const DUE_DAYS = 21;
 
 /**
  * Indicadores da barbearia para o dono (relatórios, gerente virtual no WhatsApp e resumo da semana):
@@ -145,23 +149,6 @@ export function occupancy(shopId: number, from: string, to: string): Occupancy {
 
 // ---------- retorno dos clientes
 
-/** Dias de visita por cliente (horário atendido ou compra identificada), em ordem. */
-function visitDays(shopId: number, sinceDate: string, todayStamp: string): Map<number, string[]> {
-  const rows = all<{ customer_id: number; day: string }>(
-    `SELECT customer_id, day FROM (
-        SELECT customer_id, substr(starts_at, 1, 10) AS day FROM appointments
-         WHERE barbershop_id = :shop AND status = 'scheduled' AND starts_at < :now AND starts_at >= :since
-        UNION
-        SELECT customer_id, date AS day FROM sales
-         WHERE barbershop_id = :shop AND status = 'closed' AND customer_id IS NOT NULL AND date >= :since AND date <= :today
-      ) ORDER BY customer_id, day`,
-    { shop: shopId, now: todayStamp, since: sinceDate, today: todayStamp.slice(0, 10) },
-  );
-  const map = new Map<number, string[]>();
-  for (const r of rows) map.set(r.customer_id, [...(map.get(r.customer_id) ?? []), r.day]);
-  return map;
-}
-
 export interface Retention {
   /** Clientes atendidos nos últimos 90 dias. */
   active: number;
@@ -173,17 +160,23 @@ export interface Retention {
   returnRate: number | null;
   /** Intervalo médio entre visitas (dias), de quem veio mais de uma vez no último ano. */
   avgInterval: number | null;
-  /** Passaram bem do ritmo deles e ainda não marcaram (antes de virarem "sumidos"). */
-  atRisk: { id: number; name: string; phone: string; days: number; interval: number }[];
-  /** Não vêm há mais que o prazo do "cliente sumido" da barbearia. */
+  /**
+   * Passaram do tempo de voltar (do ritmo deles; sem ritmo, 3 semanas) e ainda não marcaram, antes de
+   * virarem "sumidos": dá para chamar pessoalmente antes do robô. robotIn: em quantos dias o robô chama.
+   */
+  atRisk: { id: number; name: string; phone: string; days: number; interval: number | null; robotIn: number | null }[];
+  /** Sumidos: passaram bem do ritmo deles (ou do prazo da barbearia, sem ritmo); o robô chama de volta. */
   away: number;
 }
 
 export function retention(shopId: number, now: Date = new Date()): Retention {
   const n = shopNow(shopId, now);
   const today = n.date;
-  const winback = get<{ winback_days: number }>('SELECT winback_days FROM barbershops WHERE id = ?', [shopId])?.winback_days ?? 45;
-  const visits = visitDays(shopId, addDays(today, -365), n.stamp);
+  const shop = get<{ winback_days: number; winback_rhythm: number; winback_enabled: number }>(
+    'SELECT winback_days, winback_rhythm, winback_enabled FROM barbershops WHERE id = ?',
+    [shopId],
+  ) ?? { winback_days: 30, winback_rhythm: 1, winback_enabled: 1 };
+  const visits = shopVisitDays(shopId, addDays(today, -365), now);
   const firsts = new Map(
     all<{ customer_id: number; first: string }>(
       `SELECT customer_id, MIN(day) AS first FROM (
@@ -228,14 +221,16 @@ export function retention(shopId: number, now: Date = new Date()): Retention {
     }
     const since = daysBetween(last, today);
     if (upcoming.has(id)) continue;
-    if (since >= winback) {
+    // A mesma regra do recontato do robô (Robô WhatsApp → Clientes sumidos).
+    const rhythm = shop.winback_rhythm ? rhythmDays(days) : null;
+    const after = awayAfter(rhythm, shop.winback_days);
+    if (since >= after) {
       away++;
       continue;
     }
-    // Ritmo do cliente: mediana dos intervalos dele (pelo menos 2 visitas); sem isso, 30 dias.
-    const own = days.slice(1).map((d, i) => daysBetween(days[i], d)).sort((a, b) => a - b);
-    const interval = own.length ? own[Math.floor(own.length / 2)] : 30;
-    if (since > Math.max(interval * 1.5, interval + 7)) atRisk.push({ id, name: person.name, phone: person.phone, days: since, interval });
+    if (since > (rhythm ?? DUE_DAYS)) {
+      atRisk.push({ id, name: person.name, phone: person.phone, days: since, interval: rhythm, robotIn: shop.winback_enabled ? after - since : null });
+    }
   }
   const monthStart = `${today.slice(0, 8)}01`;
   let newThisMonth = 0;
@@ -247,7 +242,7 @@ export function retention(shopId: number, now: Date = new Date()): Retention {
     returned,
     returnRate: cohort ? returned / cohort : null,
     avgInterval: gapCount ? Math.round(gaps / gapCount) : null,
-    atRisk: atRisk.sort((a, b) => b.days - b.interval - (a.days - a.interval)).slice(0, 30),
+    atRisk: atRisk.sort((a, b) => b.days - (b.interval ?? DUE_DAYS) - (a.days - (a.interval ?? DUE_DAYS))).slice(0, 30),
     away,
   };
 }

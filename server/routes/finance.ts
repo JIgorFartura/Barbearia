@@ -214,7 +214,7 @@ export function registerFinanceRoutes(router: Router): void {
     let appointment = null;
     if (appointmentId) {
       appointment = get(
-        `SELECT a.id, a.customer_id, c.name AS customer_name, a.barber_id, a.service_id, a.service_name, a.price_cents, a.promo_percent, a.starts_at
+        `SELECT a.id, a.customer_id, c.name AS customer_name, a.barber_id, a.service_id, a.service_name, a.price_cents, a.promo_percent, a.promo_kind, a.starts_at
            FROM appointments a JOIN customers c ON c.id = a.customer_id WHERE a.id = ? AND a.barbershop_id = ?`,
         [appointmentId, shop],
       );

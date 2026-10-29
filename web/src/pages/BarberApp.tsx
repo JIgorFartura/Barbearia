@@ -7,7 +7,7 @@ import { ProfileLine, ProfileModal, type ProfileSummary } from '../components/Pr
 import { PushBanner } from '../components/AppInstall';
 import { Badge, Button, Card, ErrorText } from '../components/ui';
 import { api } from '../lib/api';
-import { addDays, cap, date as fmtDate, dayLabel, money, todayStr, whatsappLink } from '../lib/format';
+import { addDays, cap, date as fmtDate, dayLabel, money, promoLabel, todayStr, whatsappLink } from '../lib/format';
 
 interface BarberMe {
   barber: { id: number; name: string; photo_url: string | null };
@@ -35,8 +35,9 @@ interface Appointment {
   confirmed_at: string | null;
   /** Ficha do cliente: o jeito que ele gosta e as fotos dos cortes. */
   profile: ProfileSummary;
-  /** Desconto do horário vazio (o preço já sai com ele). */
+  /** Desconto do horário vazio ou de volta (o preço já sai com ele). */
   promo_percent: number | null;
+  promo_kind: 'vazio' | 'volta' | null;
 }
 
 interface Earnings {
@@ -181,7 +182,12 @@ function BarberAgenda({ info }: { info: BarberMe }) {
                   </p>
                   <p className="text-sm text-zinc-500">
                     {a.service_name} · {money(a.price_cents)}
-                    {a.promo_percent ? <span className="font-medium text-emerald-700"> (−{a.promo_percent}% horário vazio)</span> : null}
+                    {a.promo_percent ? (
+                      <span className="font-medium text-emerald-700">
+                        {' '}
+                        (−{a.promo_percent}% {promoLabel(a.promo_kind)})
+                      </span>
+                    ) : null}
                   </p>
                 </div>
                 {a.status === 'cancelled' ? (

@@ -56,8 +56,15 @@ function dueCustomers(shopId: number, now: Date): Candidate[] {
       WHERE c.barbershop_id = :shop AND c.anonymized_at IS NULL AND c.reminders_opt_out = 0
         AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.status = 'scheduled' AND a.starts_at >= :now)
         AND NOT EXISTS (SELECT 1 FROM bot_offers o WHERE o.customer_id = c.id AND o.status = 'pending' AND o.starts_at > :now)
-        AND NOT EXISTS (SELECT 1 FROM automation_log g WHERE g.customer_id = c.id AND g.kind = 'vazio' AND g.created_at >= :since)`,
-    { shop: shopId, now: n.stamp, since: new Date(now.getTime() - COOLDOWN_DAYS * 86400000).toISOString() },
+        AND NOT EXISTS (SELECT 1 FROM automation_log g WHERE g.customer_id = c.id AND g.kind = 'vazio' AND g.created_at >= :since)
+        AND NOT EXISTS (SELECT 1 FROM automation_log g WHERE g.customer_id = c.id AND g.kind IN ('sumido', 'sumido2') AND g.created_at >= :day)`,
+    {
+      shop: shopId,
+      now: n.stamp,
+      since: new Date(now.getTime() - COOLDOWN_DAYS * 86400000).toISOString(),
+      // Quem recebeu o recontato nas últimas 24 horas não recebe outra mensagem no mesmo dia.
+      day: new Date(now.getTime() - 86400000).toISOString(),
+    },
   );
   const out: Candidate[] = [];
   for (const r of rows) {

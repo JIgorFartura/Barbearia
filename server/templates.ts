@@ -55,6 +55,18 @@ export const TEMPLATES = {
     body: 'Olá, {{1}}! Aqui é da {{2}}. Faz {{3}} dias que você não vem cortar com a gente. Bora deixar o visual em dia? Me diga o melhor dia e horário que eu marco pra você.',
     example: ['João', 'Barbearia Navalha de Ouro', '35'],
   },
+  sumido_desconto: {
+    label: 'Cliente sumido, com desconto de volta',
+    category: 'MARKETING',
+    body: 'Olá, {{1}}! Aqui é da {{2}}. Faz {{3}} dias que você não vem cortar com a gente. Para você voltar, separamos {{4}} de desconto no seu próximo horário, marcando até {{5}}. Me diga o melhor dia e horário que eu marco pra você.',
+    example: ['João', 'Barbearia Navalha de Ouro', '35', '15%', '20/11'],
+  },
+  sumido2: {
+    label: 'Cliente sumido (segunda mensagem)',
+    category: 'MARKETING',
+    body: 'Olá, {{1}}! Passando para lembrar que a {{2}} está te esperando. Quer que eu marque seu horário? É só me dizer o dia e o horário.',
+    example: ['João', 'Barbearia Navalha de Ouro'],
+  },
   codigo: {
     label: 'Código de acesso do cliente',
     category: 'AUTHENTICATION',

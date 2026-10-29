@@ -23,6 +23,8 @@ import { activeBarbers, book, cancel, freeTimes, historyFor, services, upcomingF
 import { confirmAppointment } from '../attendance.js';
 import { PERIOD_IDS, customerWaitlist, joinWaitlist, leaveWaitlist, slotFreed, type Period } from '../waitlist.js';
 import { idleWindow } from '../promo.js';
+import { availableComeback } from '../comeback.js';
+import { shopToday } from '../clock.js';
 import { isDate, isTime } from '../time.js';
 
 /**
@@ -63,6 +65,11 @@ customerRouter.get('/me', (req, res) => {
     // Dias em que ele está na lista de espera (o robô avisa quando abrir vaga).
     waitlist: customerWaitlist(customerId).map(({ id, date, period, barber_id, barber_name, service_name, offers }) => ({ id, date, period, barber_id, barber_name, service_name, offers })),
     history: historyFor(customerId).slice(0, 10),
+    // Desconto de volta (recontato): entra sozinho no próximo horário que ele marcar.
+    comeback: (() => {
+      const back = availableComeback(customerId, shopToday(shopId));
+      return back ? { percent: back.percent, valid_until: back.valid_until } : null;
+    })(),
     // Pacotes pré-pagos (quantos usos sobram e até quando).
     packages: customerPackages(shopId, customerId).filter((p) => p.status === 'active' || p.created_at >= new Date(Date.now() - 90 * 86400000).toISOString()),
     // Fotos dos cortes que a barbearia tirou (ele pode mostrar para repetir ou apagar).

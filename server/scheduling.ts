@@ -1,6 +1,7 @@
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { customerNow, shopNow } from './clock.js';
+import { availableComeback, useComeback } from './comeback.js';
 import { discounted, idleDiscount } from './promo.js';
 import { notifyBooked, notifyCancelled } from './push.js';
 import { addDays, addMinutes, fromMinutes, isDate, isTime, toMinutes, weekdayOf } from './time.js';
@@ -44,13 +45,15 @@ export interface AppointmentView {
   notes: string | null;
   /** O cliente confirmou a presença (resposta ao lembrete, área do cliente ou o dono marcou). */
   confirmed_at: string | null;
-  /** Desconto do horário vazio (o preço já sai com ele). */
+  /** Desconto do horário (o preço já sai com ele): do horário vazio ou de volta (recontato). */
   promo_percent: number | null;
+  promo_kind: 'vazio' | 'volta' | null;
 }
 
 const APPOINTMENT_SELECT = `
   SELECT a.id, a.customer_id, c.name AS customer_name, c.phone AS customer_phone, a.barber_id, b.name AS barber_name,
-         a.service_id, a.service_name, a.price_cents, a.starts_at, a.ends_at, a.status, a.source, a.notes, a.confirmed_at, a.promo_percent
+         a.service_id, a.service_name, a.price_cents, a.starts_at, a.ends_at, a.status, a.source, a.notes, a.confirmed_at, a.promo_percent,
+         a.promo_kind
     FROM appointments a
     JOIN customers c ON c.id = a.customer_id
     JOIN barbers b ON b.id = a.barber_id`;
@@ -177,7 +180,7 @@ export interface BookInput {
   /**
    * Desconto do horário vazio. Sem informar: vale a regra da barbearia para quem marca no mesmo dia
    * (pela área ou pelo robô; no balcão, o dono dá o desconto na comanda se quiser). A oferta do robô
-   * informa o que prometeu.
+   * informa o que prometeu. O desconto de volta do recontato entra sozinho em qualquer canal.
    */
   promoPercent?: number | null;
   now?: Date;
@@ -196,7 +199,8 @@ export function book(input: BookInput): AppointmentView {
     const duration = durationOf(service);
     const start = `${input.date} ${input.time}`;
     const end = addMinutes(start, duration);
-    const now = shopNow(input.shopId, input.now).stamp;
+    const clock = shopNow(input.shopId, input.now);
+    const now = clock.stamp;
     const byOwner = input.source === 'painel';
 
     if (!byOwner) {
@@ -218,11 +222,15 @@ export function book(input: BookInput): AppointmentView {
     );
     if (clash) throw new HttpError(409, 'O cliente já tem um horário nesse momento.');
 
-    const promo = (input.promoPercent !== undefined ? input.promoPercent : byOwner ? null : idleDiscount(input.shopId, input.date, input.time, input.now)) || null;
+    const idle = (input.promoPercent !== undefined ? input.promoPercent : byOwner ? null : idleDiscount(input.shopId, input.date, input.time, input.now)) || null;
+    // Desconto de volta (prometido no recontato): não soma com o do horário vazio, fica o maior.
+    const back = availableComeback(input.customerId, clock.date);
+    const useBack = back !== null && back.percent > (idle ?? 0);
+    const promo = useBack ? back.percent : idle;
     const price = service?.price_cents ?? 0;
     const { lastInsertRowid } = run(
-      `INSERT INTO appointments (barbershop_id, customer_id, barber_id, service_id, service_name, price_cents, promo_percent, starts_at, ends_at, source, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO appointments (barbershop_id, customer_id, barber_id, service_id, service_name, price_cents, promo_percent, promo_kind, starts_at, ends_at, source, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.shopId,
         input.customerId,
@@ -231,6 +239,7 @@ export function book(input: BookInput): AppointmentView {
         service?.name ?? 'Atendimento',
         promo ? discounted(price, promo) : price,
         promo,
+        useBack ? 'volta' : promo ? 'vazio' : null,
         start,
         end,
         input.source,
@@ -238,6 +247,7 @@ export function book(input: BookInput): AppointmentView {
         nowIso(),
       ],
     );
+    if (useBack) useComeback(back.id, lastInsertRowid);
     // Quem estava na lista de espera desse dia já tem o horário.
     run("UPDATE waitlist SET status = 'booked' WHERE customer_id = ? AND date = ? AND status = 'waiting'", [input.customerId, input.date]);
     return appointment(lastInsertRowid)!;

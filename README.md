@@ -152,7 +152,16 @@ de receber as de marketing.
   recepção; o lembrete do horário para o cliente.
 - **Horário de costume**: o sistema descobre pelo histórico o dia, a hora, o barbeiro e o ritmo de
   cada cliente e, no dia escolhido (padrão: segunda às 9h), oferece o horário de sempre.
-- **Cliente sumido** depois de N dias (padrão 30), com sugestão de horário.
+- **Cliente sumido**, pelo **ritmo de cada um**: quem já veio 3 vezes ou mais é chamado quando passa
+  bem do tempo dele (corta a cada 20 dias → chamado no dia 30; a cada 40 → no dia 60); quem ainda não
+  tem ritmo, depois do prazo da barbearia (padrão 30 dias). A mensagem sugere o horário de costume e
+  pode levar um **desconto de volta** (ex.: 15% no próximo horário, marcando em até 14 dias), que entra
+  sozinho no horário marcado pelo robô, pela área do cliente ou no balcão e aparece na agenda e na
+  comanda (não soma com o horário vazio: fica o maior; cancelou, volta a valer). Quem não responde
+  nem marca recebe uma **segunda mensagem** N dias depois (padrão 7), uma só. Em *Robô WhatsApp →
+  Sumidos* o dono vê a fila, quem já foi chamado e **quantos voltaram** e quanto gastaram desde a
+  mensagem. No mesmo dia, o cliente recebe no máximo uma oferta (costume, horário vazio ou
+  recontato).
 - **Avaliação depois do corte** (padrão 2h depois; no máximo uma por cliente a cada 30 dias).
 - **Presente de aniversário** no dia, com voucher.
 - **Mensalidade do clube** 3 dias antes de vencer (com o PIX em mensagem separada, fácil de
@@ -413,12 +422,17 @@ npm run dev    # interface em http://localhost:5173 (API na porta 3000)
 - Demonstração:
   - site em `/b/demo`;
   - painel do dono `demo@barbearia.com` / `demo12345`;
+  - recepção `(11) 96666-5555` / `recepcao123`;
   - barbeiro Paulo `(11) 95555-4444` / `paulo1234`;
   - área do cliente em `/b/demo/conta` com o celular `(11) 99999-0000` (João). Sem WhatsApp
     conectado, o código aparece na tela em desenvolvimento.
-  - A demo já tem vendas, despesas, comissões, estoque, um plano do clube (o Pedro é assinante),
-    avaliações, uma indicação (o Pedro veio pelo João) e o aniversário do João chegando. O João
-    toma uma cerveja toda sexta: marque um horário para ele e veja a pergunta da cerveja.
+  - A demo já tem quatro meses de movimento (cerca de 140 clientes, agenda de hoje e dos próximos
+    dias, caixa, comissões, estoque e os relatórios cheios), um plano do clube (o Pedro é
+    assinante), avaliações, uma indicação (o Pedro veio pelo João), o aniversário do João chegando,
+    a ficha do João com fotos, horário vazio (terça a quinta), pacotes, um vale-presente, a lista de
+    espera, a unidade do Centro e o recontato em andamento (clientes que voltaram com o desconto,
+    uma na segunda mensagem e outros na fila do robô). O João toma uma cerveja toda sexta: marque
+    um horário para ele e veja a pergunta da cerveja.
 - Para o robô conversar com IA: `ANTHROPIC_API_KEY=... npm run dev`. Teste pela aba
   *Robô WhatsApp → Simulador*.
 
@@ -428,7 +442,8 @@ vê dos pagamentos, avaliações, indicação, aniversário, mensalidades, Asaas
 LGPD, cópia de segurança, acesso do barbeiro, limites do master, isolamento entre barbearias,
 confirmação e lista de espera, ficha do cliente, horário vazio, app e avisos no celular (com o
 exemplo oficial da criptografia RFC 8291), gerente virtual e relatórios, pacotes e vale-presente,
-recepção e rede, cadastro e importação, PIX com baixa automática e Pix Automático, nota fiscal),
+recepção e rede, cadastro e importação, PIX com baixa automática e Pix Automático, nota fiscal,
+recontato pelo ritmo com desconto de volta e segunda mensagem),
 `npm run typecheck`, `npm run build && npm start`. Os testes rodam no GitHub a cada envio.
 
 ## Hospedar
@@ -482,7 +497,7 @@ server/
   privacy.ts        LGPD; backup.ts: cópias de segurança; passwordReset.ts
   attendance.ts     confirmação de presença; waitlist.ts: lista de espera
   profile.ts        ficha do cliente (anotações e fotos); files.ts: arquivos privados
-  promo.ts, idle.ts horário vazio com desconto (a regra e a oferta da manhã)
+  promo.ts, idle.ts horário vazio com desconto (a regra e a oferta da manhã); comeback.ts: desconto de volta
   push.ts, pwa.ts   avisos no celular (Web Push) e app instalável (manifest e ícones)
   insights.ts       indicadores (ocupação, retorno, previsão); manager.ts: gerente virtual e resumo da semana
   prepaid.ts        pacotes pré-pagos e vale-presente

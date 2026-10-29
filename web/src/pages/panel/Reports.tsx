@@ -36,7 +36,7 @@ interface ReportData {
     returned: number;
     returnRate: number | null;
     avgInterval: number | null;
-    atRisk: { id: number; name: string; phone: string; days: number; interval: number }[];
+    atRisk: { id: number; name: string; phone: string; days: number; interval: number | null; robotIn: number | null }[];
     away: number;
   };
   forecast: { month: string; soFar: number; scheduled: number; projected: number; lastMonthSamePoint: number; lastMonthTotal: number; daysLeft: number };
@@ -324,7 +324,8 @@ export function Reports() {
                         <span className="min-w-0">
                           <b>{c.name}</b>{' '}
                           <span className="text-zinc-500">
-                            · {c.days} dias sem vir (costuma voltar em {c.interval})
+                            · {c.days} dias sem vir{c.interval ? ` (costuma voltar em ${c.interval})` : ''}
+                            {c.robotIn != null && ` · o robô chama ${c.robotIn <= 1 ? 'amanhã' : `em ${c.robotIn} dias`}`}
                           </span>
                         </span>
                         <a

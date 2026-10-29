@@ -50,7 +50,8 @@ const describeAppointment = (a: AppointmentView) => ({
   barbeiro: a.barber_name,
   servico: a.service_name,
   preco: (a.price_cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
-  desconto_horario_vazio: a.promo_percent ? `${a.promo_percent}%` : undefined,
+  desconto_horario_vazio: a.promo_percent && a.promo_kind !== 'volta' ? `${a.promo_percent}%` : undefined,
+  desconto_de_volta: a.promo_percent && a.promo_kind === 'volta' ? `${a.promo_percent}%` : undefined,
   presenca_confirmada: Boolean(a.confirmed_at),
 });
 

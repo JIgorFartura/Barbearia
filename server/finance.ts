@@ -293,7 +293,7 @@ export function createSale(input: SaleInput): SaleResult {
       for (const c of campaigns.filter((x) => isRunning(x, date))) {
         const qty = items.filter((i) => i.catalogId === c.catalog_item_id).reduce((s, i) => s + i.qty, 0);
         if (!qty) continue;
-        const p = addStamps(shop, c.id, customerId, qty, input.userId, saleId);
+        const p = addStamps(shop, c.id, customerId, qty, input.userId, saleId, input.now);
         stamps.push({ campaign: c.name, qty, unit: c.unit_label, available: p.available });
       }
     }

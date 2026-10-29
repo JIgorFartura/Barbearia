@@ -6,6 +6,7 @@ import { customerMembership, listPlans } from '../club.js';
 import { growthSettings } from '../growth.js';
 import { all, get } from '../db.js';
 import { customerHabit } from '../habits.js';
+import { availableComeback } from '../comeback.js';
 import type { HistoryItem } from '../messaging.js';
 import { activeBarbers, services, upcomingFor } from '../scheduling.js';
 import { customerWaitlist, describeWait } from '../waitlist.js';
@@ -126,6 +127,12 @@ export function buildContext(ctx: BotContext): string {
         ended: 'assinatura encerrada',
       }[club.state];
       lines.push(`Clube: assinante do plano ${club.plan.name}, ${state}.`);
+    }
+    const back = availableComeback(c.id, now.date);
+    if (back) {
+      lines.push(
+        `Desconto de volta: ${c.name} tem ${back.percent}% de desconto no próximo horário, marcando até ${back.valid_until.slice(8, 10)}/${back.valid_until.slice(5, 7)} (para qualquer dia; entra sozinho ao agendar). Lembre disso quando ele falar em marcar.`,
+      );
     }
     const habit = customerHabit(c.id, ctx.now);
     if (habit) {

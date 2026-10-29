@@ -1,7 +1,7 @@
 import type { Router } from 'express';
 import { z } from 'zod';
 import { shopId } from '../auth.js';
-import { awayCustomers, sendWinback } from '../automations.js';
+import { awayCustomers, sendWinback, winbackResults } from '../automations.js';
 import { handleInbound } from '../bot/inbound.js';
 import { checkShopConnection, connectionInfo, resetConnection } from '../connection.js';
 import { llmEnabled } from '../bot/brain.js';
@@ -42,6 +42,11 @@ function botSettings(shop: number) {
     winback_enabled: Boolean(s.winback_enabled),
     winback_days: s.winback_days,
     winback_message: s.winback_message,
+    winback_rhythm: Boolean(s.winback_rhythm),
+    winback_discount: s.winback_discount,
+    winback_discount_days: s.winback_discount_days,
+    winback_followup_days: s.winback_followup_days,
+    winback_followup_message: s.winback_followup_message,
     confirm_release_hours: s.confirm_release_hours,
     llm: llmEnabled(),
     connection: connectionInfo(shop),
@@ -63,6 +68,12 @@ const zSettings = z.object({
   winback_enabled: zBool,
   winback_days: z.number().int().min(7).max(365),
   winback_message: zText(600),
+  // Recontato (sem informar, fica como está): ritmo de cada cliente, desconto de volta e 2ª mensagem.
+  winback_rhythm: zBool.optional(),
+  winback_discount: z.number().int().min(5, 'O desconto de volta vai de 5% a 50%.').max(50, 'O desconto de volta vai de 5% a 50%.').nullish(),
+  winback_discount_days: z.number().int().min(3).max(60).optional(),
+  winback_followup_days: z.number().int().min(0).max(30).optional(),
+  winback_followup_message: z.string().trim().max(600).nullish(),
   /** Liberar o horário de quem não confirmou até N horas antes (null = não libera). */
   confirm_release_hours: z.number().int().min(1).max(24).nullish().transform((v) => v ?? null),
 });
@@ -91,9 +102,11 @@ export function registerBotRoutes(router: Router): void {
       waJson = JSON.stringify(parseBody(zMetaConfig.extend({ verifyToken: z.string().trim().min(6, 'Token de verificação do webhook (mín. 6 caracteres).') }), merged));
     }
     if (body.wa_provider === 'evolution') waJson = JSON.stringify(parseBody(zEvolutionConfig, merged));
+    const keep = <T,>(value: T | undefined, saved: T): T => (value === undefined ? saved : value);
     run(
       `UPDATE barbershops SET bot_name = ?, bot_persona = ?, wa_provider = ?, wa_config = COALESCE(?, wa_config), slot_step_min = ?, reminder_hours = ?,
-              habit_enabled = ?, habit_weekday = ?, habit_time = ?, winback_enabled = ?, winback_days = ?, winback_message = ?, confirm_release_hours = ? WHERE id = ?`,
+              habit_enabled = ?, habit_weekday = ?, habit_time = ?, winback_enabled = ?, winback_days = ?, winback_message = ?, confirm_release_hours = ?,
+              winback_rhythm = ?, winback_discount = ?, winback_discount_days = ?, winback_followup_days = ?, winback_followup_message = ? WHERE id = ?`,
       [
         body.bot_name,
         body.bot_persona,
@@ -108,6 +121,11 @@ export function registerBotRoutes(router: Router): void {
         body.winback_days,
         body.winback_message,
         body.confirm_release_hours,
+        keep(body.winback_rhythm, Boolean(before.winback_rhythm)),
+        keep(body.winback_discount, before.winback_discount) ?? null,
+        keep(body.winback_discount_days, before.winback_discount_days),
+        keep(body.winback_followup_days, before.winback_followup_days),
+        body.winback_followup_message === undefined ? before.winback_followup_message : body.winback_followup_message || null,
         shop,
       ],
     );
@@ -177,9 +195,16 @@ export function registerBotRoutes(router: Router): void {
     );
   });
 
-  /** Clientes sumidos (não vêm há N dias). */
+  /** Clientes sumidos (pelo ritmo de cada um ou pelo prazo) e o resultado do recontato. */
   router.get('/winback', (req, res) => {
-    res.json({ days: shopBot(shopId(req)).winback_days, customers: awayCustomers(shopId(req)) });
+    const shop = shopBot(shopId(req));
+    res.json({
+      days: shop.winback_days,
+      rhythm: Boolean(shop.winback_rhythm),
+      discount: shop.winback_discount,
+      customers: awayCustomers(shop.id),
+      results: winbackResults(shop.id),
+    });
   });
 
   router.post('/winback/:id', async (req, res) => {

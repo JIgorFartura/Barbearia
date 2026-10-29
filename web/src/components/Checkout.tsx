@@ -2,7 +2,7 @@ import { CheckCircle2, Gift, Minus, Plus, Search, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { METHODS, parseMoney, type Method } from '../lib/finance';
-import { money, phone, stampLabel } from '../lib/format';
+import { money, phone, promoLabel, stampLabel } from '../lib/format';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from './ui';
 
 interface CatalogItem {
@@ -23,8 +23,9 @@ interface CheckoutData {
     service_id: number | null;
     service_name: string;
     price_cents: number;
-    /** Horário vazio: o preço acima já tem o desconto. */
+    /** Horário vazio ou desconto de volta: o preço acima já tem o desconto. */
     promo_percent: number | null;
+    promo_kind: 'vazio' | 'volta' | null;
     starts_at: string;
   } | null;
   reserved: { catalog_item_id: number; name: string; qty: number }[];
@@ -42,8 +43,9 @@ interface Line {
   barber_id: number | null;
   /** Coberto pelo clube de assinatura do cliente (sai por R$ 0). */
   club?: boolean;
-  /** Desconto do horário vazio já aplicado no preço. */
+  /** Desconto do horário (vazio ou de volta) já aplicado no preço. */
   promo?: number;
+  promoKind?: 'vazio' | 'volta' | null;
   /** Pacote pré-pago do cliente usado nesta linha (sai por R$ 0). */
   pack?: number | null;
 }
@@ -140,10 +142,11 @@ export function CheckoutModal({
           kind: 'service',
           name: service?.name ?? a.service_name,
           qty: 1,
-          // Horário vazio: o preço combinado na hora de marcar (com o desconto).
+          // Horário vazio ou desconto de volta: o preço combinado na hora de marcar (com o desconto).
           unit_price_cents: a.promo_percent ? a.price_cents : (service?.price_cents ?? a.price_cents),
           barber_id: a.barber_id,
           promo: a.promo_percent ?? undefined,
+          promoKind: a.promo_kind,
         },
         // O que o cliente pediu para deixar separado já entra na comanda.
         ...d.reserved.map((r) => {
@@ -376,7 +379,11 @@ export function CheckoutModal({
                     </button>
                   </div>
                   <span className="text-zinc-500">× {money(l.unit_price_cents)}</span>
-                  {l.promo && !free(l) && <span className="text-xs font-medium text-emerald-700">horário vazio −{l.promo}%</span>}
+                  {l.promo && !free(l) && (
+                    <span className="text-xs font-medium text-emerald-700">
+                      {promoLabel(l.promoKind)} −{l.promo}%
+                    </span>
+                  )}
                   {!l.club &&
                     (() => {
                       const p = packFor(l);

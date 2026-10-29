@@ -102,8 +102,11 @@ describe('indicadores da barbearia', () => {
   test('retorno dos clientes, quem está passando do tempo e quem sumiu', () => {
     // Um ano depois da semana de referência (as visitas dela ficam fora da janela de 365 dias).
     const D = '2032-06-10';
-    // Ana: 80 e 50 dias atrás (voltou); Bia: 70 dias atrás (não voltou, sumida); Caio: a cada 10 dias, a última há 20;
-    // Davi: há 5 dias.
+    // Ana: 80 e 50 dias atrás (voltou); Bia: 70 dias atrás (não voltou, sumida); Caio: a cada 10 dias, a última há 20
+    // (passou bem do ritmo: sumido); Edu: a cada 10 dias, a última há 14 (passando do tempo); Fabi: uma vez, há 30 dias
+    // (sem ritmo: passando do tempo depois de 3 semanas); Davi: há 5 dias.
+    const edu = customer('Edu Rocha', '11988884444');
+    const fabi = customer('Fabi Nunes', '11988885555');
     const ago = (n: number) => new Date(at(D).getTime() - n * 86400000).toISOString().slice(0, 10);
     for (const [c, days, h] of [
       [ana, 80, '09:00'],
@@ -112,20 +115,28 @@ describe('indicadores da barbearia', () => {
       [caio, 40, '11:00'],
       [caio, 30, '11:00'],
       [caio, 20, '11:00'],
+      [edu, 34, '14:00'],
+      [edu, 24, '14:00'],
+      [edu, 14, '14:00'],
+      [fabi, 30, '15:00'],
       [davi, 5, '12:00'],
     ] as const) {
       visit(c, ago(days), h);
     }
     const r = retention(shopId, at(D));
-    assert.equal(r.active, 4);
+    assert.equal(r.active, 6);
     assert.equal(r.cohort, 2);
     assert.equal(r.returned, 1);
     assert.equal(r.returnRate, 0.5);
+    // O mais atrasado primeiro; o robô chama a Fabi no dia 45 (prazo da barbearia) e o Edu no dia 17 (ritmo de 10 dias).
     assert.deepEqual(
-      r.atRisk.map((c) => [c.name, c.days, c.interval]),
-      [['Caio Reis', 20, 10]],
+      r.atRisk.map((c) => [c.name, c.days, c.interval, c.robotIn]),
+      [
+        ['Fabi Nunes', 30, null, 15],
+        ['Edu Rocha', 14, 10, 3],
+      ],
     );
-    assert.equal(r.away, 2, 'Ana (50 dias) e Bia (70) passaram dos 45 dias do cliente sumido');
+    assert.equal(r.away, 3, 'Ana (50 dias) e Bia (70) passaram dos 45 dias; Caio, de 17 (ritmo de 10 dias)');
   });
 
   test('previsão do mês: o que entrou, os horários marcados e a média do balcão', () => {

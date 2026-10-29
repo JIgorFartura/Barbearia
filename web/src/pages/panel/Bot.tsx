@@ -2,7 +2,7 @@ import { Bot as BotIcon, CheckCircle2, Copy, MessageSquare, RefreshCw, Send, Sma
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
-import { WEEKDAYS, date as fmtDate, phone as fmtPhone } from '../../lib/format';
+import { WEEKDAYS, date as fmtDate, money as fmtMoney, phone as fmtPhone } from '../../lib/format';
 
 interface Settings {
   bot_name: string;
@@ -18,6 +18,14 @@ interface Settings {
   winback_enabled: boolean;
   winback_days: number;
   winback_message: string | null;
+  /** Quem já tem ritmo é chamado quando passa bem do tempo dele. */
+  winback_rhythm: boolean;
+  /** Desconto de volta (null = sem desconto), marcando em até N dias. */
+  winback_discount: number | null;
+  winback_discount_days: number;
+  /** Segunda mensagem N dias depois para quem não respondeu (0 = não manda). */
+  winback_followup_days: number;
+  winback_followup_message: string | null;
   /** Libera o horário de quem não confirmou até N horas antes (null = não libera). */
   confirm_release_hours: number | null;
   llm: boolean;
@@ -67,6 +75,7 @@ const KIND_LABEL: Record<string, string> = {
   lembrete: 'Lembrete',
   costume: 'Horário de costume',
   sumido: 'Recontato',
+  sumido2: '2º recontato',
   codigo: 'Código de acesso',
   teste: 'Teste',
   manual: 'Manual',
@@ -258,8 +267,15 @@ function RemindersTab({ s, set }: { s: Settings; set: SetFn }) {
           <input type="checkbox" className="size-4 accent-zinc-900" checked={s.winback_enabled} onChange={(e) => set('winback_enabled', e.target.checked)} />
           Chamar quem sumiu
         </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 size-4 accent-zinc-900" checked={s.winback_rhythm} onChange={(e) => set('winback_rhythm', e.target.checked)} />
+          <span>
+            <b>Respeitar o ritmo de cada cliente</b> (recomendado): quem já veio 3 vezes ou mais é chamado quando passa bem do tempo dele. Quem corta a cada 20
+            dias é chamado no dia 30; quem corta a cada 40, no dia 60.
+          </span>
+        </label>
         <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
-          <Field label="Sem vir há">
+          <Field label={s.winback_rhythm ? 'Quem ainda não tem ritmo: sem vir há' : 'Sem vir há'}>
             <select className={inputClass} value={s.winback_days} onChange={(e) => set('winback_days', Number(e.target.value))}>
               {[21, 30, 45, 60, 90].map((d) => (
                 <option key={d} value={d}>
@@ -278,6 +294,63 @@ function RemindersTab({ s, set }: { s: Settings; set: SetFn }) {
               onChange={(e) => set('winback_message', e.target.value)}
             />
           </Field>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[12rem_12rem_1fr]">
+          <Field label="Desconto para voltar">
+            <select
+              className={inputClass}
+              value={s.winback_discount ?? ''}
+              onChange={(e) => set('winback_discount', e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">Sem desconto</option>
+              {[5, 10, 15, 20, 25, 30].map((p) => (
+                <option key={p} value={p}>
+                  {p}% de desconto
+                </option>
+              ))}
+            </select>
+          </Field>
+          {s.winback_discount ? (
+            <Field label="Vale marcando em até">
+              <select className={inputClass} value={s.winback_discount_days} onChange={(e) => set('winback_discount_days', Number(e.target.value))}>
+                {[7, 14, 21, 30].map((d) => (
+                  <option key={d} value={d}>
+                    {d} dias
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <span className="hidden sm:block" />
+          )}
+          <p className="self-end text-xs text-zinc-500">
+            O desconto entra sozinho no horário que o cliente marcar (pelo robô, pela área dele ou no balcão) e aparece na agenda e na comanda. Não soma com o
+            horário vazio: fica o maior.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
+          <Field label="Segunda mensagem">
+            <select className={inputClass} value={s.winback_followup_days} onChange={(e) => set('winback_followup_days', Number(e.target.value))}>
+              <option value={0}>Não mandar</option>
+              {[5, 7, 10, 14].map((d) => (
+                <option key={d} value={d}>
+                  {d} dias depois
+                </option>
+              ))}
+            </select>
+          </Field>
+          {s.winback_followup_days > 0 && (
+            <Field label="Texto da segunda mensagem (opcional)" hint="Só vai para quem não respondeu nem marcou. Use {nome}, {dias}, {barbearia} e {robo}.">
+              <textarea
+                className={inputClass}
+                rows={2}
+                maxLength={600}
+                placeholder="Oi, {nome}! Aqui é o {robo} de novo, da {barbearia}. Passando pra lembrar que a sua cadeira está te esperando."
+                value={s.winback_followup_message ?? ''}
+                onChange={(e) => set('winback_followup_message', e.target.value)}
+              />
+            </Field>
+          )}
         </div>
       </Card>
       <p className="text-xs text-zinc-500 lg:col-span-2">
@@ -664,15 +737,30 @@ interface AwayCustomer {
   phone: string;
   lastVisit: string;
   days: number;
+  /** De quantos em quantos dias costuma vir (null: ainda sem ritmo). */
+  rhythm: number | null;
+  contactedAt: string | null;
+  followedUpAt: string | null;
   contacted: boolean;
+  promo: { percent: number; validUntil: string } | null;
   optOut: boolean;
 }
 
+interface WinbackData {
+  days: number;
+  rhythm: boolean;
+  discount: number | null;
+  customers: AwayCustomer[];
+  results: { contacted: number; returned: number; revenueCents: number };
+}
+
+const shortDay = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+
 function Away({ days }: { days: number }) {
-  const [list, setList] = useState<AwayCustomer[] | null>(null);
+  const [data, setData] = useState<WinbackData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(() => {
-    api<{ customers: AwayCustomer[] }>('GET', '/api/shop/winback').then((r) => setList(r.customers));
+    api<WinbackData>('GET', '/api/shop/winback').then(setData);
   }, []);
   useEffect(load, [load]);
 
@@ -686,22 +774,56 @@ function Away({ days }: { days: number }) {
     }
   }
 
+  const list = data?.customers;
+  const r = data?.results;
   return (
     <div className="space-y-3">
-      <p className="text-sm text-zinc-500">Clientes que não vêm há {days} dias ou mais e não têm horário marcado. O robô chama cada um uma vez, automaticamente.</p>
+      <p className="text-sm text-zinc-500">
+        {data?.rhythm
+          ? `Clientes que passaram bem do tempo de voltar (pelo ritmo de cada um; quem ainda não tem ritmo, depois de ${data.days} dias) e não têm horário marcado.`
+          : `Clientes que não vêm há ${data?.days ?? days} dias ou mais e não têm horário marcado.`}{' '}
+        O robô chama cada um sozinho{data?.discount ? `, com ${data.discount}% de desconto de volta` : ''}.
+      </p>
+      {r && r.contacted > 0 && (
+        <Card className="!p-4">
+          <p className="text-sm">
+            Nos últimos 90 dias o robô chamou <b>{r.contacted}</b> {r.contacted === 1 ? 'cliente' : 'clientes'}:{' '}
+            <b className="text-emerald-700">
+              {r.returned} {r.returned === 1 ? 'voltou' : 'voltaram'}
+            </b>
+            {r.revenueCents > 0 && <> e já gastaram {fmtMoney(r.revenueCents)} desde a mensagem</>}.
+          </p>
+        </Card>
+      )}
       <ErrorText error={error} />
       {list?.length === 0 && <EmptyState icon={<UserX className="size-6" />} title="Ninguém sumido" text="Todos os clientes vieram recentemente ou já têm horário marcado. 👏" />}
       <div className="grid gap-2 md:grid-cols-2">
         {list?.map((c) => (
           <Card key={c.id} className="!p-4">
             <div className="flex items-start justify-between gap-2">
-              <div>
+              <div className="min-w-0">
                 <p className="font-semibold">{c.name}</p>
                 <p className="text-sm text-zinc-500">
                   {fmtPhone(c.phone)} · última visita {fmtDate(c.lastVisit)} ({c.days} dias)
                 </p>
+                {c.rhythm && <p className="text-xs text-zinc-500">Costuma voltar a cada {c.rhythm} dias</p>}
               </div>
-              {c.optOut ? <Badge tone="red">Pediu para parar</Badge> : c.contacted ? <Badge tone="green">Já chamado</Badge> : <Badge tone="gold">Na fila</Badge>}
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                {c.optOut ? (
+                  <Badge tone="red">Pediu para parar</Badge>
+                ) : c.followedUpAt ? (
+                  <Badge tone="green">2ª mensagem {shortDay(c.followedUpAt)}</Badge>
+                ) : c.contactedAt ? (
+                  <Badge tone="green">Chamado {shortDay(c.contactedAt)}</Badge>
+                ) : (
+                  <Badge tone="gold">Na fila</Badge>
+                )}
+                {c.promo && (
+                  <span className="text-xs font-medium text-emerald-700">
+                    🎁 {c.promo.percent}% até {c.promo.validUntil.slice(8, 10)}/{c.promo.validUntil.slice(5, 7)}
+                  </span>
+                )}
+              </div>
             </div>
             {!c.optOut && (
               <Button variant="ghost" className="mt-3 !py-1.5" onClick={() => call(c)}>

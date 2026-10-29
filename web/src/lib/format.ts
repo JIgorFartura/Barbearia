@@ -34,3 +34,6 @@ export const whatsappLink = (number: string, text = '') =>
   `https://wa.me/55${number.replace(/\D/g, '').replace(/^55/, '')}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
 
 export const instagramLink = (handle: string) => `https://instagram.com/${handle.replace(/^@/, '').replace(/^https?:\/\/(www\.)?instagram\.com\//, '')}`;
+
+/** De onde veio o desconto do horário. */
+export const promoLabel = (kind: 'vazio' | 'volta' | null | undefined) => (kind === 'volta' ? 'desconto de volta' : 'horário vazio');

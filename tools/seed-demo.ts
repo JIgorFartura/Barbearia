@@ -10,6 +10,7 @@ import { saveReceipt } from '../server/receipts.js';
 import { book } from '../server/scheduling.js';
 import { stockEntry } from '../server/stock.js';
 import { addDays, localNow, weekdayOf } from '../server/time.js';
+import { showcase } from './demo-showcase.js';
 
 /** Comprovante de PIX de mentira (PDF de uma página), para a demonstração mostrar a cópia que chega à barbearia. */
 function demoReceiptPdf(lines: string[]): Buffer {
@@ -222,14 +223,16 @@ tx(() => {
   // Plataforma: plano, PIX do master e um aviso para as barbearias.
   const platformPlan = run("INSERT INTO plans (name, price_cents, description, active, created_at) VALUES ('Comunidade', 14990, 'Robô, agenda, financeiro e fidelidade', 1, ?)", [now]).lastInsertRowid;
   run('UPDATE barbershops SET plan_id = ?, billing_day = 10 WHERE id = ?', [platformPlan, shop]);
-  savePlatformSettings({ grace_days: 5, trial_days: 14, pix_key: 'pix@sistemabarbearia.com.br', pix_name: 'Sistema Barbearia', pix_city: 'São Paulo' });
+  savePlatformSettings({ grace_days: 5, trial_days: 14, pix_key: 'pix@sistemabarbearia.com.br', pix_name: 'Sistema Barbearia', pix_city: 'São Paulo', signup_enabled: true });
   run(
     "INSERT INTO announcements (title, body, level, active, created_at) VALUES ('Financeiro integrado', 'Agora cada atendimento fechado na Agenda entra no caixa, calcula a comissão do barbeiro e dá o carimbo do cartão fidelidade.', 'novidade', 1, ?)",
     [now],
   );
 });
+// Oito semanas de movimento e as novidades (ficha, pacotes, recepção, unidades, recontato...).
+await showcase(get<{ id: number }>("SELECT id FROM barbershops WHERE slug = 'demo'")!.id);
 ensureInvoices();
 
 console.log(
-  'Barbearia demo criada. Painel: demo@barbearia.com / demo12345 · Barbeiro Paulo: (11) 95555-4444 / paulo1234 · Site: /b/demo · Área do cliente: /b/demo/conta (João: (11) 99999-0000)',
+  'Barbearia demo criada. Painel: demo@barbearia.com / demo12345 · Recepção: (11) 96666-5555 / recepcao123 · Barbeiro Paulo: (11) 95555-4444 / paulo1234 · Site: /b/demo · Área do cliente: /b/demo/conta (João: (11) 99999-0000)',
 );
