@@ -10,6 +10,7 @@ import { all, get, run } from '../db.js';
 import { METHODS, barberStatement, commissionBalances, createSale } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
 import { customerPackages, giftCardByCode } from '../prepaid.js';
+import { autoSaleNfse } from '../shopNfse.js';
 import { addPhoto, barberSeesCustomer, customerProfile, deletePhoto, photoOf, profileSummary, saveNotes, sendPhoto, zNotes, zPhoto } from '../profile.js';
 import { dayAgenda } from '../scheduling.js';
 import { availableQty } from '../stock.js';
@@ -232,8 +233,7 @@ barberRouter.post('/sales', (req, res) => {
   );
   if (body.appointment_id) myAppointment(req, body.appointment_id);
   if (body.items.some((i) => i.barber_id && i.barber_id !== barber)) throw new HttpError(403, 'Você só lança vendas no seu nome.');
-  res.status(201).json(
-    createSale({
+  const result = createSale({
       shopId: shop,
       userId: user,
       appointmentId: body.appointment_id,
@@ -245,8 +245,9 @@ barberRouter.post('/sales', (req, res) => {
       giftCents: body.gift_cents,
       method: body.method,
       notes: body.notes,
-    }),
-  );
+    });
+  autoSaleNfse(shop, result.sale.id);
+  res.status(201).json(result);
 });
 
 /** Meus ganhos: só a parte dele (comissão em aberto, extrato das comissões e pagamentos recebidos). */

@@ -128,8 +128,8 @@ export function saveCustomerCpf(shopId: number, customerId: number, raw: string)
   run('UPDATE customers SET cpf = ?, asaas_shop_customer_id = NULL WHERE id = ? AND barbershop_id = ?', [cpf, customerId, shopId]);
 }
 
-/** O cliente na conta Asaas da barbearia (criado na primeira cobrança). */
-async function ensureCustomer(shopId: number, customerId: number): Promise<string | null> {
+/** O cliente na conta Asaas da barbearia (criado na primeira cobrança). null: falta o CPF. */
+export async function ensureCustomer(shopId: number, customerId: number): Promise<string | null> {
   const c = get<{ id: number; name: string; phone: string; cpf: string | null; asaas_shop_customer_id: string | null }>(
     'SELECT id, name, phone, cpf, asaas_shop_customer_id FROM customers WHERE id = ? AND barbershop_id = ?',
     [customerId, shopId],
@@ -326,7 +326,11 @@ async function paidNotice(shopId: number, chargeId: number): Promise<void> {
  * Aviso do Asaas da barbearia: pagamento recebido (baixa a mensalidade sozinha) e situação do Pix
  * Automático. Nunca recusa por regra de negócio (senão o Asaas pausa a fila); só o segredo errado.
  */
-export function handleShopAsaasEvent(urlToken: string, headerToken: string | undefined, body: ShopAsaasEvent): { ok: true; note?: string } {
+export function handleShopAsaasEvent(
+  urlToken: string,
+  headerToken: string | undefined,
+  body: ShopAsaasEvent,
+): { ok: true; note?: string; shopId?: number; paidChargeId?: number } {
   const shop = urlToken ? get<{ id: number; asaas_shop_token: string }>('SELECT id, asaas_shop_token FROM barbershops WHERE asaas_shop_token = ?', [urlToken]) : undefined;
   if (!shop || !headerToken || !sameToken(headerToken, shop.asaas_shop_token)) throw new HttpError(401, 'Token do webhook inválido.');
   run('UPDATE barbershops SET asaas_shop_webhook_at = ? WHERE id = ?', [nowIso(), shop.id]);
@@ -342,7 +346,7 @@ export function handleShopAsaasEvent(urlToken: string, headerToken: string | und
     if (c.status !== 'open') return { ok: true, note: 'já baixada' };
     confirmCharge(shop.id, c.id, { method: METHOD[p.billingType ?? 'PIX'] ?? 'pix', userId: null });
     void paidNotice(shop.id, c.id);
-    return { ok: true };
+    return { ok: true, shopId: shop.id, paidChargeId: c.id };
   }
 
   if (event.startsWith('PIX_AUTOMATIC_RECURRING_AUTHORIZATION_')) {
@@ -360,9 +364,11 @@ export function handleShopAsaasEvent(urlToken: string, headerToken: string | und
       if (c?.status === 'open') {
         confirmCharge(shop.id, m.pix_auto_charge_id, { method: 'pix', userId: null });
         void paidNotice(shop.id, m.pix_auto_charge_id);
+        return { ok: true, shopId: shop.id, paidChargeId: m.pix_auto_charge_id };
       }
     }
     return { ok: true };
   }
+  if (event.startsWith('INVOICE_')) return { ok: true, shopId: shop.id, note: 'nota fiscal' };
   return { ok: true, note: 'evento ignorado' };
 }

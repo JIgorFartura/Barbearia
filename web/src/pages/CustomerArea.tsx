@@ -100,6 +100,8 @@ interface Payment {
   /** Pago no cartão pela Cielo (automático). */
   card: boolean;
   receipt: ReceiptInfo | null;
+  /** PDF da nota fiscal de serviço (quando a barbearia emite). */
+  nfse_url: string | null;
 }
 
 interface MeData {
@@ -753,6 +755,11 @@ function PaymentsSection({ slug, payments }: { slug: string; payments: Payment[]
                 {p.receipt && (
                   <a href={`/api/customer/${slug}/charges/${p.id}/receipt`} target="_blank" rel="noreferrer" className="text-xs font-medium text-zinc-700 underline">
                     Ver comprovante
+                  </a>
+                )}
+                {p.nfse_url && (
+                  <a href={p.nfse_url} target="_blank" rel="noreferrer" className="ml-3 text-xs font-medium text-zinc-700 underline">
+                    Nota fiscal
                   </a>
                 )}
                 {p.status === 'open' && (

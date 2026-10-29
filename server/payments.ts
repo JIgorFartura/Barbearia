@@ -22,6 +22,8 @@ export interface PaymentView {
   /** Pago no cartão pela Cielo (baixa automática). */
   card: boolean;
   receipt: { type: string; at: string } | null;
+  /** PDF da nota fiscal de serviço (quando a barbearia emite). */
+  nfse_url: string | null;
   customer?: string | null;
 }
 
@@ -35,6 +37,7 @@ interface SaleRow {
   total_cents: number;
   method: string;
   items: string | null;
+  nfse_url: string | null;
   customer?: string | null;
 }
 
@@ -52,11 +55,12 @@ interface ChargeRow {
   receipt_type: string | null;
   receipt_at: string | null;
   card: number;
+  nfse_url: string | null;
   customer?: string | null;
 }
 
 const CHARGE_FIELDS = `ch.id, ch.description, ch.amount_cents, ch.method, ch.status, ch.claimed_at, ch.paid_at, ch.due_date, ch.created_at,
-  ch.receipt_file, ch.receipt_type, ch.receipt_at,
+  ch.receipt_file, ch.receipt_type, ch.receipt_at, ch.nfse_url,
   EXISTS (SELECT 1 FROM gateway_payments g WHERE g.charge_id = ch.id AND g.applied = 1) AS card`;
 
 const fromSale = (s: SaleRow): PaymentView => ({
@@ -69,6 +73,7 @@ const fromSale = (s: SaleRow): PaymentView => ({
   status: 'paid',
   card: false,
   receipt: null,
+  nfse_url: s.nfse_url,
   ...(s.customer !== undefined ? { customer: s.customer } : {}),
 });
 
@@ -82,6 +87,7 @@ const fromCharge = (c: ChargeRow, tz: string): PaymentView => ({
   status: c.status === 'paid' ? 'paid' : c.claimed_at ? 'claimed' : 'open',
   card: Boolean(c.card),
   receipt: receiptInfo(c),
+  nfse_url: c.nfse_url,
   ...(c.customer !== undefined ? { customer: c.customer } : {}),
 });
 
@@ -91,7 +97,7 @@ const newestFirst = (a: PaymentView, b: PaymentView) => b.date.localeCompare(a.d
 export function customerPayments(shopId: number, customerId: number, limit = 20): PaymentView[] {
   const tz = shopTz(shopId);
   const sales = all<SaleRow>(
-    `SELECT s.id, s.date, s.total_cents, s.method, ${ITEMS} AS items FROM sales s
+    `SELECT s.id, s.date, s.total_cents, s.method, s.nfse_url, ${ITEMS} AS items FROM sales s
       WHERE s.barbershop_id = ? AND s.customer_id = ? AND s.status = 'closed' AND s.total_cents > 0 ORDER BY s.date DESC, s.id DESC LIMIT ?`,
     [shopId, customerId, limit],
   );
@@ -107,7 +113,7 @@ export function customerPayments(shopId: number, customerId: number, limit = 20)
 export function receivedFromCustomers(shopId: number, from: string, to: string) {
   const tz = shopTz(shopId);
   const sales = all<SaleRow>(
-    `SELECT s.id, s.date, s.total_cents, s.method, ${ITEMS} AS items, c.name AS customer FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
+    `SELECT s.id, s.date, s.total_cents, s.method, s.nfse_url, ${ITEMS} AS items, c.name AS customer FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
       WHERE s.barbershop_id = ? AND s.status = 'closed' AND s.total_cents > 0 AND s.date >= ? AND s.date <= ?`,
     [shopId, from, to],
   ).map(fromSale);

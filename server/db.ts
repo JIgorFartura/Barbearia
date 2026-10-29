@@ -1127,6 +1127,23 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE club_members ADD COLUMN pix_auto_status TEXT;
   ALTER TABLE club_members ADD COLUMN pix_auto_charge_id INTEGER;
   `,
+  // 23) Nota fiscal de serviço (NFS-e) para o cliente, pela conta Asaas da barbearia.
+  `
+  -- off · manual (o dono pede a nota de cada venda) · auto (toda venda com serviço e cliente com CPF).
+  ALTER TABLE barbershops ADD COLUMN nfse_mode TEXT NOT NULL DEFAULT 'off';
+  ALTER TABLE barbershops ADD COLUMN nfse_service_name TEXT;
+  ALTER TABLE barbershops ADD COLUMN nfse_service_code TEXT;
+  ALTER TABLE barbershops ADD COLUMN nfse_iss REAL NOT NULL DEFAULT 0;
+  ALTER TABLE barbershops ADD COLUMN nfse_observations TEXT;
+  ALTER TABLE sales ADD COLUMN nfse_id TEXT;
+  ALTER TABLE sales ADD COLUMN nfse_status TEXT;
+  ALTER TABLE sales ADD COLUMN nfse_error TEXT;
+  ALTER TABLE sales ADD COLUMN nfse_url TEXT;
+  ALTER TABLE charges ADD COLUMN nfse_id TEXT;
+  ALTER TABLE charges ADD COLUMN nfse_status TEXT;
+  ALTER TABLE charges ADD COLUMN nfse_error TEXT;
+  ALTER TABLE charges ADD COLUMN nfse_url TEXT;
+  `,
 ];
 
 function migrate(): void {

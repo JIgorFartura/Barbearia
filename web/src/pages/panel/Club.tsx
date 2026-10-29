@@ -2,7 +2,7 @@ import { CreditCard, Crown, Pencil, Plus, Search, Send } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { OnlineSettingsCard } from '../../components/OnlinePay';
 import { PixSettingsCard } from '../../components/Pix';
-import { ShopAsaasCard } from '../../components/ShopAsaas';
+import { NfseCard, ShopAsaasCard } from '../../components/ShopAsaas';
 import { ReceiptPreview } from '../../components/Receipt';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -264,6 +264,7 @@ export function Club() {
 
           <PixSettingsCard onSaved={() => load()} />
           <ShopAsaasCard />
+          <NfseCard />
           <OnlineSettingsCard />
 
           <Card>

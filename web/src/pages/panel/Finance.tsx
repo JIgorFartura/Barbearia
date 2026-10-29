@@ -613,13 +613,47 @@ interface Sale {
   method: string;
   status: 'closed' | 'cancelled';
   appointment_id: number | null;
-  items: { id: number; name: string; qty: number; total_cents: number; barber_name: string | null; commission_cents: number; paid: boolean }[];
+  items: { id: number; name: string; qty: number; total_cents: number; barber_name: string | null; commission_cents: number; paid: boolean; kind?: string }[];
+  /** Nota fiscal de serviço (pelo Asaas da barbearia). */
+  nfse_status: string | null;
+  nfse_url: string | null;
+  nfse_error: string | null;
 }
+
+const NFSE_STATUS: Record<string, string> = {
+  SCHEDULED: 'nota agendada',
+  SYNCHRONIZED: 'nota enviada à prefeitura',
+  AUTHORIZATION_PENDING: 'nota aguardando a prefeitura',
+  AUTHORIZED: 'nota emitida',
+  CANCELED: 'nota cancelada',
+  ERROR: 'nota com erro',
+};
 
 function SalesTab({ period }: { period: Period }) {
   const [sales, setSales] = useState<Sale[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nfseOn, setNfseOn] = useState(false);
+  useEffect(() => {
+    api<{ mode: string }>('GET', '/api/shop/nfse').then((s) => setNfseOn(s.mode !== 'off'), () => undefined);
+  }, []);
+
+  /** Pede a nota fiscal da venda (se faltar o CPF do cliente, pergunta). */
+  async function nfse(s: Sale, cpf?: string) {
+    setError(null);
+    try {
+      const updated = await api<Sale>('POST', `/api/shop/finance/sales/${s.id}/nfse`, cpf ? { cpf } : {});
+      setSales((list) => list?.map((x) => (x.id === s.id ? updated : x)) ?? null);
+    } catch (err) {
+      const message = (err as Error).message;
+      if (/CPF/.test(message) && !cpf) {
+        const typed = prompt(`CPF de ${s.customer_name ?? 'cliente'} para a nota:`);
+        if (typed) return nfse(s, typed);
+      }
+      setError(message);
+      load();
+    }
+  }
   const load = useCallback(() => {
     api<Sale[]>('GET', `/api/shop/finance/sales?from=${period.from}&to=${period.to}`).then(setSales, (e) => setError(e.message));
   }, [period]);
@@ -673,10 +707,26 @@ function SalesTab({ period }: { period: Period }) {
               ))}
             </ul>
             {s.discount_cents > 0 && <p className="mt-1 text-xs text-zinc-500">Desconto de {money(s.discount_cents)}</p>}
+            {s.nfse_url ? (
+              <a href={s.nfse_url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs font-medium text-emerald-700 underline">
+                Nota fiscal (PDF)
+              </a>
+            ) : s.nfse_status ? (
+              <p className="mt-1 text-xs text-zinc-500">{NFSE_STATUS[s.nfse_status] ?? `nota: ${s.nfse_status.toLowerCase()}`}</p>
+            ) : s.nfse_error ? (
+              <p className="mt-1 text-xs text-red-600">Nota fiscal: {s.nfse_error}</p>
+            ) : null}
             {s.status === 'closed' && (
-              <button onClick={() => cancel(s)} className="mt-2 inline-flex items-center gap-1 text-xs text-red-600 hover:underline">
-                <Ban className="size-3.5" /> Cancelar venda
-              </button>
+              <div className="mt-2 flex flex-wrap gap-4">
+                {nfseOn && !s.nfse_status && s.customer_name && (
+                  <button onClick={() => nfse(s)} className="text-xs font-medium text-zinc-700 underline">
+                    Emitir nota fiscal
+                  </button>
+                )}
+                <button onClick={() => cancel(s)} className="inline-flex items-center gap-1 text-xs text-red-600 hover:underline">
+                  <Ban className="size-3.5" /> Cancelar venda
+                </button>
+              </div>
             )}
           </Card>
         ))}

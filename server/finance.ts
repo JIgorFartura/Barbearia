@@ -101,6 +101,10 @@ export interface SaleView {
   method: Method;
   notes: string | null;
   status: 'closed' | 'cancelled';
+  /** Nota fiscal de serviço (pelo Asaas da barbearia). */
+  nfse_status: string | null;
+  nfse_url: string | null;
+  nfse_error: string | null;
   created_at: string;
   items: {
     id: number;
@@ -120,7 +124,7 @@ export interface SaleView {
 export function saleView(id: number): SaleView {
   const sale = get<Omit<SaleView, 'items'>>(
     `SELECT s.id, s.date, s.customer_id, c.name AS customer_name, s.appointment_id, s.subtotal_cents, s.discount_cents, s.total_cents, s.gift_cents,
-            s.method, s.notes, s.status, s.created_at
+            s.method, s.notes, s.status, s.created_at, s.nfse_status, s.nfse_url, s.nfse_error
        FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?`,
     [id],
   );

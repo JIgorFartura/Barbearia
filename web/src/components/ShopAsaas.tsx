@@ -114,3 +114,76 @@ export function ShopAsaasCard() {
     </Card>
   );
 }
+
+interface NfseView {
+  mode: 'off' | 'manual' | 'auto';
+  serviceName: string;
+  serviceCode: string;
+  iss: number;
+  observations: string;
+}
+
+/** Nota fiscal de serviço (NFS-e) para os clientes, emitida pela conta Asaas da barbearia. */
+export function NfseCard() {
+  const [form, setForm] = useState<NfseView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<NfseView>('GET', '/api/shop/nfse').then(setForm, (e) => setError(e.message));
+  }, []);
+  if (!form) return <ErrorText error={error} />;
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    setMsg(null);
+    try {
+      setForm(await api<NfseView>('PUT', '/api/shop/nfse', form));
+      setMsg('Salvo!');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-semibold">Nota fiscal de serviço (NFS-e)</p>
+        <Badge tone={form.mode === 'off' ? 'zinc' : 'green'}>{{ off: 'Desligada', manual: 'Quando pedir', auto: 'Automática' }[form.mode]}</Badge>
+      </div>
+      <p className="text-sm text-zinc-500">
+        A nota sai pela sua conta Asaas (o cadastro na prefeitura e o certificado ficam lá, em Notas fiscais → Configurações). Vale para os serviços; produto não entra
+        na nota de serviço. O cliente precisa ter o CPF cadastrado.
+      </p>
+      <Field label="Emitir">
+        <select className={inputClass} value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value as NfseView['mode'] })}>
+          <option value="off">Não emitir</option>
+          <option value="manual">Quando eu pedir (botão em Financeiro → Vendas)</option>
+          <option value="auto">Automática: toda venda com serviço e cada mensalidade do clube paga</option>
+        </select>
+      </Field>
+      <Field label="Descrição do serviço">
+        <Input value={form.serviceName} onChange={(e) => setForm({ ...form, serviceName: e.target.value })} placeholder="Serviços de barbearia" />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Código municipal" hint="Ex.: 06.01">
+          <Input value={form.serviceCode} onChange={(e) => setForm({ ...form, serviceCode: e.target.value })} />
+        </Field>
+        <Field label="ISS (%)">
+          <Input type="number" min={0} max={5} step="0.01" value={form.iss} onChange={(e) => setForm({ ...form, iss: Number(e.target.value) || 0 })} />
+        </Field>
+      </div>
+      <Field label="Observações na nota (opcional)">
+        <Input value={form.observations} onChange={(e) => setForm({ ...form, observations: e.target.value })} />
+      </Field>
+      {msg && <p className="text-sm text-emerald-700">{msg}</p>}
+      <ErrorText error={error} />
+      <Button loading={busy} onClick={save}>
+        Salvar
+      </Button>
+    </Card>
+  );
+}

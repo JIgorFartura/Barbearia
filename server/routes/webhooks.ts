@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import express, { Router, type Request } from 'express';
 import { handleAsaasEvent } from '../asaasWebhook.js';
 import { handleShopAsaasEvent } from '../shopAsaas.js';
+import { issueChargeNfse, nfseEvent } from '../shopNfse.js';
 import { handleCieloNotice } from '../cards.js';
 import { handleInbound } from '../bot/inbound.js';
 import { handlePlatformInbound } from '../manager.js';
@@ -121,7 +122,11 @@ webhooksRouter.post('/cielo/:token', express.urlencoded({ extended: false, limit
 /** Avisos do Asaas (mensalidade paga, nota fiscal emitida). O token vem no cabeçalho asaas-access-token. */
 /** Asaas da própria barbearia (PIX do clube com baixa automática e Pix Automático). */
 webhooksRouter.post('/asaas/barbearia/:token', (req, res) => {
-  res.json(handleShopAsaasEvent(String(req.params.token ?? ''), req.get('asaas-access-token') ?? undefined, req.body ?? {}));
+  const r = handleShopAsaasEvent(String(req.params.token ?? ''), req.get('asaas-access-token') ?? undefined, req.body ?? {});
+  // Nota fiscal: a situação que o Asaas mandou e, com a mensalidade paga, a nota dela (automática).
+  if (r.shopId && String(req.body?.event ?? '').startsWith('INVOICE_') && req.body?.invoice) nfseEvent(r.shopId, req.body.invoice, String(req.body.event));
+  if (r.paidChargeId) void issueChargeNfse(r.paidChargeId).catch((err) => console.error('[nota fiscal]', err));
+  res.json({ ok: r.ok, note: r.note });
 });
 
 webhooksRouter.post('/asaas', (req, res) => {

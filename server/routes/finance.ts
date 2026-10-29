@@ -21,12 +21,14 @@ import {
   listEntries,
   listSales,
   payEntry,
+  saleView,
   updateEntry,
 } from '../finance.js';
 import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
 import { receivedFromCustomers } from '../payments.js';
 import { shopNow } from '../clock.js';
 import { addDays, isDate } from '../time.js';
+import { autoSaleNfse, issueSaleNfse } from '../shopNfse.js';
 
 const zDay = z.string().refine(isDate, 'Data no formato AAAA-MM-DD.');
 const zMethod = z.enum(METHODS);
@@ -270,9 +272,19 @@ export function registerFinanceRoutes(router: Router): void {
       method: body.method,
       notes: body.notes,
     });
+    // Nota fiscal automática (se a barbearia ligou): sem travar a venda.
+    autoSaleNfse(shopId(req), result.sale.id);
     // A recepção registra a venda, mas a comissão de cada barbeiro é assunto do dono.
     if (isReception(req)) result.sale.items = result.sale.items.map((i) => ({ ...i, commission_cents: 0 }));
     res.status(201).json(result);
+  });
+
+  /** Nota fiscal de serviço da venda (com o CPF do cliente, se ainda não tinha). */
+  router.post('/finance/sales/:id/nfse', async (req, res) => {
+    const { cpf } = parseBody(z.object({ cpf: zText(20) }), req.body ?? {});
+    const r = await issueSaleNfse(shopId(req), idParam(req), { cpf });
+    if (!r.ok) throw new HttpError(r.status ?? 502, r.error ?? 'O Asaas não aceitou a nota.');
+    res.json(saleView(idParam(req)));
   });
 
   router.post('/finance/sales/:id/cancel', (req, res) => {

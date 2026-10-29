@@ -13,6 +13,7 @@ import { cieloWebhookUrl, saveShopCielo, secretHint, shopCardStatus, shopCielo }
 import { CieloError, testCielo } from '../cielo.js';
 import { AsaasError } from '../asaas.js';
 import { saveShopAsaas, shopAsaasView, testShopAsaas } from '../shopAsaas.js';
+import { issueChargeNfse, nfseSettings, saveNfseSettings } from '../shopNfse.js';
 import { config } from '../config.js';
 import { get, run } from '../db.js';
 import { METHODS } from '../finance.js';
@@ -125,7 +126,10 @@ export function registerClubRoutes(router: Router): void {
 
   router.post('/charges/:id/confirm', (req, res) => {
     const body = parseBody(z.object({ method: z.enum(METHODS).default('pix') }), req.body ?? {});
-    res.json(confirmCharge(shopId(req), idParam(req), { method: body.method, userId: req.user!.id }));
+    const c = confirmCharge(shopId(req), idParam(req), { method: body.method, userId: req.user!.id });
+    // Nota fiscal automática da mensalidade (se a barbearia ligou).
+    void issueChargeNfse(c.id).catch((err) => console.error('[nota fiscal]', err));
+    res.json(c);
   });
 
   router.post('/charges/:id/reject', (req, res) => {
@@ -172,6 +176,26 @@ export function registerClubRoutes(router: Router): void {
 
   router.get('/asaas', (req, res) => {
     res.json(shopAsaasView(shopId(req), config.appUrl));
+  });
+
+  /** Nota fiscal de serviço (NFS-e) para os clientes, pelo Asaas da barbearia. */
+  router.get('/nfse', (req, res) => {
+    res.json(nfseSettings(shopId(req)));
+  });
+
+  router.put('/nfse', (req, res) => {
+    const body = parseBody(
+      z.object({
+        mode: z.enum(['off', 'manual', 'auto']),
+        serviceName: z.string().trim().max(250),
+        serviceCode: z.string().trim().max(30),
+        iss: z.number().min(0).max(5),
+        observations: z.string().trim().max(500),
+      }),
+      req.body,
+    );
+    saveNfseSettings(shopId(req), body);
+    res.json(nfseSettings(shopId(req)));
   });
 
   router.put('/asaas', (req, res) => {
