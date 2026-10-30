@@ -1,3 +1,4 @@
+import { suggestSlug } from '../shops.js';
 import { Router, type Request } from 'express';
 import { growthSettings, referrerByCode, setReferrer, welcomeReferred } from '../growth.js';
 import { listPlans } from '../club.js';
@@ -41,6 +42,12 @@ function shopBySlug(slug: string): Shop & Record<string, unknown> {
 publicRouter.get('/signup', (_req, res) => {
   const s = platformSettings();
   res.json({ enabled: s.signup_enabled, trialDays: s.trial_days });
+});
+
+/** Prévia do endereço do site enquanto o dono digita o nome da barbearia (o mesmo que o cadastro vai criar). */
+publicRouter.get('/signup/link', (req, res) => {
+  const name = typeof req.query.name === 'string' ? req.query.name.trim().slice(0, 80) : '';
+  res.json({ slug: name.length >= 2 ? suggestSlug(name) : null });
 });
 
 publicRouter.post('/signup', (req, res) => {

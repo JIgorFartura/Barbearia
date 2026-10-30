@@ -78,6 +78,16 @@ function SignupCard({ trialDays, onBack, onDone }: { trialDays: number; onBack: 
   const [form, setForm] = useState({ shop_name: '', name: '', phone: '', email: '', password: '' });
   const [accept, setAccept] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // O endereço do site sai do nome da barbearia: mostra enquanto o dono digita.
+  const [slug, setSlug] = useState<string | null>(null);
+  useEffect(() => {
+    const name = form.shop_name.trim();
+    if (name.length < 2) return setSlug(null);
+    const t = setTimeout(() => {
+      api<{ slug: string | null }>('GET', `/api/public/signup/link?name=${encodeURIComponent(name)}`).then((r) => setSlug(r.slug), () => setSlug(null));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [form.shop_name]);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
 
@@ -105,6 +115,11 @@ function SignupCard({ trialDays, onBack, onDone }: { trialDays: number; onBack: 
       </div>
       <Field label="Nome da barbearia">
         <Input required value={form.shop_name} onChange={set('shop_name')} placeholder="Ex.: Barbearia do Zé" />
+        {slug && (
+          <p className="mt-1 text-xs text-zinc-500">
+            Seu site: <b className="text-zinc-800">{location.host}/b/{slug}</b>
+          </p>
+        )}
       </Field>
       <Field label="Seu nome">
         <Input required autoComplete="name" value={form.name} onChange={set('name')} />

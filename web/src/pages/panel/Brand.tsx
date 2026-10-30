@@ -35,6 +35,7 @@ export function Brand() {
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [wizard, setWizard] = useState(() => new URLSearchParams(location.search).has('assistente'));
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     api<Profile>('GET', '/api/shop/profile').then((r) => {
@@ -51,6 +52,7 @@ export function Brand() {
     setP(await api<Profile>('PUT', '/api/shop/profile', body));
     setWizard(false);
     setSaved(true);
+    setReady(true);
   }
 
   const set = <K extends keyof Profile>(key: K, value: Profile[K]) => {
@@ -91,6 +93,8 @@ export function Brand() {
           Abrir meu site <ExternalLink className="size-4" />
         </a>
       </div>
+
+      {ready && <SiteLinks slug={p.slug} />}
 
       {wizard ? (
         <BrandWizard p={p} onSave={saveBrand} onClose={() => setWizard(false)} />
@@ -310,6 +314,42 @@ function BrandWizard({ p, onSave, onClose }: { p: Profile; onSave: (patch: Parti
       <Button type="button" variant="gold" loading={busy} disabled={!makeLogo && !logo} onClick={save}>
         Usar esta marca
       </Button>
+    </Card>
+  );
+}
+
+/** Depois da marca: os endereços da barbearia, prontos para copiar e mandar. */
+function SiteLinks({ slug }: { slug: string }) {
+  const site = `${location.origin}/b/${slug}`;
+  const links = [
+    { label: 'Seu site (os clientes agendam por aqui)', url: site },
+    { label: 'Área do cliente (horários, cartão fidelidade, clube)', url: `${site}/conta` },
+    { label: 'Seu painel (você e a equipe entram com celular e senha)', url: `${location.origin}/painel` },
+  ];
+  return (
+    <Card className="space-y-3 ring-1 ring-emerald-300">
+      <p className="text-lg font-bold">🎉 Sua barbearia está no ar!</p>
+      {links.map((l) => (
+        <div key={l.url} className="space-y-1">
+          <p className="text-sm text-zinc-500">{l.label}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <a href={l.url} target="_blank" rel="noreferrer" className="font-medium break-all text-zinc-900 underline">
+              {l.url}
+            </a>
+            <button type="button" className="rounded-md bg-zinc-100 px-2 py-1 text-xs hover:bg-zinc-200" onClick={() => void navigator.clipboard?.writeText(l.url)}>
+              Copiar
+            </button>
+          </div>
+        </div>
+      ))}
+      <a
+        href={`https://wa.me/?text=${encodeURIComponent(`Agora dá para agendar seu horário pelo nosso site: ${site}`)}`}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+      >
+        Mandar o site para os clientes no WhatsApp
+      </a>
     </Card>
   );
 }

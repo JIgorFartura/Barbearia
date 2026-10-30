@@ -61,9 +61,13 @@ describe('cadastro sozinho com teste grátis', () => {
 
   test('cria a barbearia, o login do dono e já entra no painel', async () => {
     assert.equal((await newOwner('POST', '/api/public/signup', { ...form, accept: false })).status, 400, 'sem aceitar os termos');
+    // O endereço do site aparece enquanto o dono digita o nome, igual ao que o cadastro cria.
+    assert.equal((await newOwner('GET', `/api/public/signup/link?name=${encodeURIComponent('Barbearia do Zé')}`)).data.slug, 'barbearia-do-ze');
+    assert.equal((await newOwner('GET', '/api/public/signup/link?name=Z')).data.slug, null);
     const r = await newOwner('POST', '/api/public/signup', form);
     assert.equal(r.status, 201, JSON.stringify(r.data));
     assert.equal(r.data.slug, 'barbearia-do-ze');
+    assert.equal((await newOwner('GET', `/api/public/signup/link?name=${encodeURIComponent('Barbearia do Zé')}`)).data.slug, 'barbearia-do-ze-2', 'nome já usado ganha um número');
     const me = (await newOwner('GET', '/api/auth/me')).data;
     assert.equal(me.user.role, 'owner');
     assert.equal(me.user.termsAccepted, true, 'aceitou os termos no cadastro');
