@@ -152,7 +152,7 @@ export async function ensureCustomer(shopId: number, customerId: number): Promis
 
 export type AutoPix = { payload: string; qr: string; auto: true } | { needsCpf: true } | { error: string };
 
-const qrFrom = async (payload: string, encodedImage?: string | null) =>
+export const qrFrom = async (payload: string, encodedImage?: string | null) =>
   encodedImage ? `data:image/png;base64,${encodedImage}` : await QRCode.toDataURL(payload, { margin: 1, width: 260 });
 
 /**
@@ -330,7 +330,7 @@ export function handleShopAsaasEvent(
   urlToken: string,
   headerToken: string | undefined,
   body: ShopAsaasEvent,
-): { ok: true; note?: string; shopId?: number; paidChargeId?: number } {
+): { ok: true; note?: string; shopId?: number; paidChargeId?: number; comanda?: { id: number | null; paymentId: string } } {
   const shop = urlToken ? get<{ id: number; asaas_shop_token: string }>('SELECT id, asaas_shop_token FROM barbershops WHERE asaas_shop_token = ?', [urlToken]) : undefined;
   if (!shop || !headerToken || !sameToken(headerToken, shop.asaas_shop_token)) throw new HttpError(401, 'Token do webhook inválido.');
   run('UPDATE barbershops SET asaas_shop_webhook_at = ? WHERE id = ?', [nowIso(), shop.id]);
@@ -338,6 +338,11 @@ export function handleShopAsaasEvent(
   const p = body.payment;
 
   if ((event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') && p?.id) {
+    // PIX da comanda: quem registra a venda é a rota (pixCheckout depende deste módulo).
+    const comanda = /^comanda:(\d+)$/.exec(p.externalReference ?? '')?.[1];
+    if (comanda || get('SELECT 1 AS ok FROM pix_checkouts WHERE barbershop_id = ? AND asaas_payment_id = ?', [shop.id, p.id])) {
+      return { ok: true, shopId: shop.id, comanda: { id: comanda ? Number(comanda) : null, paymentId: p.id } };
+    }
     const ref = /^clube:(\d+)$/.exec(p.externalReference ?? '')?.[1];
     const c =
       get<{ id: number; status: string }>('SELECT id, status FROM charges WHERE barbershop_id = ? AND asaas_payment_id = ?', [shop.id, p.id]) ??

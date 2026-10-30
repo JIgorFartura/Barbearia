@@ -211,6 +211,8 @@ export interface AgentOptions {
   create: CreateMessage;
 }
 
+const SERVER_FALLBACK = /^claude-(opus-5|fable-5|sonnet-5-5)/;
+
 /**
  * Laço de ferramentas com o Claude até a resposta final (robô do cliente e gerente virtual do dono).
  * `text` null: sem resposta (recusa ou passos demais). Erros da API sobem para quem chamou.
@@ -223,8 +225,8 @@ export async function runAgent(o: AgentOptions): Promise<{ text: string | null; 
     const response = await o.create({
       model: config.botModel,
       max_tokens: 16000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
+      // Recusa refeita em outro modelo pelo próprio Claude (o Haiku não tem essa opção).
+      ...(SERVER_FALLBACK.test(config.botModel) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
       output_config: { effort: config.botEffort },
       system: o.system,
       tools: o.tools,

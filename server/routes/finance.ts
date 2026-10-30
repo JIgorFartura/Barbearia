@@ -29,6 +29,8 @@ import { receivedFromCustomers } from '../payments.js';
 import { shopNow } from '../clock.js';
 import { addDays, isDate } from '../time.js';
 import { autoSaleNfse, issueSaleNfse } from '../shopNfse.js';
+import { shopAsaasOn } from '../shopAsaas.js';
+import { cancelPixCheckout, pixCheckoutView, startPixCheckout } from '../pixCheckout.js';
 
 const zDay = z.string().refine(isDate, 'Data no formato AAAA-MM-DD.');
 const zMethod = z.enum(METHODS);
@@ -51,6 +53,31 @@ const zEntry = z.object({
   method: z.enum(METHODS).nullish().transform((v) => v ?? null),
   date: zDay,
   status: z.enum(['paid', 'pending']),
+});
+
+/** A comanda montada na tela (venda direta ou PIX com confirmação automática). */
+const zComanda = z.object({
+  appointment_id: zId.nullish(),
+  customer_id: zId.nullish(),
+  items: z
+    .array(
+      z.object({
+        catalog_item_id: zId.nullish(),
+        name: zText(80),
+        kind: z.enum(['service', 'product']).nullish(),
+        qty: z.number().int().min(1).max(99),
+        unit_price_cents: z.number().int().min(0).max(10_000_000).nullish(),
+        barber_id: zId.nullish(),
+        club: z.boolean().nullish(),
+        package_id: zId.nullish(),
+      }),
+    )
+    .min(1, 'Inclua pelo menos um item.')
+    .max(30),
+  discount_cents: z.number().int().min(0).max(10_000_000).default(0),
+  gift_code: z.string().trim().max(20).nullish(),
+  gift_cents: z.number().int().min(1).max(10_000_000).nullish(),
+  notes: zText(300),
 });
 
 /** Financeiro da barbearia, mensalidade da plataforma e situação de acesso (painel do dono). */
@@ -229,37 +256,13 @@ export function registerFinanceRoutes(router: Router): void {
         [shop],
       ).map(({ track_stock, ...c }) => ({ ...c, available: track_stock ? availableQty(shop, c.id, { exceptAppointmentId: appointmentId ?? undefined }) : null })),
       barbers: all('SELECT id, name FROM barbers WHERE barbershop_id = ? AND active = 1 ORDER BY name COLLATE NOCASE', [shop]),
+      // Asaas da barbearia ligado: o PIX da comanda sai com QR próprio e a venda fecha sozinha quando cai.
+      pixAuto: shopAsaasOn(shop),
     });
   });
 
   router.post('/finance/sales', (req, res) => {
-    const body = parseBody(
-      z.object({
-        appointment_id: zId.nullish(),
-        customer_id: zId.nullish(),
-        items: z
-          .array(
-            z.object({
-              catalog_item_id: zId.nullish(),
-              name: zText(80),
-              kind: z.enum(['service', 'product']).nullish(),
-              qty: z.number().int().min(1).max(99),
-              unit_price_cents: z.number().int().min(0).max(10_000_000).nullish(),
-              barber_id: zId.nullish(),
-              club: z.boolean().nullish(),
-              package_id: zId.nullish(),
-            }),
-          )
-          .min(1, 'Inclua pelo menos um item.')
-          .max(30),
-        discount_cents: z.number().int().min(0).max(10_000_000).default(0),
-        gift_code: z.string().trim().max(20).nullish(),
-        gift_cents: z.number().int().min(1).max(10_000_000).nullish(),
-        method: zMethod,
-        notes: zText(300),
-      }),
-      req.body,
-    );
+    const body = parseBody(zComanda.extend({ method: zMethod }), req.body);
     const result = createSale({
       shopId: shopId(req),
       userId: req.user!.id,
@@ -289,6 +292,35 @@ export function registerFinanceRoutes(router: Router): void {
 
   router.post('/finance/sales/:id/cancel', (req, res) => {
     res.json(cancelSale(shopId(req), idParam(req), req.user!.id));
+  });
+
+  // ---------- PIX da comanda com confirmação automática (Asaas da barbearia)
+
+  router.post('/finance/pix-checkout', async (req, res) => {
+    const body = parseBody(zComanda.extend({ payer_cpf: zText(20) }), req.body);
+    const r = await startPixCheckout(
+      shopId(req),
+      req.user!.id,
+      {
+        appointmentId: body.appointment_id,
+        customerId: body.customer_id,
+        items: body.items,
+        discountCents: body.discount_cents,
+        giftCode: body.gift_code,
+        giftCents: body.gift_cents,
+        notes: body.notes,
+      },
+      body.payer_cpf,
+    );
+    res.status('needsCpf' in r ? 200 : 201).json(r);
+  });
+
+  router.get('/finance/pix-checkout/:id', (req, res) => {
+    res.json(pixCheckoutView(shopId(req), idParam(req)));
+  });
+
+  router.delete('/finance/pix-checkout/:id', async (req, res) => {
+    res.json(await cancelPixCheckout(shopId(req), idParam(req)));
   });
 
   // ---------- comissões e pagamento dos barbeiros

@@ -51,6 +51,10 @@ cliente instalar, com avisos no celular. Serve da barbearia de uma cadeira à **
 |---|---|---|
 | <img src="docs/img/repetir-corte.png" width="180" alt="Repetir o último corte"> | <img src="docs/img/pix-automatico.png" width="180" alt="PIX com confirmação automática"> | <img src="docs/img/pacote-vale.png" width="300" alt="Pacote e vale-presente"> |
 
+| PIX na comanda (confirma sozinho) |
+|---|
+| <img src="docs/img/pix-comanda.png" width="520" alt="PIX na comanda: QR na tela, aguardando o pagamento e PIX recebido"> |
+
 | Recepção | Unidades da rede | Criar a barbearia (teste grátis) | Importar clientes |
 |---|---|---|---|
 | <img src="docs/img/recepcao.png" width="300" alt="Painel da recepção"> | <img src="docs/img/unidades.png" width="300" alt="Unidades da rede"> | <img src="docs/img/inicio.png" width="300" alt="Página inicial com o cadastro"> | <img src="docs/img/importar-planilha.png" width="260" alt="Importar clientes por planilha"> |
@@ -198,7 +202,8 @@ aparecem no site da barbearia.
 (*Clube de assinatura → PIX com baixa automática*), a mensalidade sai com o PIX do Asaas e o
 dinheiro cai direto na conta dela. Quando o cliente paga, o aviso do Asaas libera o mês, lança no
 caixa e manda a confirmação no WhatsApp: o dono não confere extrato. O cliente informa o CPF uma
-vez; sem ele, continua o PIX da chave com o comprovante.
+vez; sem ele, continua o PIX da chave com o comprovante. O mesmo vale para o **PIX na comanda**
+(veja *Financeiro e estoque*).
 
 **Pix Automático** (opcional; o Asaas libera na conta): o cliente autoriza pagando o 1º mês e, com
 a autorização ativa, as mensalidades seguintes vão para o débito automático 8 dias antes do
@@ -209,6 +214,14 @@ vencimento e caem sozinhas. Cancelar o clube ou desligar o débito cancela tamb�
 - **Fechar atendimento**: a comanda já vem com o serviço, o que o cliente pediu para separar e o
   que o clube cobre; dá para somar produtos, mudar quem atendeu, dar desconto e escolher a forma de
   pagamento.
+- **PIX na comanda com confirmação automática** (com o Asaas da barbearia ligado): em PIX, o botão
+  vira *Gerar PIX* e o QR aparece na tela para o cliente pagar no balcão. Nada entra no caixa
+  enquanto espera; quando o Asaas avisa que caiu, a venda é registrada sozinha (caixa, comissão,
+  estoque, carimbos e nota automática) e a tela mostra *PIX recebido*. O valor é o da comanda
+  conferido no servidor (menos o vale-presente). Sem CPF na ficha, a tela pede o de quem paga (fica
+  guardado); cliente de balcão sem cadastro paga só com o CPF. *Cancelar PIX* tira a cobrança do
+  Asaas; se mesmo assim pagarem, o valor entra no caixa marcado *conferir*, sem virar venda em
+  dobro. Dono e recepção usam; o PIX da chave continua em *Já recebi no PIX da chave*.
 - **Caixa** (entradas, saídas, contas a pagar), **comissões** (a receber, extrato e *Pagar
   comissão*), **resumo** com gráfico, faturamento por barbeiro, formas de pagamento e gastos.
 - **Recebimentos**: tudo o que os clientes pagaram no período (vendas da agenda e do balcão,
@@ -442,7 +455,7 @@ vê dos pagamentos, avaliações, indicação, aniversário, mensalidades, Asaas
 LGPD, cópia de segurança, acesso do barbeiro, limites do master, isolamento entre barbearias,
 confirmação e lista de espera, ficha do cliente, horário vazio, app e avisos no celular (com o
 exemplo oficial da criptografia RFC 8291), gerente virtual e relatórios, pacotes e vale-presente,
-recepção e rede, cadastro e importação, PIX com baixa automática e Pix Automático, nota fiscal,
+recepção e rede, cadastro e importação, PIX com baixa automática e Pix Automático, PIX na comanda, nota fiscal,
 recontato pelo ritmo com desconto de volta e segunda mensagem),
 `npm run typecheck`, `npm run build && npm start`. Os testes rodam no GitHub a cada envio.
 
@@ -466,7 +479,7 @@ npm run restore -- <arquivo> --forcar                          # substitui o ban
 
 **Custo da IA:** cada mensagem respondida pelo robô consome tokens da Anthropic (o master vê o
 consumo por barbearia nos últimos 30 dias). O padrão é o `claude-opus-5-5` com esforço baixo; dá
-para trocar com `BOT_MODEL` e `BOT_EFFORT`. As respostas rápidas (SIM/NÃO/CANCELAR/PARAR/PAGUEI,
+para trocar com `BOT_MODEL` (ex.: `claude-sonnet-5-5` ou o mais barato `claude-haiku-5-5`) e `BOT_EFFORT`. As respostas rápidas (SIM/NÃO/CANCELAR/PARAR/PAGUEI,
 nota da avaliação) e todas as mensagens automáticas não usam IA.
 
 ## Como o código está organizado
@@ -503,6 +516,7 @@ server/
   prepaid.ts        pacotes pré-pagos e vale-presente
   shops.ts          cadastro de barbearias e unidades da rede; signup.ts; importCustomers.ts
   shopAsaas.ts      Asaas da barbearia (PIX com baixa automática, Pix Automático); shopNfse.ts: nota fiscal
+  pixCheckout.ts    PIX na comanda com confirmação automática (a venda fecha quando o Asaas avisa)
   routes/           master, painel (shop, agenda, bot, finance, stock, club, reports, prepaid, team), barbeiro, cliente, público, webhooks
 web/src/
   pages/ShopLanding.tsx   site da barbearia

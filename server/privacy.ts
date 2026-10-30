@@ -2,7 +2,7 @@ import { shopNow } from './clock.js';
 import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError } from './http.js';
 import { photoFilesOf, removePhotoFiles } from './profile.js';
-import { cancelAsaasChargeOf, cancelPixAuto } from './shopAsaas.js';
+import { cancelAsaasChargeOf, cancelPixAuto, shopAsaasCall } from './shopAsaas.js';
 import { purgeReceipts } from './receipts.js';
 
 /**
@@ -120,6 +120,10 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
   // Débito automático e cobranças no Asaas da barbearia: cancelados lá também (depois do banco).
   const members = all<{ id: number }>("SELECT id FROM club_members WHERE customer_id = ? AND status <> 'cancelled'", [customerId]).map((m) => m.id);
   const asaasCharges = all<{ id: number }>("SELECT id FROM charges WHERE customer_id = ? AND status = 'open' AND asaas_payment_id IS NOT NULL", [customerId]).map((c) => c.id);
+  const pixComandas = all<{ asaas_payment_id: string }>(
+    "SELECT asaas_payment_id FROM pix_checkouts WHERE customer_id = ? AND status = 'pending' AND asaas_payment_id IS NOT NULL",
+    [customerId],
+  ).map((c) => c.asaas_payment_id);
   tx(() => {
     const stamp = shopNow(shopId, now).stamp;
     run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE customer_id = ? AND status = 'scheduled' AND starts_at >= ?", [nowIso(), customerId, stamp]);
@@ -139,6 +143,7 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
       'cut_photos',
       'push_subscriptions',
       'comeback_promos',
+      'pix_checkouts',
     ]) {
       run(`DELETE FROM ${table} WHERE customer_id = ?`, [customerId]);
     }
@@ -155,6 +160,7 @@ export function anonymizeCustomer(shopId: number, customerId: number, now: Date 
   removePhotoFiles(photos);
   for (const id of members) void cancelPixAuto(id);
   for (const id of asaasCharges) void cancelAsaasChargeOf(id);
+  for (const id of pixComandas) void shopAsaasCall(shopId, 'DELETE', `/payments/${id}`).catch((err) => console.warn('[asaas da barbearia]', (err as Error).message));
 }
 
 /** Limpeza diária: o que não precisa mais ser guardado (mensagens e comprovantes antigos, códigos usados, sessões vencidas). */

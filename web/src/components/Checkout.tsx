@@ -1,8 +1,9 @@
-import { CheckCircle2, Gift, Minus, Plus, Search, Trash2 } from 'lucide-react';
+import { CheckCircle2, Gift, Loader2, Minus, Plus, Search, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { METHODS, parseMoney, type Method } from '../lib/finance';
 import { money, phone, promoLabel, stampLabel } from '../lib/format';
+import { PixPay } from './Pix';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from './ui';
 
 interface CatalogItem {
@@ -31,6 +32,8 @@ interface CheckoutData {
   reserved: { catalog_item_id: number; name: string; qty: number }[];
   catalog: CatalogItem[];
   barbers: { id: number; name: string }[];
+  /** Asaas da barbearia ligado: o PIX sai com QR próprio e a venda fecha sozinha quando cai. */
+  pixAuto?: boolean;
 }
 
 interface Line {
@@ -74,6 +77,18 @@ export interface SaleResult {
   stamps: { campaign: string; qty: number; unit: string; available: number }[];
 }
 
+/** PIX da comanda esperando o pagamento (ou já pago). */
+interface PixCheckout {
+  id: number;
+  status: 'pending' | 'paid' | 'cancelled';
+  amount_cents: number;
+  payload: string | null;
+  qr: string | null;
+  sale: SaleResult['sale'] | null;
+  stamps: SaleResult['stamps'];
+  error: string | null;
+}
+
 let nextKey = 1;
 
 /** Endereços da comanda: o painel do dono ou a área do barbeiro. */
@@ -83,6 +98,8 @@ export interface CheckoutEndpoints {
   customers: string;
   club: string;
   giftCards: string;
+  /** PIX com confirmação automática (só no painel: dono e recepção). */
+  pixCheckout?: string;
 }
 
 const OWNER: CheckoutEndpoints = {
@@ -91,6 +108,7 @@ const OWNER: CheckoutEndpoints = {
   customers: '/api/shop/customers',
   club: '/api/shop/finance/club',
   giftCards: '/api/shop/gift-cards',
+  pixCheckout: '/api/shop/finance/pix-checkout',
 };
 
 /**
@@ -125,6 +143,10 @@ export function CheckoutModal({
   const [gift, setGift] = useState<{ code: string; balance: number } | null>(null);
   const [giftError, setGiftError] = useState<string | null>(null);
   const [result, setResult] = useState<SaleResult | null>(null);
+  const [pix, setPix] = useState<PixCheckout | null>(null);
+  const [pixPaid, setPixPaid] = useState<PixCheckout | null>(null);
+  const [needsCpf, setNeedsCpf] = useState(false);
+  const [cpf, setCpf] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -208,6 +230,22 @@ export function CheckoutModal({
   const packLeft = (id: number) => (packs.find((p) => p.id === id)?.left ?? 0) - lines.filter((l) => l.pack === id).reduce((s, l) => s + l.qty, 0);
   const packFor = (l: Line) => packs.find((p) => p.service_id === l.catalog_item_id && (l.pack === p.id || packLeft(p.id) >= l.qty)) ?? null;
 
+  // PIX gerado: confere a cada poucos segundos se o Asaas já avisou que caiu.
+  useEffect(() => {
+    if (!pix || pix.status !== 'pending' || !endpoints.pixCheckout) return;
+    const t = setInterval(() => {
+      api<PixCheckout>('GET', `${endpoints.pixCheckout}/${pix.id}`)
+        .then((r) => {
+          if (r.status === 'paid') {
+            setPixPaid(r);
+            setResult({ sale: r.sale ?? { id: 0, total_cents: r.amount_cents, gift_cents: 0 }, stamps: r.stamps });
+          } else if (r.status === 'cancelled') setPix(null);
+        })
+        .catch(() => undefined);
+    }, 2500);
+    return () => clearInterval(t);
+  }, [pix, endpoints.pixCheckout]);
+
   async function applyGift() {
     setGiftError(null);
     try {
@@ -248,29 +286,60 @@ export function CheckoutModal({
     setAdding('');
   }
 
+  const comanda = () => ({
+    appointment_id: appointmentId ?? null,
+    customer_id: appointmentId ? null : (customer?.id ?? null),
+    items: lines.map((l) => ({
+      catalog_item_id: l.catalog_item_id,
+      name: l.catalog_item_id ? null : l.name,
+      kind: l.kind,
+      qty: l.qty,
+      unit_price_cents: l.unit_price_cents,
+      barber_id: l.barber_id,
+      club: l.club || null,
+      package_id: l.pack || null,
+    })),
+    discount_cents: discountCents,
+    gift_code: giftCents > 0 ? gift!.code : null,
+    gift_cents: giftCents > 0 ? giftCents : null,
+    notes: notes || null,
+  });
+
+  // PIX com confirmação automática: QR da conta Asaas da barbearia, a venda fecha sozinha quando cai.
+  const pixAuto = Boolean(data?.pixAuto && endpoints.pixCheckout) && method === 'pix' && toPay > 0;
+
+  async function startPix() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<PixCheckout | { needsCpf: true }>('POST', endpoints.pixCheckout!, { ...comanda(), payer_cpf: cpf || null });
+      if ('needsCpf' in r) setNeedsCpf(true);
+      else setPix(r);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelPix() {
+    if (!pix) return;
+    setBusy(true);
+    try {
+      await api('DELETE', `${endpoints.pixCheckout}/${pix.id}`);
+      setPix(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit() {
     setBusy(true);
     setError(null);
     try {
-      const r = await api<SaleResult>('POST', endpoints.sales, {
-        appointment_id: appointmentId ?? null,
-        customer_id: appointmentId ? null : (customer?.id ?? null),
-        items: lines.map((l) => ({
-          catalog_item_id: l.catalog_item_id,
-          name: l.catalog_item_id ? null : l.name,
-          kind: l.kind,
-          qty: l.qty,
-          unit_price_cents: l.unit_price_cents,
-          barber_id: l.barber_id,
-          club: l.club || null,
-          package_id: l.pack || null,
-        })),
-        discount_cents: discountCents,
-        gift_code: giftCents > 0 ? gift!.code : null,
-        gift_cents: giftCents > 0 ? giftCents : null,
-        method,
-        notes: notes || null,
-      });
+      const r = await api<SaleResult>('POST', endpoints.sales, { ...comanda(), method });
       setResult(r);
     } catch (err) {
       setError((err as Error).message);
@@ -281,7 +350,7 @@ export function CheckoutModal({
 
   if (result) {
     return (
-      <Modal title="Venda registrada" onClose={onDone}>
+      <Modal title={pixPaid ? 'PIX recebido' : 'Venda registrada'} onClose={onDone}>
         <div className="space-y-4 text-center">
           <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
           <p className="text-2xl font-bold">{money(result.sale.total_cents)}</p>
@@ -290,7 +359,15 @@ export function CheckoutModal({
               {money(result.sale.gift_cents)} pagos com o vale-presente{gift && gift.balance - result.sale.gift_cents > 0 ? ` (sobrou ${money(gift.balance - result.sale.gift_cents)} no vale)` : ''}.
             </p>
           )}
-          <p className="text-sm text-zinc-500">Entrou no caixa e a comissão do barbeiro já foi calculada.</p>
+          {pixPaid?.error ? (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              O PIX caiu e entrou no caixa, mas a venda não pôde ser registrada ({pixPaid.error}). Confira no Financeiro.
+            </p>
+          ) : (
+            <p className="text-sm text-zinc-500">
+              {pixPaid ? 'O PIX caiu na conta da barbearia. ' : ''}Entrou no caixa e a comissão do barbeiro já foi calculada.
+            </p>
+          )}
           {result.stamps.map((s) => (
             <p key={s.campaign} className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
               +{s.qty} {s.qty === 1 ? 'carimbo' : 'carimbos'} no <b>{s.campaign}</b>
@@ -299,6 +376,26 @@ export function CheckoutModal({
           ))}
           <Button className="w-full" onClick={onDone}>
             Concluir
+          </Button>
+        </div>
+      </Modal>
+    );
+  }
+
+  if (pix?.payload && pix.qr) {
+    return (
+      <Modal title={`PIX de ${money(pix.amount_cents)}`} onClose={onClose}>
+        <div className="space-y-4">
+          <PixPay pix={{ payload: pix.payload, qr: pix.qr }} />
+          <p className="flex items-center justify-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900" role="status">
+            <Loader2 className="size-4 animate-spin" /> Aguardando o pagamento…
+          </p>
+          <p className="text-center text-xs text-zinc-500">
+            Quando o PIX cair, a venda é registrada sozinha (caixa, comissão e estoque). Pode fechar esta janela se precisar.
+          </p>
+          <ErrorText error={error} />
+          <Button type="button" variant="ghost" className="w-full" loading={busy} onClick={cancelPix}>
+            Cancelar PIX
           </Button>
         </div>
       </Modal>
@@ -518,9 +615,25 @@ export function CheckoutModal({
             )}
           </div>
           <ErrorText error={error ?? (clubOver ? `O plano ${club!.plan} só tem mais ${club!.left} ${club!.left === 1 ? 'uso' : 'usos'} neste mês.` : null)} />
-          <Button className="w-full" loading={busy} disabled={!lines.length || clubOver} onClick={submit}>
-            {toPay > 0 || !giftCents ? `Registrar ${money(toPay)} em ${METHODS.find((m) => m.id === method)?.label}` : 'Registrar (pago com o vale-presente)'}
-          </Button>
+          {pixAuto && needsCpf && (
+            <Field label="CPF de quem paga" hint="O banco pede o CPF para gerar o PIX. Fica guardado na ficha do cliente para as próximas vezes.">
+              <Input inputMode="numeric" placeholder="000.000.000-00" value={cpf} onChange={(e) => setCpf(e.target.value)} />
+            </Field>
+          )}
+          {pixAuto ? (
+            <>
+              <Button className="w-full" loading={busy} disabled={!lines.length || clubOver || (needsCpf && cpf.replace(/\D/g, '').length !== 11)} onClick={startPix}>
+                Gerar PIX de {money(toPay)} (confirma sozinho)
+              </Button>
+              <button type="button" className="w-full text-center text-sm text-zinc-500 underline hover:text-zinc-900" disabled={busy || !lines.length || clubOver} onClick={submit}>
+                Já recebi no PIX da chave: registrar sem QR
+              </button>
+            </>
+          ) : (
+            <Button className="w-full" loading={busy} disabled={!lines.length || clubOver} onClick={submit}>
+              {toPay > 0 || !giftCents ? `Registrar ${money(toPay)} em ${METHODS.find((m) => m.id === method)?.label}` : 'Registrar (pago com o vale-presente)'}
+            </Button>
+          )}
         </div>
       )}
     </Modal>

@@ -1171,6 +1171,31 @@ const MIGRATIONS: (string | Rebuild)[] = [
   CREATE INDEX comeback_promos_customer ON comeback_promos (customer_id, valid_until);
   CREATE INDEX comeback_promos_shop ON comeback_promos (barbershop_id, created_at);
   `,
+  // 25) PIX na comanda com confirmação automática: a comanda espera o pagamento (nada entra no caixa) e,
+  // quando o Asaas da barbearia avisa que caiu, vira venda sozinha.
+  `
+  CREATE TABLE pix_checkouts (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+    -- A comanda como foi montada (itens, desconto, vale-presente...): vira a venda quando o PIX cai.
+    payload TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    asaas_payment_id TEXT,
+    pix_payload TEXT,
+    pix_qr TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'cancelled')),
+    sale_id INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+    stamps TEXT,
+    -- Pago, mas a venda não pôde ser registrada (o valor entrou no caixa para conferir).
+    error TEXT,
+    created_at TEXT NOT NULL,
+    paid_at TEXT
+  );
+  CREATE INDEX pix_checkouts_payment ON pix_checkouts (asaas_payment_id) WHERE asaas_payment_id IS NOT NULL;
+  CREATE INDEX pix_checkouts_shop ON pix_checkouts (barbershop_id, status);
+  `,
 ];
 
 function migrate(): void {

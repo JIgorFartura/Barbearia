@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import express, { Router, type Request } from 'express';
 import { handleAsaasEvent } from '../asaasWebhook.js';
 import { handleShopAsaasEvent } from '../shopAsaas.js';
-import { issueChargeNfse, nfseEvent } from '../shopNfse.js';
+import { autoSaleNfse, issueChargeNfse, nfseEvent } from '../shopNfse.js';
+import { settlePixCheckout } from '../pixCheckout.js';
 import { handleCieloNotice } from '../cards.js';
 import { handleInbound } from '../bot/inbound.js';
 import { handlePlatformInbound } from '../manager.js';
@@ -126,6 +127,11 @@ webhooksRouter.post('/asaas/barbearia/:token', (req, res) => {
   // Nota fiscal: a situação que o Asaas mandou e, com a mensalidade paga, a nota dela (automática).
   if (r.shopId && String(req.body?.event ?? '').startsWith('INVOICE_') && req.body?.invoice) nfseEvent(r.shopId, req.body.invoice, String(req.body.event));
   if (r.paidChargeId) void issueChargeNfse(r.paidChargeId).catch((err) => console.error('[nota fiscal]', err));
+  // PIX da comanda pago: a venda é registrada sozinha (e a nota sai, se a barbearia emite automática).
+  if (r.shopId && r.comanda) {
+    const { saleId } = settlePixCheckout(r.shopId, r.comanda.id, r.comanda.paymentId);
+    if (saleId) autoSaleNfse(r.shopId, saleId);
+  }
   res.json({ ok: r.ok, note: r.note });
 });
 

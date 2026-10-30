@@ -85,6 +85,8 @@ export interface SaleInput {
   /** Categoria da entrada no caixa (padrão: Atendimentos). */
   category?: string;
   now?: Date;
+  /** Só conferir e calcular (previewSale): sem avisos para fora (prêmio de indicação). */
+  preview?: boolean;
 }
 
 export interface SaleView {
@@ -149,6 +151,22 @@ export const normalizeGiftCode = (code: string) => {
   const c = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
   return c.startsWith('VP') ? `VP-${c.slice(2)}` : `VP-${c}`;
 };
+
+/** Confere a venda e calcula o total sem gravar nada: tudo o que createSale faria é desfeito no fim. */
+export function previewSale(input: SaleInput): SaleView {
+  class Preview {
+    constructor(readonly sale: SaleView) {}
+  }
+  try {
+    tx(() => {
+      throw new Preview(createSale({ ...input, preview: true }).sale);
+    });
+  } catch (err) {
+    if (err instanceof Preview) return err.sale;
+    throw err;
+  }
+  throw new Error('previewSale: sem resultado');
+}
 
 export function createSale(input: SaleInput): SaleResult {
   return tx(() => {
@@ -284,7 +302,7 @@ export function createSale(input: SaleInput): SaleResult {
     }
 
     // Primeira visita de quem veio indicado: quem indicou ganha o prêmio.
-    if (customerId) rewardReferrer(shop, customerId);
+    if (customerId && !input.preview) rewardReferrer(shop, customerId);
 
     // Item ligado a uma campanha valendo (ex.: cerveja → Clube da Cerveja) vira carimbo automático.
     const stamps: SaleResult['stamps'] = [];
