@@ -297,6 +297,10 @@ cadastrado a outra barbearia.
 
 - O master define **planos** (ou um valor por barbearia), o **dia de vencimento** e os **dias
   grátis**. As faturas são geradas sozinhas; dá para criar uma **cobrança avulsa**.
+- **Cortesia** (botão *Cortesia* na barbearia): a barbearia usa tudo **sem mensalidade até o master
+  desmarcar**. Não sai fatura, o acesso não bloqueia, o cartão automático da mensalidade é desligado e
+  as faturas em aberto que ainda não venceram são canceladas. A data "combinado até" e a anotação são
+  só para lembrar; quando a data passa, o master vê o aviso na lista. O dono vê "cortesia" em *Mensalidade*.
 - **Cartão automático pela Cielo** (aba *Financeiro* do master): a barbearia paga a fatura no
   cartão uma vez e a Cielo cobra o mesmo valor **todo mês, no mesmo dia** (a mensalidade passa a
   vencer nesse dia). A baixa é automática; sem lembrete antes, só o aviso se o cartão não passar

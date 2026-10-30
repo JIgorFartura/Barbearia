@@ -53,12 +53,16 @@ interface ShopBilling {
   billing_day: number;
   trial_until: string | null;
   released_until: string | null;
+  /** Cortesia do master: sem mensalidade enquanto estiver marcada (a data é o combinado, só para lembrar). */
+  courtesy_since: string | null;
+  courtesy_until: string | null;
+  courtesy_note: string | null;
 }
 
 export function shopBilling(shopId: number): ShopBilling {
   const s = get<ShopBilling>(
     `SELECT b.id, b.name, b.active, b.created_at, b.plan_id, p.name AS plan_name, p.price_cents AS plan_price, b.monthly_price_cents,
-            b.billing_day, b.trial_until, b.released_until
+            b.billing_day, b.trial_until, b.released_until, b.courtesy_since, b.courtesy_until, b.courtesy_note
        FROM barbershops b LEFT JOIN plans p ON p.id = b.plan_id WHERE b.id = ?`,
     [shopId],
   );
@@ -90,7 +94,7 @@ export function ensureInvoices(now: Date = new Date()): number {
   for (const { id } of all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1')) {
     const s = shopBilling(id);
     const amount = monthlyPrice(s);
-    if (amount <= 0) continue;
+    if (amount <= 0 || s.courtesy_since) continue;
     const due = dueDate(reference, s.billing_day);
     if (due < isoToLocal(s.created_at).slice(0, 10)) continue;
     if (s.trial_until && due <= s.trial_until) continue;
@@ -192,7 +196,8 @@ export function accessStatus(shopId: number, now?: Date) {
   const late = open.filter((i) => addDays(i.due_date, grace_days) < today);
   const released = Boolean(s.released_until && s.released_until >= today);
   return {
-    blocked: Boolean(s.active) && late.length > 0 && !released,
+    blocked: Boolean(s.active) && late.length > 0 && !released && !s.courtesy_since,
+    courtesy: s.courtesy_since ? { since: s.courtesy_since, until: s.courtesy_until, note: s.courtesy_note } : null,
     graceDays: grace_days,
     releasedUntil: s.released_until,
     trialUntil: s.trial_until,
@@ -298,12 +303,13 @@ export function platformRevenue(now?: Date) {
   const today = localNow(now).date;
   const month = today.slice(0, 7);
   const shops = all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1').map((s) => shopBilling(s.id));
-  const paying = shops.filter((s) => monthlyPrice(s) > 0 && !(s.trial_until && s.trial_until >= today));
+  const paying = shops.filter((s) => monthlyPrice(s) > 0 && !(s.trial_until && s.trial_until >= today) && !s.courtesy_since);
   const sum = (sql: string, params: unknown[] = []) => get<{ v: number }>(sql, params)?.v ?? 0;
   return {
     mrr: paying.reduce((t, s) => t + monthlyPrice(s), 0),
     payingShops: paying.length,
     trialShops: shops.filter((s) => s.trial_until && s.trial_until >= today).length,
+    courtesyShops: shops.filter((s) => s.courtesy_since).length,
     receivedThisMonth: sum("SELECT COALESCE(SUM(amount_cents), 0) AS v FROM invoices WHERE status = 'paid' AND substr(paid_at, 1, 7) = ?", [month]),
     open: sum("SELECT COALESCE(SUM(amount_cents), 0) AS v FROM invoices WHERE status = 'open' AND due_date >= ?", [today]),
     overdue: sum("SELECT COALESCE(SUM(amount_cents), 0) AS v FROM invoices WHERE status = 'open' AND due_date < ?", [today]),

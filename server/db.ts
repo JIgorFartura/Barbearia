@@ -1196,6 +1196,12 @@ const MIGRATIONS: (string | Rebuild)[] = [
   CREATE INDEX pix_checkouts_payment ON pix_checkouts (asaas_payment_id) WHERE asaas_payment_id IS NOT NULL;
   CREATE INDEX pix_checkouts_shop ON pix_checkouts (barbershop_id, status);
   `,
+  // 26: cortesia do master (barbearia sem mensalidade até o master tirar; a data é só o combinado).
+  `
+  ALTER TABLE barbershops ADD COLUMN courtesy_since TEXT;
+  ALTER TABLE barbershops ADD COLUMN courtesy_until TEXT;
+  ALTER TABLE barbershops ADD COLUMN courtesy_note TEXT;
+  `,
 ];
 
 function migrate(): void {

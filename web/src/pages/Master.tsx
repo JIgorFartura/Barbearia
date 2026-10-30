@@ -9,6 +9,7 @@ import {
   CreditCard,
   DatabaseBackup,
   ExternalLink,
+  Gift,
   KeyRound,
   ListChecks,
   LogOut,
@@ -57,6 +58,8 @@ interface ShopRow {
   billing_day: number;
   trial_until: string | null;
   released_until: string | null;
+  /** Cortesia do master: sem mensalidade até desmarcar (until é só o combinado). */
+  courtesy: { since: string; until: string | null; note: string | null } | null;
   blocked: boolean;
   open_invoices: number;
   overdue_invoices: number;
@@ -160,6 +163,10 @@ export function Master({ me, onLogout }: { me: Me; onLogout: () => void }) {
 function billingLine(s: ShopRow): { text: string; tone: 'green' | 'gold' | 'red' | 'zinc' } {
   const today = todayStr();
   if (!s.active) return { text: 'Suspensa', tone: 'red' };
+  if (s.courtesy) {
+    if (s.courtesy.until && s.courtesy.until < today) return { text: `Cortesia · o combinado (${date(s.courtesy.until)}) já passou`, tone: 'red' };
+    return { text: `Cortesia${s.courtesy.until ? ` até ${date(s.courtesy.until)}` : ''}`, tone: 'gold' };
+  }
   if (s.blocked) return { text: 'Bloqueada (mensalidade)', tone: 'red' };
   if (s.released_until && s.released_until >= today && s.overdue_invoices) return { text: `Liberada até ${date(s.released_until)}`, tone: 'gold' };
   if (s.trial_until && s.trial_until >= today) return { text: `Em teste até ${date(s.trial_until)}`, tone: 'gold' };
@@ -176,6 +183,7 @@ function ShopsTab() {
   const [billing, setBilling] = useState<ShopRow | null>(null);
   const [releasing, setReleasing] = useState<ShopRow | null>(null);
   const [owners, setOwners] = useState<ShopRow | null>(null);
+  const [courtesy, setCourtesy] = useState<ShopRow | null>(null);
   const load = useCallback(() => {
     api<ShopRow[]>('GET', '/api/master/shops').then(setShops);
     api<Overview>('GET', '/api/master/overview').then(setOverview);
@@ -273,6 +281,9 @@ function ShopsTab() {
                       <Unlock className="size-4" /> Liberar acesso
                     </Button>
                   )}
+                  <Button variant="ghost" className="!py-1.5" onClick={() => setCourtesy(s)}>
+                    <Gift className="size-4" /> {s.courtesy ? 'Cortesia ✓' : 'Cortesia'}
+                  </Button>
                   <Button variant="ghost" className="!py-1.5" onClick={() => setOwners(s)}>
                     <KeyRound className="size-4" /> Logins
                   </Button>
@@ -294,6 +305,16 @@ function ShopsTab() {
           onClose={() => setBilling(null)}
           onDone={() => {
             setBilling(null);
+            load();
+          }}
+        />
+      )}
+      {courtesy && (
+        <CourtesyModal
+          shop={courtesy}
+          onClose={() => setCourtesy(null)}
+          onDone={() => {
+            setCourtesy(null);
             load();
           }}
         />
@@ -522,6 +543,44 @@ function ShopBillingModal({ shop, plans, onClose, onDone }: { shop: ShopRow; pla
   );
 }
 
+/** Cortesia: a barbearia usa sem pagar até o master desmarcar. A data é o combinado, só para lembrar. */
+function CourtesyModal({ shop, onClose, onDone }: { shop: ShopRow; onClose: () => void; onDone: () => void }) {
+  const [until, setUntil] = useState(shop.courtesy?.until ?? '');
+  const [note, setNote] = useState(shop.courtesy?.note ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const save = (active: boolean) =>
+    api<{ warning: string | null }>('PUT', `/api/master/shops/${shop.id}/courtesy`, { active, until: until || null, note: note || null }).then((r) => {
+      if (r.warning) alert(r.warning);
+      onDone();
+    }, (e) => setError(e.message));
+  return (
+    <Modal title={`Cortesia · ${shop.name}`} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-sm text-zinc-600">
+          Com a cortesia marcada, a barbearia usa tudo <b>sem mensalidade</b> até você desmarcar: não sai fatura, o acesso não bloqueia e o cartão automático
+          da mensalidade é desligado. As faturas em aberto que ainda não venceram são canceladas.
+        </p>
+        {shop.courtesy && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">Cortesia desde {date(shop.courtesy.since)}.</p>}
+        <Field label="Combinado até (opcional)" hint="Só para lembrar: a cortesia continua até você desmarcar.">
+          <Input type="date" value={until} onChange={(e) => setUntil(e.target.value)} />
+        </Field>
+        <Field label="Anotação (opcional)" hint="Ex.: parceria com o Zé, 3 meses para testar.">
+          <Input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+        <ErrorText error={error} />
+        <div className="flex flex-wrap justify-end gap-2">
+          {shop.courtesy && (
+            <Button variant="danger" onClick={() => save(false)}>
+              Tirar cortesia
+            </Button>
+          )}
+          <Button onClick={() => save(true)}>{shop.courtesy ? 'Salvar' : 'Dar cortesia'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function ReleaseModal({ shop, onClose, onDone }: { shop: ShopRow; onClose: () => void; onDone: () => void }) {
   const [until, setUntil] = useState(addDays(todayStr(), 5));
   const [error, setError] = useState<string | null>(null);
@@ -683,6 +742,7 @@ interface Revenue {
   mrr: number;
   payingShops: number;
   trialShops: number;
+  courtesyShops: number;
   receivedThisMonth: number;
   open: number;
   overdue: number;
@@ -722,7 +782,7 @@ function BillingTab() {
   return (
     <>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat icon={<Wallet className="size-5" />} label="Receita mensal recorrente" value={money(r.mrr)} hint={`${r.payingShops} pagante(s) · ${r.trialShops} em teste`} />
+        <Stat icon={<Wallet className="size-5" />} label="Receita mensal recorrente" value={money(r.mrr)} hint={`${r.payingShops} pagante(s) · ${r.trialShops} em teste${r.courtesyShops ? ` · ${r.courtesyShops} cortesia` : ''}`} />
         <Stat icon={<CheckCircle2 className="size-5" />} label="Recebido este mês" value={money(r.receivedThisMonth)} />
         <Stat icon={<CreditCard className="size-5" />} label="A receber (no prazo)" value={money(r.open)} />
         <Stat

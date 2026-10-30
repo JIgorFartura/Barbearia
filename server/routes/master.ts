@@ -86,6 +86,7 @@ masterRouter.get('/shops', (_req, res) => {
         billing_day: billing.billing_day,
         trial_until: billing.trial_until,
         released_until: billing.released_until,
+        courtesy: access.courtesy,
         blocked: access.blocked,
         open_invoices: access.open.length,
         overdue_invoices: access.open.filter((i) => i.overdue).length,
@@ -217,6 +218,28 @@ masterRouter.put('/shops/:id/billing', async (req, res) => {
   // Mudou o valor: o cartão automático (no valor antigo) é desligado e a barbearia cadastra de novo.
   await subscriptionPriceChanged(id);
   res.json({ ok: true });
+});
+
+/**
+ * Cortesia: a barbearia usa sem mensalidade até o master desmarcar. Ao marcar, as faturas em aberto que
+ * ainda não venceram são canceladas e o cartão automático da mensalidade é desligado.
+ */
+masterRouter.put('/shops/:id/courtesy', async (req, res) => {
+  const id = idParam(req);
+  const body = parseBody(
+    z.object({ active: z.boolean(), until: z.string().refine(isDate, 'Data inválida.').nullish().transform((v) => v ?? null), note: zText(200) }),
+    req.body,
+  );
+  const s = shopBilling(id);
+  if (!body.active) {
+    run('UPDATE barbershops SET courtesy_since = NULL, courtesy_until = NULL, courtesy_note = NULL WHERE id = ?', [id]);
+    return void res.json(accessStatus(id));
+  }
+  const today = localNow().date;
+  run('UPDATE barbershops SET courtesy_since = ?, courtesy_until = ?, courtesy_note = ? WHERE id = ?', [s.courtesy_since ?? today, body.until, body.note, id]);
+  for (const inv of listInvoices({ shopId: id, status: 'open' }).filter((i) => i.due_date >= today)) await cancelInvoiceEverywhere(inv.id);
+  const warning = await stopSubscriptionCard(id);
+  res.json({ ...accessStatus(id), warning });
 });
 
 /** Libera o acesso até uma data, mesmo com mensalidade em atraso (null tira a liberação). */

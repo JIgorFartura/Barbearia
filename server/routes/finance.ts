@@ -139,6 +139,7 @@ export function registerFinanceRoutes(router: Router): void {
       price_cents: monthlyPrice(s),
       billing_day: s.billing_day,
       trial_until: s.trial_until,
+      courtesy: status.courtesy,
       blocked: status.blocked,
       graceDays: status.graceDays,
       blockOn: status.blockOn,

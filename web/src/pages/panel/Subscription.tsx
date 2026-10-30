@@ -23,6 +23,7 @@ interface SubscriptionData {
   price_cents: number;
   billing_day: number;
   trial_until: string | null;
+  courtesy: { since: string; until: string | null; note: string | null } | null;
   blocked: boolean;
   graceDays: number;
   blockOn: string | null;
@@ -91,6 +92,9 @@ export function Subscription() {
           {data.price_cents ? `${money(data.price_cents)} por mês, vence todo dia ${data.billing_day}` : 'Sem mensalidade definida'}
           {data.trial_until && data.trial_until >= today && ` · grátis até ${date(data.trial_until)}`}
         </p>
+        {data.courtesy && (
+          <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">🎁 Sua barbearia está com <b>cortesia</b>: use tudo sem mensalidade.</p>
+        )}
         {data.billing.auto && !data.billing.needsDocument && !editingInfo && (
           <button className="text-xs text-zinc-500 underline hover:text-zinc-900" onClick={() => setEditingInfo(true)}>
             Dados para a nota fiscal: {data.billing.billing_name}
