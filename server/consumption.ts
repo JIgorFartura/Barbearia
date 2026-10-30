@@ -145,7 +145,7 @@ export async function reserveItems(
       shop: shopBot(shopId),
       customerId: null,
       phone: a.barber_phone,
-      text: `Oi, ${a.barber_name}! ${a.customer_name} vem ${when} e pediu pra deixar separado: ${describeItems(reserved)}. 🍺`,
+      text: `Oi, ${a.barber_name}! ${a.customer_name} vem ${when} e pediu pra deixar separado: ${describeItems(reserved)}. 🛍️`,
       kind: 'barbeiro',
       dryRun: opts.dryRun,
       template: { kind: 'barbeiro', params: [a.barber_name, a.customer_name, when, describeItems(reserved)] },

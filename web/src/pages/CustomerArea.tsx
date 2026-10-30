@@ -4,6 +4,7 @@ import { Section } from '../components/CustomerSection';
 import { StampCard, type Progress } from '../components/StampCard';
 import { ClubSection } from './CustomerClub';
 import { BirthdaySection, ReferralSection } from './CustomerGrowth';
+import { FeaturedAds, PartnersSection, StoreSection, useVitrine } from './CustomerStore';
 import type { ReceiptInfo } from '../components/Receipt';
 import { PhotoThumb, photoDate, type CutPhoto } from '../components/Profile';
 import { AppSection } from '../components/AppInstall';
@@ -379,6 +380,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
   const habitBarber = habit?.barberId ? me.barbers.find((b) => b.id === habit.barberId)?.name : null;
   const activeVouchers = me.vouchers.filter((v) => v.status === 'active');
   const repeat = me.upcoming.length === 0 && me.barbers.length > 0 ? lastCutPreset(me) : null;
+  const vitrine = useVitrine(slug);
 
   async function cancelAppt(a: Appointment) {
     if (!confirm(`Cancelar ${stampLabel(a.starts_at)} com ${a.barber_name}?`)) return;
@@ -414,6 +416,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
         <p className="text-sm text-zinc-500">Bem-vindo à comunidade {brand.name}.</p>
       </div>
       <ErrorText error={error} />
+      {vitrine && <FeaturedAds ads={vitrine.ads} />}
       {!me.privacyAccepted && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-sky-50 px-4 py-3 text-sm text-sky-950 ring-1 ring-sky-200">
           <p className="flex items-start gap-2">
@@ -478,7 +481,7 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
                     ) : null}
                   </p>
                   {a.items && a.items.length > 0 && (
-                    <p className="text-xs text-amber-800">🍺 Separado pra você: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
+                    <p className="text-xs text-amber-800">🛍️ Separado pra você: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
                   )}
                   {a.confirmed_at ? (
                     <p className="text-xs font-medium text-emerald-700">✓ Presença confirmada</p>
@@ -528,6 +531,17 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
           </div>
         )}
       </Section>
+
+      {vitrine && (
+        <StoreSection
+          slug={slug}
+          products={vitrine.products}
+          next={me.upcoming[0] ?? null}
+          accent={brand.accent_color}
+          onBook={() => me.barbers.length > 0 && setBooking({})}
+          onReserved={reload}
+        />
+      )}
 
       <AppSection slug={slug} shopName={brand.name} accent={brand.accent_color} />
 
@@ -633,6 +647,8 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
           </ul>
         </Section>
       )}
+
+      {vitrine && <PartnersSection partners={vitrine.partners} ads={vitrine.ads} />}
 
       {me.payments.length > 0 && <PaymentsSection slug={slug} payments={me.payments} />}
 

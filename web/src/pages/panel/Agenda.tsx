@@ -193,7 +193,7 @@ export function Agenda() {
                         ))}
                       {item.appt.status !== 'cancelled' && <ProfileLine base="/api/shop" summary={item.appt.profile} onOpen={() => setFicha(item.appt!)} />}
                       {item.appt.items.length > 0 && (
-                        <p className="mt-1 text-xs font-medium text-amber-800">🍺 Separar: {item.appt.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
+                        <p className="mt-1 text-xs font-medium text-amber-800">🛍️ Separar: {item.appt.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
                       )}
                       {item.appt.sale && (
                         <p className="mt-1 text-xs font-medium text-emerald-700">

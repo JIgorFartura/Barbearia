@@ -9,10 +9,10 @@ import { cancelMembership, customerMembership, listPlans, subscribe } from '../c
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
 import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
 import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
-import { get, run } from '../db.js';
+import { all, get, run } from '../db.js';
 import { customerHabit, lastVisitDate } from '../habits.js';
 import { HttpError, idParam, parseBody, zId } from '../http.js';
-import { customerCard } from '../loyalty.js';
+import { customerCard, isRunning } from '../loyalty.js';
 import { claimVoucher, customerVouchers, offersFor } from '../offers.js';
 import { customerPayments } from '../payments.js';
 import { notifyReceipt, receiptInfo, saveReceipt, sendReceipt } from '../receipts.js';
@@ -23,6 +23,7 @@ import { activeBarbers, book, cancel, freeTimes, historyFor, services, upcomingF
 import { confirmAppointment } from '../attendance.js';
 import { PERIOD_IDS, customerWaitlist, joinWaitlist, leaveWaitlist, slotFreed, type Period } from '../waitlist.js';
 import { idleWindow } from '../promo.js';
+import { availableQty } from '../stock.js';
 import { availableComeback } from '../comeback.js';
 import { shopToday } from '../clock.js';
 import { isDate, isTime } from '../time.js';
@@ -122,6 +123,31 @@ customerRouter.post('/appointments', (req, res) => {
     ...appointment,
     // Mesma pergunta do robô: "posso avisar o Paulo da sua cerveja?"
     suggestion: suggestionFor(shopId, appointment.id),
+  });
+});
+
+/**
+ * Vitrine do app do cliente: os produtos da barbearia (com o que ainda tem para separar), os parceiros
+ * e os anúncios no ar. Cada abertura conta uma visualização para o anunciante, como no site.
+ */
+customerRouter.get('/vitrine', (req, res) => {
+  const { shopId } = ctx(req);
+  const day = shopToday(shopId);
+  const products = all<{ id: number; name: string; description: string | null; price_cents: number; image_url: string | null }>(
+    "SELECT id, name, description, price_cents, image_url FROM catalog_items WHERE barbershop_id = ? AND kind = 'product' AND active = 1 ORDER BY name",
+    [shopId],
+  ).map((p) => ({ ...p, available: availableQty(shopId, p.id) }));
+  const ads = all<{ id: number; title: string; body: string | null; image_url: string | null; link_url: string | null; placement: 'destaque' | 'mural'; partner: string | null; active: number; starts_on: string | null; ends_on: string | null }>(
+    `SELECT a.id, a.title, a.body, a.image_url, a.link_url, a.placement, a.active, a.starts_on, a.ends_on, p.name AS partner
+       FROM ads a LEFT JOIN partners p ON p.id = a.partner_id
+      WHERE a.barbershop_id = ? AND a.active = 1 ORDER BY a.id`,
+    [shopId],
+  ).filter((a) => isRunning(a, day));
+  if (ads.length) run(`UPDATE ads SET views = views + 1 WHERE id IN (${ads.map(() => '?').join(',')})`, ads.map((a) => a.id));
+  res.json({
+    products,
+    partners: all('SELECT id, name, category, description, benefit, instagram, website, logo_url FROM partners WHERE barbershop_id = ? AND active = 1 ORDER BY name', [shopId]),
+    ads: ads.map(({ id, title, body, image_url, link_url, placement, partner }) => ({ id, title, body, image_url, hasLink: Boolean(link_url), placement, partner })),
   });
 });
 

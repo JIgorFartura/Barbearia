@@ -125,7 +125,7 @@ async function quickReply(shop: ShopBot, customer: CustomerRow | null, text: str
     try {
       const items = (JSON.parse(question.payload) as Usual[]).map((u) => ({ productId: u.productId, qty: u.qty }));
       const r = await reserveItems(shop.id, question.appointment_id, items, 'whatsapp', { customerId: customer.id, dryRun, now });
-      return `Fechado! ${r.barberNotified ? `Avisei o ${r.barber}` : `Anotei pro ${r.barber}`}: ${describeItems(r.items)} separado pra você. 🍺`;
+      return `Fechado! ${r.barberNotified ? `Avisei o ${r.barber}` : `Anotei pro ${r.barber}`}: ${describeItems(r.items)} separado pra você. ✅`;
     } catch (err) {
       if (!(err instanceof HttpError)) throw err;
       run("UPDATE bot_questions SET status = 'expired' WHERE id = ?", [question.id]);

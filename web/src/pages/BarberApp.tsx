@@ -202,7 +202,7 @@ function BarberAgenda({ info }: { info: BarberMe }) {
               {a.status !== 'cancelled' && <ProfileLine base="/api/barber" summary={a.profile} onOpen={() => setFicha(a)} />}
               {a.items.length > 0 && (
                 <p className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900">
-                  🍺 Separar: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}
+                  🛍️ Separar: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}
                 </p>
               )}
               {a.sale && (

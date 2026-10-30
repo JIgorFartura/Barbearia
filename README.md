@@ -262,6 +262,21 @@ chave da plataforma, gerada sozinha). No iPhone, os avisos funcionam com o app i
 ou mais novo). Na área do cliente, **Repetir o último corte** já abre com o mesmo serviço, o mesmo
 barbeiro, o dia em que ele costuma voltar e o horário de sempre.
 
+## Loja, parceiros e anúncios no app
+
+O que o dono cadastra em *Produtos*, *Parceiros* e *Anúncios* aparece no site e também no app do
+cliente:
+
+- **Loja da barbearia**: os produtos com foto, descrição e preço. O cliente toca em *Separar pra mim*,
+  escolhe a quantidade e o produto fica separado no próximo horário dele. O barbeiro recebe o aviso
+  no WhatsApp, o item aparece na agenda e na comanda, e o cliente paga junto com o corte. Com o
+  estoque controlado, só dá para separar o que tem (o que acabou aparece como *Acabou por enquanto*).
+  Sem horário marcado, o botão abre o agendamento.
+- **Anúncios**: o de destaque fica no topo do app; os do mural ficam em *Parceiros e ofertas*. Cada
+  abertura do app conta uma visualização e o clique passa pelo contador, como no site, para o dono
+  mostrar os números ao anunciante.
+- **Parceiros**: logo, ramo, Instagram e o benefício de quem é cliente da barbearia.
+
 ## Rede com filiais
 
 O dono abre mais unidades em *Unidades* (começam nos dias grátis, com as cores e o nome do robô da
@@ -550,7 +565,7 @@ server/
   routes/           master, painel (shop, agenda, bot, finance, stock, club, reports, prepaid, team), barbeiro, cliente, público, webhooks
 web/src/
   pages/ShopLanding.tsx   site da barbearia
-  pages/CustomerArea.tsx  área do cliente (+ CustomerClub, CustomerGrowth)
+  pages/CustomerArea.tsx  área do cliente (+ CustomerClub, CustomerGrowth, CustomerStore)
   pages/Panel.tsx         painel do dono (pages/panel/*)
   pages/BarberApp.tsx     app do barbeiro
   pages/Master.tsx        painel master (pages/master/*)
