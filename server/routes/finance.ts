@@ -1,7 +1,25 @@
 import type { Request, Router } from 'express';
 import { z } from 'zod';
 import { isReception, shopId } from '../auth.js';
-import { accessStatus, annualPrice, billingInfo, informPayment, installmentOptions, invoice, invoicePix, listInvoices, platformSettings, saveBillingInfo, shopBilling, monthlyPrice } from '../billing.js';
+import {
+  accessStatus,
+  billingInfo,
+  CYCLE_MONTHS,
+  CYCLES,
+  cycleDiscount,
+  informPayment,
+  installmentCap,
+  installmentOptions,
+  invoice,
+  invoicePix,
+  listInvoices,
+  periodPrice,
+  platformSettings,
+  saveBillingInfo,
+  setupFreeFor,
+  shopBilling,
+  monthlyPrice,
+} from '../billing.js';
 import { asaasEnabled, asaasPix, chargeInvoice, chargeInvoiceCard, resetInvoiceCharge } from '../asaas.js';
 import { setBillingCycle } from '../annual.js';
 import { cancelSignup, continueAfterTrial } from '../trial.js';
@@ -149,13 +167,23 @@ export function registerFinanceRoutes(router: Router): void {
       trial_decision: get<{ d: string | null }>('SELECT trial_decision AS d FROM barbershops WHERE id = ?', [shop])?.d ?? null,
       setup_fee_cents: s.setup_fee_waived ? 0 : platformSettings().setup_fee_cents,
       // Oferta do anual (para quem está no mensal) e o valor dele.
-      annual:
+      // Os períodos (mensal, trimestral, semestral e anual), com o valor, o desconto e a implantação.
+      periods:
         monthlyPrice(s) > 0 && !status.courtesy
-          ? { price_cents: annualPrice(s), per_month_cents: Math.round(annualPrice(s) / 12), discount_pct: platformSettings().annual_discount_pct }
-          : null,
+          ? CYCLES.map((c) => ({
+              cycle: c,
+              months: CYCLE_MONTHS[c],
+              price_cents: periodPrice(s, c),
+              per_month_cents: Math.round(periodPrice(s, c) / CYCLE_MONTHS[c]),
+              discount_pct: cycleDiscount(c),
+              setup_free: setupFreeFor(c),
+            }))
+          : [],
       // Anual em aberto: parcelas no cartão (juros a partir da parcela configurada, pagos por quem parcela).
       card_options:
-        current && auto && info.billing_document && (current.reference.startsWith('anual:') || current.reference === 'implantacao') ? installmentOptions(current.amount_cents) : [],
+        current && auto && info.billing_document && installmentCap(current.reference) > 1
+          ? installmentOptions(current.amount_cents).filter((o) => o.n <= installmentCap(current.reference))
+          : [],
       installments: current ? (get<{ n: number | null }>('SELECT installments AS n FROM invoices WHERE id = ?', [current.id])?.n ?? null) : null,
       blocked: status.blocked,
       graceDays: status.graceDays,
@@ -169,7 +197,7 @@ export function registerFinanceRoutes(router: Router): void {
 
   /** Fim do teste: continuar no mensal (com a implantação) ou no anual (implantação grátis). */
   router.post('/subscription/continue', async (req, res) => {
-    const { cycle } = parseBody(z.object({ cycle: z.enum(['mensal', 'anual']) }), req.body);
+    const { cycle } = parseBody(z.object({ cycle: z.enum(CYCLES) }), req.body);
     const shop = shopId(req);
     if (monthlyPrice(shopBilling(shop)) <= 0) throw new HttpError(409, 'Sua barbearia ainda não tem plano definido. Fale com a gente pelo WhatsApp.');
     await continueAfterTrial(shop, cycle);
@@ -183,12 +211,13 @@ export function registerFinanceRoutes(router: Router): void {
     res.json({ ok: true });
   });
 
-  /** A barbearia passa para o plano anual (com o desconto): a fatura anual sai na hora. */
-  router.post('/subscription/annual', async (req, res) => {
+  /** A barbearia passa para um período com desconto (trimestral, semestral ou anual): a fatura sai na hora. */
+  router.post('/subscription/period', async (req, res) => {
+    const { cycle } = parseBody(z.object({ cycle: z.enum(['trimestral', 'semestral', 'anual']) }), req.body);
     const shop = shopId(req);
     if (accessStatus(shop).courtesy) throw new HttpError(409, 'Sua barbearia está com cortesia: não há mensalidade.');
     if (monthlyPrice(shopBilling(shop)) <= 0) throw new HttpError(409, 'Sua barbearia ainda não tem mensalidade definida.');
-    await setBillingCycle(shop, 'anual');
+    await setBillingCycle(shop, cycle);
     res.json({ ok: true });
   });
 
@@ -197,7 +226,7 @@ export function registerFinanceRoutes(router: Router): void {
     const { installments } = parseBody(z.object({ installments: z.number().int().min(1).max(12) }), req.body);
     const inv = listInvoices({ shopId: shopId(req), status: 'open' }).find((i) => i.id === idParam(req));
     if (!inv) throw new HttpError(404, 'Fatura não encontrada.');
-    if (installments > 1 && !inv.reference.startsWith('anual:') && inv.reference !== 'implantacao') throw new HttpError(400, 'O parcelamento é só para o plano anual e a implantação.');
+    if (installments > installmentCap(inv.reference)) throw new HttpError(400, `Esta fatura parcela em até ${installmentCap(inv.reference)}x.`);
     res.json(await chargeInvoiceCard(inv.id, installments));
   });
 

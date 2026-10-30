@@ -124,7 +124,7 @@ const zBilling = z.object({
   /** Valor combinado (vazio = preço do plano). */
   monthly_price_cents: z.number().int().min(0).max(100_000_000).nullish().transform((v) => v ?? null),
   billing_day: z.number().int().min(1).max(31),
-  billing_cycle: z.enum(['mensal', 'anual']).nullish(),
+  billing_cycle: z.enum(['mensal', 'trimestral', 'semestral', 'anual']).nullish(),
   setup_fee_waived: z.boolean().nullish(),
 });
 
@@ -325,6 +325,8 @@ masterRouter.put('/settings', (req, res) => {
       pix_key: z.string().trim().max(77),
       pix_name: z.string().trim().max(60),
       pix_city: z.string().trim().max(40),
+      quarterly_discount_pct: z.number().min(0).max(90).default(10),
+      semiannual_discount_pct: z.number().min(0).max(90).default(20),
       annual_discount_pct: z.number().min(0).max(90).default(30),
       card_interest_pct: z.number().min(0).max(15).default(2.99),
       interest_free_installments: z.number().int().min(1).max(12).default(2),

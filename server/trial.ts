@@ -1,6 +1,6 @@
 import { setBillingCycle } from './annual.js';
 import { cancelInvoiceEverywhere } from './asaas.js';
-import { ensureInvoices, listInvoices, shopBilling } from './billing.js';
+import { ensureInvoices, listInvoices, shopBilling, type Cycle } from './billing.js';
 import { stopSubscriptionCard } from './cards.js';
 import { config } from './config.js';
 import { all, get, nowIso, run } from './db.js';
@@ -57,7 +57,7 @@ export async function trialReminders(now: Date = new Date()): Promise<number> {
  * Continuar depois do teste: escolhe mensal ou anual e a primeira cobrança já sai, vencendo no dia
  * seguinte ao último dia grátis (ou hoje, se o teste já acabou). A implantação vem junto no mensal.
  */
-export async function continueAfterTrial(shopId: number, cycle: 'mensal' | 'anual', now: Date = new Date()): Promise<void> {
+export async function continueAfterTrial(shopId: number, cycle: Cycle, now: Date = new Date()): Promise<void> {
   const s = shopBilling(shopId);
   const today = localNow(now).date;
   const start = s.trial_until && s.trial_until >= today ? addDays(s.trial_until, 1) : today;

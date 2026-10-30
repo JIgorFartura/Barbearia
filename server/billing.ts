@@ -18,7 +18,9 @@ export interface PlatformSettings {
   pix_key: string;
   pix_name: string;
   pix_city: string;
-  /** Plano anual: desconto sobre 12 mensalidades (%). */
+  /** Desconto dos planos por período, sobre as mensalidades do período (%). */
+  quarterly_discount_pct: number;
+  semiannual_discount_pct: number;
   annual_discount_pct: number;
   /** Cartão parcelado: juros ao mês (%) pagos por quem parcela, a partir da parcela abaixo. */
   card_interest_pct: number;
@@ -27,7 +29,7 @@ export interface PlatformSettings {
   max_installments: number;
   /** Taxa de implantação (0 = não cobra): uma vez, junto com a primeira cobrança depois do teste. */
   setup_fee_cents: number;
-  /** No plano anual a implantação sai grátis. */
+  /** No semestral e no anual a implantação sai grátis. */
   setup_free_on_annual: boolean;
 }
 
@@ -41,6 +43,8 @@ export function platformSettings(): PlatformSettings {
     pix_key: map.pix_key ?? '',
     pix_name: map.pix_name ?? '',
     pix_city: map.pix_city ?? '',
+    quarterly_discount_pct: Number(map.quarterly_discount_pct ?? 10),
+    semiannual_discount_pct: Number(map.semiannual_discount_pct ?? 20),
     annual_discount_pct: Number(map.annual_discount_pct ?? 30),
     card_interest_pct: Number(map.card_interest_pct ?? 2.99),
     interest_free_installments: Number(map.interest_free_installments ?? 2),
@@ -74,27 +78,56 @@ interface ShopBilling {
   courtesy_since: string | null;
   courtesy_until: string | null;
   courtesy_note: string | null;
-  billing_cycle: 'mensal' | 'anual';
+  billing_cycle: Cycle;
+  billing_months: number;
   setup_fee_waived: number;
+}
+
+/** Períodos de cobrança: a mensalidade ou uma fatura a cada 3, 6 ou 12 meses, com desconto. */
+export type Cycle = 'mensal' | 'trimestral' | 'semestral' | 'anual';
+export const CYCLES: Cycle[] = ['mensal', 'trimestral', 'semestral', 'anual'];
+export const CYCLE_MONTHS: Record<Cycle, number> = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
+const cycleOf = (months: number): Cycle => CYCLES.find((c) => CYCLE_MONTHS[c] === months) ?? 'mensal';
+/** Fatura de um período ("trimestral:2026-11", "semestral:…", "anual:…"). */
+export const isPeriodRef = (reference: string) => /^(trimestral|semestral|anual):/.test(reference);
+
+export function cycleDiscount(cycle: Cycle): number {
+  const s = platformSettings();
+  return { mensal: 0, trimestral: s.quarterly_discount_pct, semestral: s.semiannual_discount_pct, anual: s.annual_discount_pct }[cycle];
+}
+
+/** Implantação grátis no semestral e no anual (se ligado nas configurações). */
+export const setupFreeFor = (cycle: Cycle) => platformSettings().setup_free_on_annual && CYCLE_MONTHS[cycle] >= 6;
+
+/**
+ * No cartão, o período parcela até o número de meses dele (trimestral em 3x, anual em 12x) e a
+ * implantação em até 3x, sempre dentro do máximo das configurações.
+ */
+export function installmentCap(reference: string): number {
+  const max = platformSettings().max_installments;
+  if (reference === 'implantacao') return Math.min(3, max);
+  const cycle = reference.split(':')[0] as Cycle;
+  return isPeriodRef(reference) ? Math.min(CYCLE_MONTHS[cycle], max) : 1;
 }
 
 export function shopBilling(shopId: number): ShopBilling {
   const s = get<ShopBilling>(
     `SELECT b.id, b.name, b.active, b.created_at, b.plan_id, p.name AS plan_name, p.price_cents AS plan_price, b.monthly_price_cents,
-            b.billing_day, b.trial_until, b.released_until, b.courtesy_since, b.courtesy_until, b.courtesy_note, b.billing_cycle, b.setup_fee_waived
+            b.billing_day, b.trial_until, b.released_until, b.courtesy_since, b.courtesy_until, b.courtesy_note, b.billing_months, b.setup_fee_waived
        FROM barbershops b LEFT JOIN plans p ON p.id = b.plan_id WHERE b.id = ?`,
     [shopId],
   );
   if (!s) throw new HttpError(404, 'Barbearia não encontrada.');
-  return s;
+  return { ...s, billing_cycle: cycleOf(s.billing_months) };
 }
 
 /** Valor da mensalidade: o combinado com a barbearia ou o preço do plano. */
 export const monthlyPrice = (s: Pick<ShopBilling, 'monthly_price_cents' | 'plan_price'>) => s.monthly_price_cents ?? s.plan_price ?? 0;
 
-/** Plano anual: 12 mensalidades com o desconto do anual. */
-export const annualPrice = (s: Pick<ShopBilling, 'monthly_price_cents' | 'plan_price'>) =>
-  Math.round(monthlyPrice(s) * 12 * (1 - platformSettings().annual_discount_pct / 100));
+/** Valor do período: as mensalidades do período com o desconto dele. */
+export const periodPrice = (s: Pick<ShopBilling, 'monthly_price_cents' | 'plan_price'>, cycle: Cycle) =>
+  Math.round(monthlyPrice(s) * CYCLE_MONTHS[cycle] * (1 - cycleDiscount(cycle) / 100));
+export const annualPrice = (s: Pick<ShopBilling, 'monthly_price_cents' | 'plan_price'>) => periodPrice(s, 'anual');
 
 /**
  * Parcelas no cartão: sem juros até o limite; daí em diante, juros compostos ao mês (tabela Price)
@@ -112,10 +145,10 @@ export function installmentOptions(amountCents: number): { n: number; each_cents
   return out;
 }
 
-/** Fatura da implantação (uma vez): a menos que esteja isenta ou seja anual com a implantação grátis. */
+/** Fatura da implantação (uma vez): a menos que esteja isenta ou seja um período com a implantação grátis. */
 function setupFeeInvoice(s: ShopBilling, due: string): number {
-  const { setup_fee_cents, setup_free_on_annual } = platformSettings();
-  if (setup_fee_cents <= 0 || s.setup_fee_waived || (s.billing_cycle === 'anual' && setup_free_on_annual)) return 0;
+  const { setup_fee_cents } = platformSettings();
+  if (setup_fee_cents <= 0 || s.setup_fee_waived || setupFreeFor(s.billing_cycle)) return 0;
   return run(
     `INSERT INTO invoices (barbershop_id, reference, description, amount_cents, due_date, created_at)
      VALUES (?, 'implantacao', 'Implantação: site, marca e configuração do sistema', ?, ?, ?) ON CONFLICT(barbershop_id, reference) DO NOTHING`,
@@ -123,14 +156,14 @@ function setupFeeInvoice(s: ShopBilling, due: string): number {
   ).changes;
 }
 
-/** Fatura anual que cobre o mês "AAAA-MM" (paga ou em aberto). */
-function annualCovering(shopId: number, month: string): { reference: string } | undefined {
-  return all<{ reference: string }>("SELECT reference FROM invoices WHERE barbershop_id = ? AND reference LIKE 'anual:%' AND status <> 'cancelled'", [shopId]).find(
-    (r) => {
-      const start = r.reference.slice(6);
-      return month >= start && month < addMonths(start, 12);
-    },
-  );
+/** Fatura de período (trimestral, semestral ou anual) que cobre o mês "AAAA-MM" (paga ou em aberto). */
+function periodCovering(shopId: number, month: string): { reference: string } | undefined {
+  return all<{ reference: string }>("SELECT reference FROM invoices WHERE barbershop_id = ? AND reference LIKE '%:%' AND status <> 'cancelled'", [shopId])
+    .filter((r) => isPeriodRef(r.reference))
+    .find((r) => {
+      const [cycle, start] = r.reference.split(':');
+      return month >= start && month < addMonths(start, CYCLE_MONTHS[cycle as Cycle]);
+    });
 }
 
 const addMonths = (reference: string, n: number) => {
@@ -164,18 +197,25 @@ export function ensureInvoices(now: Date = new Date(), onlyShopId?: number): num
     const due = dueDate(reference, s.billing_day);
     if (due < isoToLocal(s.created_at).slice(0, 10)) continue;
     if (s.trial_until && due <= s.trial_until) continue;
-    // Mês já coberto por um plano anual: não cobra de novo.
-    if (annualCovering(id, reference)) continue;
+    // Mês já coberto por um período pago (ou em aberto): não cobra de novo.
+    if (periodCovering(id, reference)) continue;
     // Primeira cobrança da barbearia: a implantação vem junto (uma vez só).
     if (!get("SELECT 1 AS ok FROM invoices WHERE barbershop_id = ? AND reference <> 'implantacao'", [id])) created += setupFeeInvoice(s, due < today ? today : due);
-    if (s.billing_cycle === 'anual') {
-      // O anual começa no mês ainda não pago (se a mensalidade do mês já foi paga, começa no próximo).
+    if (s.billing_months > 1) {
+      // O período começa no mês ainda não pago (se a mensalidade do mês já foi paga, começa no próximo).
       if (get("SELECT 1 AS ok FROM invoices WHERE barbershop_id = ? AND reference = ? AND status <> 'cancelled'", [id, reference])) continue;
-      const end = addMonths(reference, 11);
+      const end = addMonths(reference, s.billing_months - 1);
       created += run(
         `INSERT INTO invoices (barbershop_id, reference, description, amount_cents, due_date, created_at)
          VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(barbershop_id, reference) DO NOTHING`,
-        [id, `anual:${reference}`, `Plano anual ${monthName(reference)} a ${monthName(end)}${s.plan_name ? ` · ${s.plan_name}` : ''}`, annualPrice(s), due < today ? today : due, nowIso()],
+        [
+          id,
+          `${s.billing_cycle}:${reference}`,
+          `Plano ${s.billing_cycle} ${monthName(reference)} a ${monthName(end)}${s.plan_name ? ` · ${s.plan_name}` : ''}`,
+          periodPrice(s, s.billing_cycle),
+          due < today ? today : due,
+          nowIso(),
+        ],
       ).changes;
       continue;
     }
@@ -386,7 +426,7 @@ export function platformRevenue(now?: Date) {
   const month = today.slice(0, 7);
   const shops = all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1').map((s) => shopBilling(s.id));
   const paying = shops.filter((s) => monthlyPrice(s) > 0 && !(s.trial_until && s.trial_until >= today) && !s.courtesy_since);
-  const perMonth = (s: ShopBilling) => (s.billing_cycle === 'anual' ? Math.round(annualPrice(s) / 12) : monthlyPrice(s));
+  const perMonth = (s: ShopBilling) => Math.round(periodPrice(s, s.billing_cycle) / s.billing_months);
   const sum = (sql: string, params: unknown[] = []) => get<{ v: number }>(sql, params)?.v ?? 0;
   return {
     mrr: paying.reduce((t, s) => t + perMonth(s), 0),

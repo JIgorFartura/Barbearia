@@ -18,17 +18,30 @@ interface Invoice {
   overdue: boolean;
 }
 
+type Cycle = 'mensal' | 'trimestral' | 'semestral' | 'anual';
+/** Um período de cobrança, com o valor, o desconto e se a implantação sai grátis nele. */
+interface Period {
+  cycle: Cycle;
+  months: number;
+  price_cents: number;
+  per_month_cents: number;
+  discount_pct: number;
+  setup_free: boolean;
+}
+const PERIOD_NAME: Record<Cycle, string> = { mensal: 'Mensal', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual' };
+const PER: Record<Cycle, string> = { mensal: '/mês', trimestral: '/trimestre', semestral: '/semestre', anual: '/ano' };
+
 interface SubscriptionData {
   plan: string | null;
   price_cents: number;
   billing_day: number;
   trial_until: string | null;
   courtesy: { since: string; until: string | null; note: string | null } | null;
-  billing_cycle: 'mensal' | 'anual';
+  billing_cycle: Cycle;
   trial_decision: 'continuar' | 'cancelar' | null;
   setup_fee_cents: number;
   /** Oferta do plano anual (12 mensalidades com desconto). */
-  annual: { price_cents: number; per_month_cents: number; discount_pct: number } | null;
+  periods: Period[];
   /** Fatura anual em aberto: parcelas no cartão (com juros a partir de certa parcela). */
   card_options: { n: number; each_cents: number; total_cents: number; interest: boolean }[];
   /** Já escolheu pagar no cartão em N vezes (a página do Asaas está em current.payUrl). */
@@ -71,14 +84,16 @@ export function Subscription() {
   // Teste grátis sem decisão (e nada pago ainda): pergunta se quer continuar.
   const trialPending = Boolean(data.trial_until && data.trial_decision === null && !data.courtesy && data.price_cents > 0 && !data.invoices.some((i) => i.status === 'paid'));
 
-  const annualCur = Boolean(cur && (cur.reference.startsWith('anual:') || cur.reference === 'implantacao'));
+  // Período ou implantação: PIX, boleto ou cartão parcelado pelo Asaas (sem o cartão automático mensal).
+  const annualCur = Boolean(cur && (/^(trimestral|semestral|anual):/.test(cur.reference) || cur.reference === 'implantacao'));
+  const offers = data.periods.filter((p) => p.months > 1);
 
-  async function goAnnual() {
-    if (!data?.annual || !confirm(`Passar para o plano anual por ${money(data.annual.price_cents)} por ano? A fatura anual sai agora.`)) return;
+  async function goPeriod(p: Period) {
+    if (!confirm(`Passar para o plano ${p.cycle} por ${money(p.price_cents)}${PER[p.cycle]}? A fatura sai agora.`)) return;
     setBusy(true);
     setError(null);
     try {
-      await api('POST', '/api/shop/subscription/annual');
+      await api('POST', '/api/shop/subscription/period', { cycle: p.cycle });
       load();
     } catch (err) {
       setError((err as Error).message);
@@ -176,17 +191,27 @@ export function Subscription() {
         />
       )}
 
-      {trialPending && data.annual && <ContinueCard data={data} onDone={load} />}
+      {trialPending && data.periods.length > 0 && <ContinueCard data={data} onDone={load} />}
 
-      {!trialPending && data.billing_cycle === 'mensal' && data.annual && (
-        <Card className="max-w-xl space-y-2 ring-1 ring-amber-300">
-          <p className="font-semibold">💰 Plano anual: {data.annual.discount_pct}% de desconto</p>
-          <p className="text-sm text-zinc-600">
-            {money(data.annual.price_cents)} por ano (equivale a {money(data.annual.per_month_cents)} por mês). Pague no PIX, no boleto ou no cartão em até 12x.
-          </p>
-          <Button variant="gold" loading={busy} onClick={goAnnual}>
-            Passar para o anual
-          </Button>
+      {!trialPending && data.billing_cycle === 'mensal' && offers.length > 0 && (
+        <Card className="max-w-xl space-y-3 ring-1 ring-amber-300">
+          <p className="font-semibold">💰 Pague por período e economize</p>
+          {offers.map((p) => (
+            <div key={p.cycle} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-2">
+              <div>
+                <p className="text-sm font-semibold">
+                  {PERIOD_NAME[p.cycle]} · {p.discount_pct}% de desconto
+                </p>
+                <p className="text-xs text-zinc-600">
+                  {money(p.price_cents)}
+                  {PER[p.cycle]} (equivale a {money(p.per_month_cents)}/mês) · cartão em até {p.months}x
+                </p>
+              </div>
+              <Button variant={p.cycle === 'anual' ? 'gold' : 'ghost'} className="!py-1.5" loading={busy} onClick={() => goPeriod(p)}>
+                Mudar para {p.cycle}
+              </Button>
+            </div>
+          ))}
         </Card>
       )}
 
@@ -410,10 +435,9 @@ function ContinueCard({ data, onDone }: { data: SubscriptionData; onDone: () => 
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const today = new Date().toLocaleDateString('en-CA');
-  const annual = data.annual!;
   const ended = data.trial_until! < today;
 
-  async function go(cycle: 'mensal' | 'anual') {
+  async function go(cycle: Cycle) {
     setBusy(cycle);
     setError(null);
     try {
@@ -441,36 +465,35 @@ function ContinueCard({ data, onDone }: { data: SubscriptionData; onDone: () => 
   }
 
   return (
-    <Card className="max-w-2xl space-y-4 ring-1 ring-amber-300">
+    <Card className="max-w-5xl space-y-4 ring-1 ring-amber-300">
       <div>
         <p className="text-lg font-bold">{ended ? 'Seu teste grátis terminou' : `Seu teste grátis vai até ${date(data.trial_until!)}`}</p>
-        <p className="text-sm text-zinc-600">Quer continuar com o Bladr? Escolha o plano: a cobrança só vence depois do último dia grátis.</p>
+        <p className="text-sm text-zinc-600">Quer continuar com o Bladr? Escolha como pagar: a cobrança só vence depois do último dia grátis.</p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-2 rounded-xl p-4 ring-1 ring-zinc-200">
-          <p className="font-semibold">Mensal</p>
-          <p className="text-2xl font-bold">
-            {money(data.price_cents)}
-            <span className="text-sm font-normal text-zinc-500">/mês</span>
-          </p>
-          <p className="text-sm text-zinc-600">{data.setup_fee_cents > 0 ? `+ implantação de ${money(data.setup_fee_cents)} (uma vez)` : 'Sem taxa de implantação'}</p>
-          <Button className="w-full" variant="ghost" loading={busy === 'mensal'} disabled={Boolean(busy)} onClick={() => go('mensal')}>
-            Continuar no mensal
-          </Button>
-        </div>
-        <div className="space-y-2 rounded-xl bg-amber-50 p-4 ring-2 ring-amber-400">
-          <p className="font-semibold">Anual · {annual.discount_pct}% de desconto</p>
-          <p className="text-2xl font-bold">
-            {money(annual.price_cents)}
-            <span className="text-sm font-normal text-zinc-500">/ano</span>
-          </p>
-          <p className="text-sm text-zinc-600">
-            Equivale a {money(annual.per_month_cents)}/mês · <b>implantação grátis</b> · PIX, boleto ou cartão em até 12x
-          </p>
-          <Button className="w-full" variant="gold" loading={busy === 'anual'} disabled={Boolean(busy)} onClick={() => go('anual')}>
-            Continuar no anual
-          </Button>
-        </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {data.periods.map((p) => {
+          const best = p.cycle === 'anual';
+          return (
+            <div key={p.cycle} className={`flex flex-col gap-2 rounded-xl p-4 ${best ? 'bg-amber-50 ring-2 ring-amber-400' : 'ring-1 ring-zinc-200'}`}>
+              <p className="font-semibold">
+                {PERIOD_NAME[p.cycle]}
+                {p.discount_pct > 0 && <span className="text-amber-700"> · {p.discount_pct}% off</span>}
+              </p>
+              <p className="text-2xl font-bold">
+                {money(p.price_cents)}
+                <span className="text-sm font-normal text-zinc-500">{PER[p.cycle]}</span>
+              </p>
+              <p className="flex-1 text-sm text-zinc-600">
+                {p.months > 1 && <>Equivale a {money(p.per_month_cents)}/mês · </>}
+                {p.setup_free || !data.setup_fee_cents ? <b>implantação grátis</b> : `+ implantação de ${money(data.setup_fee_cents)} (uma vez)`}
+                {p.months > 1 && <> · cartão em até {p.months}x</>}
+              </p>
+              <Button className="w-full" variant={best ? 'gold' : 'ghost'} loading={busy === p.cycle} disabled={Boolean(busy)} onClick={() => go(p.cycle)}>
+                Continuar no {p.cycle}
+              </Button>
+            </div>
+          );
+        })}
       </div>
       {cancelling ? (
         <div className="space-y-2 border-t border-zinc-100 pt-3">

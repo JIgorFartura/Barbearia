@@ -13,11 +13,11 @@ const { all, run } = await import('../db.js');
 const { ensureInvoices, platformSettings, savePlatformSettings } = await import('../billing.js');
 
 const shop = (slug: string, extra: { waived?: boolean; cycle?: 'mensal' | 'anual' } = {}) =>
-  run("INSERT INTO barbershops (slug, name, bot_name, monthly_price_cents, billing_day, setup_fee_waived, billing_cycle, created_at) VALUES (?, ?, 'João', 9990, 28, ?, ?, ?)", [
+  run("INSERT INTO barbershops (slug, name, bot_name, monthly_price_cents, billing_day, setup_fee_waived, billing_months, created_at) VALUES (?, ?, 'João', 9990, 28, ?, ?, ?)", [
     slug,
     slug,
     extra.waived ? 1 : 0,
-    extra.cycle ?? 'mensal',
+    extra.cycle === 'anual' ? 12 : 1,
     '2025-01-01T12:00:00.000Z',
   ]).lastInsertRowid;
 const refs = (shopId: number) => all<{ reference: string; amount_cents: number }>('SELECT reference, amount_cents FROM invoices WHERE barbershop_id = ? ORDER BY id', [shopId]);

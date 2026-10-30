@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { cancelInvoice, installmentOptions, invoice, markInvoicePaid, type InvoiceView } from './billing.js';
+import { cancelInvoice, installmentOptions, invoice, isPeriodRef, markInvoicePaid, type InvoiceView } from './billing.js';
 import { all, get, run, tx } from './db.js';
 import { platformCardReady } from './cardSettings.js';
 import { recordGatewayPayment } from './gatewayPayments.js';
@@ -197,8 +197,8 @@ export async function chargeInvoice(invoiceId: number): Promise<boolean> {
         customer,
         // Indefinida: na página do Asaas a barbearia escolhe PIX, cartão ou boleto. Com o cartão pela
         // Cielo (mais barato e automático), o Asaas fica só com o PIX.
-        // O anual sempre deixa escolher (inclusive o boleto).
-        billingType: platformCardReady() && !inv.reference.startsWith('anual:') ? 'PIX' : 'UNDEFINED',
+        // Período e implantação sempre deixam escolher (inclusive o boleto).
+        billingType: platformCardReady() && !isPeriodRef(inv.reference) && inv.reference !== 'implantacao' ? 'PIX' : 'UNDEFINED',
         value: inv.amount_cents / 100,
         // O Asaas não aceita vencimento no passado (fatura já vencida vence hoje).
         dueDate: inv.due_date < today ? today : inv.due_date,

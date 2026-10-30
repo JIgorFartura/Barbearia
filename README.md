@@ -305,21 +305,22 @@ cadastrado a outra barbearia.
   (1 barbeiro), Equipe R$ 99,90 (2 a 6), Equipe 10 R$ 149,90 (7 a 10), Ilimitado R$ 189,90 e Rede
   de 2, 3, 4 ou 10 unidades (valor por unidade, barbeiros ilimitados). Quem se cadastra pelo site
   começa no Equipe; o master ajusta depois do teste grátis.
-- **Plano anual**: uma fatura por ano com desconto (padrão 30% sobre 12 mensalidades). A barbearia
-  passa para o anual sozinha em *Mensalidade* (ou o master escolhe "Anual" na mensalidade dela); a
-  mensalidade do mês que ainda não venceu vira a fatura anual. Paga no **PIX**, no **boleto** ou no
-  **cartão em até 12x** pela página do Asaas (o cartão é digitado lá): sem juros até 2x e, a partir de
-  3x, com juros ao mês (padrão 2,99%, tabela Price) **pagos por quem parcela**; a plataforma recebe o
-  valor da fatura. Qualquer parcela aprovada baixa a fatura. Desconto, juros e parcelas ficam nas
-  configurações do master. Voltando para o mensal, o anual já pago vale até o fim do período.
+- **Períodos com desconto**: mensal, **trimestral (10%)**, **semestral (20%)** e **anual (30%)**, sobre
+  as mensalidades do período (os descontos ficam nas configurações do master). A barbearia escolhe em
+  *Mensalidade* (ou o master na mensalidade dela); a mensalidade do mês que ainda não venceu vira a
+  fatura do período. Paga no **PIX**, no **boleto** ou no **cartão** pela página do Asaas (o cartão é
+  digitado lá), parcelando até o número de meses do período (trimestral em 3x, anual em 12x): sem
+  juros até 2x e, a partir de 3x, com juros ao mês (padrão 2,99%, tabela Price) **pagos por quem
+  parcela**; a plataforma recebe o valor da fatura. Qualquer parcela aprovada baixa a fatura. Voltando
+  para o mensal, o período já pago vale até o fim.
 - **Taxa de implantação** (configurações do master; 0 = não cobra): vem **uma vez**, junto com a
   primeira cobrança depois do teste grátis, e dá para pagar no PIX, no boleto ou no cartão parcelado
-  (como o anual). O master isenta por barbearia e pode deixar a implantação **grátis no plano anual**
-  (passando para o anual, a implantação ainda não paga é cancelada). Quem já pagava antes não é cobrado.
+  (até 3x). O master isenta por barbearia e pode deixar a implantação **grátis no semestral e no anual**
+  (passando para eles, a implantação ainda não paga é cancelada). Quem já pagava antes não é cobrado.
 - **Fim do teste grátis** (padrão numa instalação nova: **7 dias** e implantação de **R$ 197**, grátis
-  no anual): 2 dias antes de acabar, o dono recebe um aviso no WhatsApp da plataforma e o painel
-  pergunta **"Quer continuar com o Bladr?"**. *Continuar no mensal* (com a implantação) ou *no anual*
-  (implantação grátis) gera a cobrança, que vence no dia seguinte ao último dia grátis. *Não quero
+  no semestral e no anual): 2 dias antes de acabar, o dono recebe um aviso no WhatsApp da plataforma e o painel
+  pergunta **"Quer continuar com o Bladr?"**. *Continuar* no mensal, trimestral, semestral ou anual
+  (implantação grátis a partir do semestral) gera a cobrança, que vence no dia seguinte ao último dia grátis. *Não quero
   continuar* cancela a contratação (com o motivo, que vai para o master) e fecha o painel; os dados
   ficam guardados. Quem não responde segue no plano mensal, cobrado depois do teste.
 - **Cortesia** (botão *Cortesia* na barbearia): a barbearia usa tudo **sem mensalidade até o master

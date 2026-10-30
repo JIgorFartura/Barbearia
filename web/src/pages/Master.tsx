@@ -56,7 +56,7 @@ interface ShopRow {
   monthly_price_cents: number | null;
   price_cents: number;
   billing_day: number;
-  billing_cycle: 'mensal' | 'anual';
+  billing_cycle: 'mensal' | 'trimestral' | 'semestral' | 'anual';
   setup_fee_waived: boolean;
   trial_until: string | null;
   released_until: string | null;
@@ -534,9 +534,11 @@ function ShopBillingModal({ shop, plans, onClose, onDone }: { shop: ShopRow; pla
             <Input type="number" min={1} max={31} value={form.billing_day} onChange={(e) => setForm({ ...form, billing_day: e.target.value })} />
           </Field>
         </div>
-        <Field label="Cobrança" hint="Anual: uma fatura por ano, com o desconto do anual (PIX, boleto ou cartão parcelado).">
-          <select className={inputClass} value={form.billing_cycle} onChange={(e) => setForm({ ...form, billing_cycle: e.target.value as 'mensal' | 'anual' })}>
+        <Field label="Cobrança" hint="Trimestral, semestral ou anual: uma fatura por período, com o desconto dele (PIX, boleto ou cartão parcelado).">
+          <select className={inputClass} value={form.billing_cycle} onChange={(e) => setForm({ ...form, billing_cycle: e.target.value as ShopRow['billing_cycle'] })}>
             <option value="mensal">Mensal</option>
+            <option value="trimestral">Trimestral</option>
+            <option value="semestral">Semestral</option>
             <option value="anual">Anual</option>
           </select>
         </Field>
@@ -775,6 +777,8 @@ interface Settings {
   pix_key: string;
   pix_name: string;
   pix_city: string;
+  quarterly_discount_pct: number;
+  semiannual_discount_pct: number;
   annual_discount_pct: number;
   card_interest_pct: number;
   interest_free_installments: number;
@@ -1029,10 +1033,16 @@ function SettingsCard() {
           <Field label="Teste grátis (dias)" hint="Padrão para barbearias novas.">
             <Input type="number" min={0} max={365} value={s.trial_days} onChange={(e) => set('trial_days', Number(e.target.value))} />
           </Field>
+          <Field label="Desconto do trimestral (%)" hint="Sobre 3 mensalidades.">
+            <Input type="number" min={0} max={90} value={s.quarterly_discount_pct} onChange={(e) => set('quarterly_discount_pct', Number(e.target.value))} />
+          </Field>
+          <Field label="Desconto do semestral (%)" hint="Sobre 6 mensalidades.">
+            <Input type="number" min={0} max={90} value={s.semiannual_discount_pct} onChange={(e) => set('semiannual_discount_pct', Number(e.target.value))} />
+          </Field>
           <Field label="Desconto do plano anual (%)" hint="Sobre 12 mensalidades.">
             <Input type="number" min={0} max={90} value={s.annual_discount_pct} onChange={(e) => set('annual_discount_pct', Number(e.target.value))} />
           </Field>
-          <Field label="Juros do cartão (% ao mês)" hint="Pagos por quem parcela o anual.">
+          <Field label="Juros do cartão (% ao mês)" hint="Pagos por quem parcela (período ou implantação).">
             <Input type="number" min={0} max={15} step="0.01" value={s.card_interest_pct} onChange={(e) => set('card_interest_pct', Number(e.target.value))} />
           </Field>
           <Field label="Parcelas sem juros" hint="2 = juros a partir de 3x.">
@@ -1048,7 +1058,7 @@ function SettingsCard() {
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-0.5 size-4" checked={s.setup_free_on_annual} onChange={(e) => set('setup_free_on_annual', e.target.checked)} />
           <span>
-            <b>Implantação grátis no plano anual</b>: quem paga o ano não paga a implantação.
+            <b>Implantação grátis no semestral e no anual</b>: quem paga 6 meses ou mais não paga a implantação.
           </span>
         </label>
         <label className="flex items-start gap-2 text-sm">

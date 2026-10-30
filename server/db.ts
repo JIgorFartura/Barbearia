@@ -1233,6 +1233,11 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbershops ADD COLUMN trial_decided_at TEXT;
   ALTER TABLE barbershops ADD COLUMN cancel_reason TEXT;
   `,
+  // 31: período da cobrança em meses (1 mensal, 3 trimestral, 6 semestral, 12 anual); billing_cycle fica sem uso.
+  `
+  ALTER TABLE barbershops ADD COLUMN billing_months INTEGER NOT NULL DEFAULT 1 CHECK (billing_months IN (1, 3, 6, 12));
+  UPDATE barbershops SET billing_months = 12 WHERE billing_cycle = 'anual';
+  `,
 ];
 
 function migrate(): void {

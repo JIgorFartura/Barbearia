@@ -102,10 +102,25 @@ describe('plano anual', () => {
     await owner('PUT', '/api/shop/billing-info', { document: '11.222.333/0001-81', name: 'Navalha de Ouro Ltda' });
     const sub = (await owner('GET', '/api/shop/subscription')).data;
     // 12 × R$ 99,90 = R$ 1.198,80; com 30% de desconto, R$ 839,16 (R$ 69,93 por mês).
-    assert.deepEqual(sub.annual, { price_cents: 83916, per_month_cents: 6993, discount_pct: 30 });
+    // Os quatro períodos sobre R$ 99,90: 10%, 20% e 30% de desconto; implantação grátis a partir do semestral.
+    assert.deepEqual(
+      sub.periods.map((p: { cycle: string; price_cents: number; per_month_cents: number; discount_pct: number; setup_free: boolean }) => [
+        p.cycle,
+        p.price_cents,
+        p.per_month_cents,
+        p.discount_pct,
+        p.setup_free,
+      ]),
+      [
+        ['mensal', 9990, 9990, 0, false],
+        ['trimestral', 26973, 8991, 10, false],
+        ['semestral', 47952, 7992, 20, true],
+        ['anual', 83916, 6993, 30, true],
+      ],
+    );
     assert.deepEqual(sub.card_options, [], 'parcelar é só no anual');
 
-    assert.equal((await owner('POST', '/api/shop/subscription/annual')).status, 200);
+    assert.equal((await owner('POST', '/api/shop/subscription/period', { cycle: 'anual' })).status, 200);
     assert.equal(invoices(), `${month}=cancelled=9990 anual:${month}=open=83916`);
     assert.ok(deleted.includes('pay_1'), 'a cobrança da mensalidade saiu do Asaas');
     assert.equal(ensureInvoices(), 0, 'nada de mensalidade enquanto o anual cobre o mês');
