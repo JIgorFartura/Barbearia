@@ -4,6 +4,7 @@ import { isReception, shopId } from '../auth.js';
 import { accessStatus, annualPrice, billingInfo, informPayment, installmentOptions, invoice, invoicePix, listInvoices, platformSettings, saveBillingInfo, shopBilling, monthlyPrice } from '../billing.js';
 import { asaasEnabled, asaasPix, chargeInvoice, chargeInvoiceCard, resetInvoiceCharge } from '../asaas.js';
 import { setBillingCycle } from '../annual.js';
+import { cancelSignup, continueAfterTrial } from '../trial.js';
 import { cancelSubscriptionCard, subscriptionCardLink, subscriptionCardState } from '../cards.js';
 import { connectionInfo } from '../connection.js';
 import { availableQty } from '../stock.js';
@@ -97,6 +98,8 @@ export function registerFinanceRoutes(router: Router): void {
       openInvoices: desk ? 0 : status.open.length,
       overdue: !desk && status.open.some((i) => i.overdue),
       trialUntil: desk ? null : status.trialUntil,
+      // Teste grátis: o dono ainda não disse se continua (o painel pergunta).
+      trialDecision: desk ? null : (get<{ d: string | null }>('SELECT trial_decision AS d FROM barbershops WHERE id = ?', [shop])?.d ?? null),
       whatsapp: connectionInfo(shop),
       pixToConfirm: desk ? 0 : get<{ n: number }>("SELECT COUNT(*) AS n FROM charges WHERE barbershop_id = ? AND status = 'open' AND claimed_at IS NOT NULL", [shop])!.n,
       // Desses, quantos vieram com o comprovante.
@@ -142,6 +145,9 @@ export function registerFinanceRoutes(router: Router): void {
       trial_until: s.trial_until,
       courtesy: status.courtesy,
       billing_cycle: s.billing_cycle,
+      // Fim do teste: a escolha do dono (null = ainda não escolheu) e a implantação do mensal.
+      trial_decision: get<{ d: string | null }>('SELECT trial_decision AS d FROM barbershops WHERE id = ?', [shop])?.d ?? null,
+      setup_fee_cents: s.setup_fee_waived ? 0 : platformSettings().setup_fee_cents,
       // Oferta do anual (para quem está no mensal) e o valor dele.
       annual:
         monthlyPrice(s) > 0 && !status.courtesy
@@ -159,6 +165,22 @@ export function registerFinanceRoutes(router: Router): void {
       invoices,
       billing: { auto, needsDocument: auto && !info.billing_document, ...info },
     });
+  });
+
+  /** Fim do teste: continuar no mensal (com a implantação) ou no anual (implantação grátis). */
+  router.post('/subscription/continue', async (req, res) => {
+    const { cycle } = parseBody(z.object({ cycle: z.enum(['mensal', 'anual']) }), req.body);
+    const shop = shopId(req);
+    if (monthlyPrice(shopBilling(shop)) <= 0) throw new HttpError(409, 'Sua barbearia ainda não tem plano definido. Fale com a gente pelo WhatsApp.');
+    await continueAfterTrial(shop, cycle);
+    res.json({ ok: true });
+  });
+
+  /** Não quer continuar: cancela a contratação (só quem nunca pagou). */
+  router.post('/subscription/cancel', async (req, res) => {
+    const { reason } = parseBody(z.object({ reason: zText(300) }), req.body ?? {});
+    await cancelSignup(shopId(req), reason);
+    res.json({ ok: true });
   });
 
   /** A barbearia passa para o plano anual (com o desconto): a fatura anual sai na hora. */

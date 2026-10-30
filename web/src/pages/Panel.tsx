@@ -88,6 +88,9 @@ interface ShopStatus {
   blockOn: string | null;
   overdue: boolean;
   openInvoices: number;
+  /** Teste grátis: até quando e a escolha do dono no fim (null = ainda não escolheu). */
+  trialUntil: string | null;
+  trialDecision: 'continuar' | 'cancelar' | null;
   /** Conexão do WhatsApp da barbearia (null = simulador). */
   whatsapp: { status: 'ok' | 'down' | 'unknown'; since: string | null; error: string | null } | null;
   /** PIX do clube que os clientes avisaram que pagaram (ou mandaram o comprovante) e o dono ainda não conferiu. */
@@ -145,7 +148,7 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const loadStatus = useCallback(() => {
     // Se a consulta falhar, abre o painel normalmente (cada tela mostra o próprio erro).
     api<ShopStatus>('GET', '/api/shop/status').then(setStatus, () =>
-      setStatus((s) => s ?? { active: true, blocked: false, blockOn: null, overdue: false, openInvoices: 0, whatsapp: null, announcements: [] }),
+      setStatus((s) => s ?? { active: true, blocked: false, blockOn: null, overdue: false, openInvoices: 0, trialUntil: null, trialDecision: null, whatsapp: null, announcements: [] }),
     );
   }, []);
   useEffect(loadStatus, [section, loadStatus]);
@@ -548,6 +551,20 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 {status!.pixToConfirm === 1 ? '1 cliente avisou que pagou o PIX' : `${status!.pixToConfirm} clientes avisaram que pagaram o PIX`}
                 {status!.receiptsToConfirm ? ` (${status!.receiptsToConfirm === 1 ? '1 com comprovante' : `${status!.receiptsToConfirm} com comprovante`})` : ''}.{' '}
                 <b>Conferir</b>
+              </span>
+            </button>
+          )}
+          {!desk && status?.trialUntil && status.trialDecision === null && !status.overdue && section !== 'mensalidade' && (
+            <button
+              onClick={() => navigate('/painel/mensalidade')}
+              className="mb-4 flex w-full items-center gap-2 rounded-xl bg-amber-50 px-4 py-2.5 text-left text-sm text-amber-900 ring-1 ring-amber-200"
+            >
+              <CreditCard className="size-4 shrink-0" />
+              <span>
+                {status.trialUntil >= new Date().toLocaleDateString('en-CA')
+                  ? `Seu teste grátis vai até ${date(status.trialUntil)}. Quer continuar com o Bladr?`
+                  : 'Seu teste grátis terminou. Quer continuar com o Bladr?'}{' '}
+                <b>Escolher o plano</b>
               </span>
             </button>
           )}

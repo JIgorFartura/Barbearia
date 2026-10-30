@@ -1226,6 +1226,13 @@ const MIGRATIONS: (string | Rebuild)[] = [
   `
   ALTER TABLE barbershops ADD COLUMN setup_fee_waived INTEGER NOT NULL DEFAULT 0;
   `,
+  // 30: fim do teste grátis: o aviso, a decisão do dono (continuar ou cancelar) e o motivo.
+  `
+  ALTER TABLE barbershops ADD COLUMN trial_notified_at TEXT;
+  ALTER TABLE barbershops ADD COLUMN trial_decision TEXT CHECK (trial_decision IN ('continuar', 'cancelar'));
+  ALTER TABLE barbershops ADD COLUMN trial_decided_at TEXT;
+  ALTER TABLE barbershops ADD COLUMN cancel_reason TEXT;
+  `,
 ];
 
 function migrate(): void {

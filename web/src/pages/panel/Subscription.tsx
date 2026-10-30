@@ -25,6 +25,8 @@ interface SubscriptionData {
   trial_until: string | null;
   courtesy: { since: string; until: string | null; note: string | null } | null;
   billing_cycle: 'mensal' | 'anual';
+  trial_decision: 'continuar' | 'cancelar' | null;
+  setup_fee_cents: number;
   /** Oferta do plano anual (12 mensalidades com desconto). */
   annual: { price_cents: number; per_month_cents: number; discount_pct: number } | null;
   /** Fatura anual em aberto: parcelas no cartão (com juros a partir de certa parcela). */
@@ -66,6 +68,9 @@ export function Subscription() {
   const auto = Boolean(cur && (cur.payUrl || cur.pix?.auto));
 
   // Anual ou implantação: PIX, boleto ou cartão parcelado pelo Asaas (sem o cartão automático mensal).
+  // Teste grátis sem decisão (e nada pago ainda): pergunta se quer continuar.
+  const trialPending = Boolean(data.trial_until && data.trial_decision === null && !data.courtesy && data.price_cents > 0 && !data.invoices.some((i) => i.status === 'paid'));
+
   const annualCur = Boolean(cur && (cur.reference.startsWith('anual:') || cur.reference === 'implantacao'));
 
   async function goAnnual() {
@@ -171,7 +176,9 @@ export function Subscription() {
         />
       )}
 
-      {data.billing_cycle === 'mensal' && data.annual && (
+      {trialPending && data.annual && <ContinueCard data={data} onDone={load} />}
+
+      {!trialPending && data.billing_cycle === 'mensal' && data.annual && (
         <Card className="max-w-xl space-y-2 ring-1 ring-amber-300">
           <p className="font-semibold">💰 Plano anual: {data.annual.discount_pct}% de desconto</p>
           <p className="text-sm text-zinc-600">
@@ -308,7 +315,7 @@ export function Subscription() {
           )}
           <ErrorText error={error} />
         </Card>
-      ) : (
+      ) : trialPending ? null : (
         <Card className="max-w-xl">
           <p className="font-semibold">Tudo em dia ✓</p>
           <p className="text-sm text-zinc-500">
@@ -392,6 +399,99 @@ function BillingInfoCard({ info, onSaved }: { info: SubscriptionData['billing'];
           Salvar
         </Button>
       </form>
+    </Card>
+  );
+}
+
+/** Fim do teste grátis: continuar no mensal (com a implantação) ou no anual (implantação grátis), ou cancelar. */
+function ContinueCard({ data, onDone }: { data: SubscriptionData; onDone: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const today = new Date().toLocaleDateString('en-CA');
+  const annual = data.annual!;
+  const ended = data.trial_until! < today;
+
+  async function go(cycle: 'mensal' | 'anual') {
+    setBusy(cycle);
+    setError(null);
+    try {
+      await api('POST', '/api/shop/subscription/continue', { cycle });
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function cancel() {
+    if (!confirm('Cancelar a contratação? O painel e o robô deixam de funcionar. Se mudar de ideia, é só falar com a gente.')) return;
+    setBusy('cancelar');
+    setError(null);
+    try {
+      await api('POST', '/api/shop/subscription/cancel', { reason: reason || null });
+      await api('POST', '/api/auth/logout');
+      location.assign('/');
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card className="max-w-2xl space-y-4 ring-1 ring-amber-300">
+      <div>
+        <p className="text-lg font-bold">{ended ? 'Seu teste grátis terminou' : `Seu teste grátis vai até ${date(data.trial_until!)}`}</p>
+        <p className="text-sm text-zinc-600">Quer continuar com o Bladr? Escolha o plano: a cobrança só vence depois do último dia grátis.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-2 rounded-xl p-4 ring-1 ring-zinc-200">
+          <p className="font-semibold">Mensal</p>
+          <p className="text-2xl font-bold">
+            {money(data.price_cents)}
+            <span className="text-sm font-normal text-zinc-500">/mês</span>
+          </p>
+          <p className="text-sm text-zinc-600">{data.setup_fee_cents > 0 ? `+ implantação de ${money(data.setup_fee_cents)} (uma vez)` : 'Sem taxa de implantação'}</p>
+          <Button className="w-full" variant="ghost" loading={busy === 'mensal'} disabled={Boolean(busy)} onClick={() => go('mensal')}>
+            Continuar no mensal
+          </Button>
+        </div>
+        <div className="space-y-2 rounded-xl bg-amber-50 p-4 ring-2 ring-amber-400">
+          <p className="font-semibold">Anual · {annual.discount_pct}% de desconto</p>
+          <p className="text-2xl font-bold">
+            {money(annual.price_cents)}
+            <span className="text-sm font-normal text-zinc-500">/ano</span>
+          </p>
+          <p className="text-sm text-zinc-600">
+            Equivale a {money(annual.per_month_cents)}/mês · <b>implantação grátis</b> · PIX, boleto ou cartão em até 12x
+          </p>
+          <Button className="w-full" variant="gold" loading={busy === 'anual'} disabled={Boolean(busy)} onClick={() => go('anual')}>
+            Continuar no anual
+          </Button>
+        </div>
+      </div>
+      {cancelling ? (
+        <div className="space-y-2 border-t border-zinc-100 pt-3">
+          <Field label="Pode contar o motivo? (opcional)">
+            <Input value={reason} maxLength={300} placeholder="Ex.: ainda não é o momento" onChange={(e) => setReason(e.target.value)} />
+          </Field>
+          <div className="flex gap-2">
+            <Button variant="danger" loading={busy === 'cancelar'} disabled={Boolean(busy)} onClick={cancel}>
+              Cancelar a contratação
+            </Button>
+            <Button variant="ghost" onClick={() => setCancelling(false)}>
+              Voltar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button className="text-sm text-zinc-500 underline hover:text-red-600" onClick={() => setCancelling(true)}>
+          Não quero continuar
+        </button>
+      )}
+      <ErrorText error={error} />
     </Card>
   );
 }

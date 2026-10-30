@@ -15,6 +15,7 @@ import { notifyOwners } from './platform.js';
 import { shopOwnerIds } from './shops.js';
 import { errorAlerts } from './errors.js';
 import { invoiceReminders } from './invoiceReminders.js';
+import { trialReminders } from './trial.js';
 import { accessStatus, ensureInvoices } from './billing.js';
 import { config } from './config.js';
 import { askConsumption } from './consumption.js';
@@ -475,6 +476,7 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
         await syncAsaasCharges().catch((err) => console.error('[asaas]', err));
         await syncCardLinks(now).catch((err) => console.error('[cielo]', err));
         await invoiceReminders(now).catch((err) => console.error('[mensalidade]', err));
+        await trialReminders(now).catch((err) => console.error('[teste grátis]', err));
       }
     }
     // Cópia de segurança do dia (a partir das 3h); uma falha aqui não para os lembretes.

@@ -145,6 +145,13 @@ export const TEMPLATES = {
     example: ['Barbearia Navalha de Ouro', '19/10 a 25/10', 'R$ 4.250,00', '+12%', '68', '74%'],
     platform: true,
   },
+  fim_teste: {
+    label: 'Fim do teste grátis (plataforma)',
+    category: 'UTILITY',
+    body: 'Olá, {{1}}! O teste grátis da {{2}} termina em {{3}}. Quer continuar com o Bladr? Escolha o plano (ou cancele) no painel, na tela Mensalidade: {{4}}',
+    example: ['Carlos', 'Barbearia Navalha de Ouro', '06/11', 'https://bladr.com.br/painel/mensalidade'],
+    platform: true,
+  },
   fatura: {
     label: 'Mensalidade do sistema (plataforma)',
     category: 'UTILITY',

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { checkLoginRate, createSession, destroySession, hashPassword, hasMaster, verifyPassword } from '../auth.js';
 import { get, nowIso, run } from '../db.js';
+import { platformSettings, savePlatformSettings } from '../billing.js';
 import { HttpError, normalizePhone, parseBody, rateLimit } from '../http.js';
 import { consumePasswordCode, findLogin, requestPasswordCode } from '../passwordReset.js';
 import { removeSubscription, saveSubscription, zPushEndpoint, zPushSubscription } from '../push.js';
@@ -27,6 +28,11 @@ authRouter.post('/setup', (req, res) => {
     "INSERT INTO users (role, name, email, password_hash, terms_accepted_at, created_at) VALUES ('master', ?, ?, ?, ?, ?)",
     [body.name, body.email, hashPassword(body.password), nowIso(), nowIso()],
   );
+  // Padrões da Bladr numa instalação nova: 7 dias grátis e implantação de R$ 197 (grátis no anual).
+  if (!get("SELECT 1 AS ok FROM platform_settings WHERE key = 'setup_fee_cents'")) {
+    const s = platformSettings();
+    savePlatformSettings({ ...s, trial_days: s.trial_days === 14 ? 7 : s.trial_days, setup_fee_cents: 19700, setup_free_on_annual: true });
+  }
   createSession(res, lastInsertRowid);
   res.status(201).json({ ok: true });
 });

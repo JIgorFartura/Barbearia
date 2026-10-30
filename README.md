@@ -316,6 +316,12 @@ cadastrado a outra barbearia.
   primeira cobrança depois do teste grátis, e dá para pagar no PIX, no boleto ou no cartão parcelado
   (como o anual). O master isenta por barbearia e pode deixar a implantação **grátis no plano anual**
   (passando para o anual, a implantação ainda não paga é cancelada). Quem já pagava antes não é cobrado.
+- **Fim do teste grátis** (padrão numa instalação nova: **7 dias** e implantação de **R$ 197**, grátis
+  no anual): 2 dias antes de acabar, o dono recebe um aviso no WhatsApp da plataforma e o painel
+  pergunta **"Quer continuar com o Bladr?"**. *Continuar no mensal* (com a implantação) ou *no anual*
+  (implantação grátis) gera a cobrança, que vence no dia seguinte ao último dia grátis. *Não quero
+  continuar* cancela a contratação (com o motivo, que vai para o master) e fecha o painel; os dados
+  ficam guardados. Quem não responde segue no plano mensal, cobrado depois do teste.
 - **Cortesia** (botão *Cortesia* na barbearia): a barbearia usa tudo **sem mensalidade até o master
   desmarcar**. Não sai fatura, o acesso não bloqueia, o cartão automático da mensalidade é desligado e
   as faturas em aberto que ainda não venceram são canceladas. A data "combinado até" e a anotação são
