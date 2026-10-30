@@ -91,7 +91,7 @@ describe('plano anual', () => {
     assert.equal(o.length, 12);
   });
 
-  test('o dono vê a oferta e passa para o anual: a mensalidade do mês vira a fatura anual com 30% de desconto', async () => {
+  test('o dono vê a oferta e passa para o anual: a mensalidade do mês vira a fatura anual com 25% de desconto', async () => {
     ensureInvoices();
     assert.equal(invoices(), `${month}=open=9990`);
     await master('PUT', '/api/master/asaas', {
@@ -101,8 +101,8 @@ describe('plano anual', () => {
     });
     await owner('PUT', '/api/shop/billing-info', { document: '11.222.333/0001-81', name: 'Navalha de Ouro Ltda' });
     const sub = (await owner('GET', '/api/shop/subscription')).data;
-    // 12 × R$ 99,90 = R$ 1.198,80; com 30% de desconto, R$ 839,16 (R$ 69,93 por mês).
-    // Os quatro períodos sobre R$ 99,90: 10%, 20% e 30% de desconto; implantação grátis a partir do semestral.
+    // 12 × R$ 99,90 = R$ 1.198,80; com 25% de desconto, R$ 899,10 (R$ 74,93 por mês).
+    // Os quatro períodos sobre R$ 99,90: 10%, 15% e 25% de desconto; implantação grátis a partir do semestral.
     assert.deepEqual(
       sub.periods.map((p: { cycle: string; price_cents: number; per_month_cents: number; discount_pct: number; setup_free: boolean }) => [
         p.cycle,
@@ -114,17 +114,17 @@ describe('plano anual', () => {
       [
         ['mensal', 9990, 9990, 0, false],
         ['trimestral', 26973, 8991, 10, false],
-        ['semestral', 47952, 7992, 20, true],
-        ['anual', 83916, 6993, 30, true],
+        ['semestral', 50949, 8492, 15, true],
+        ['anual', 89910, 7493, 25, true],
       ],
     );
     assert.deepEqual(sub.card_options, [], 'parcelar é só no anual');
 
     assert.equal((await owner('POST', '/api/shop/subscription/period', { cycle: 'anual' })).status, 200);
-    assert.equal(invoices(), `${month}=cancelled=9990 anual:${month}=open=83916`);
+    assert.equal(invoices(), `${month}=cancelled=9990 anual:${month}=open=89910`);
     assert.ok(deleted.includes('pay_1'), 'a cobrança da mensalidade saiu do Asaas');
     assert.equal(ensureInvoices(), 0, 'nada de mensalidade enquanto o anual cobre o mês');
-    assert.equal(platformRevenue().mrr, 6993);
+    assert.equal(platformRevenue().mrr, 7493);
   });
 
   test('o anual sai no Asaas com boleto/PIX; o cartão parcelado troca a cobrança e cobra os juros de quem parcela', async () => {
@@ -137,7 +137,7 @@ describe('plano anual', () => {
     assert.equal((await owner('POST', `/api/shop/subscription/${sub.current.id}/card`, { installments: 13 })).status, 400);
     const r = await owner('POST', `/api/shop/subscription/${sub.current.id}/card`, { installments: 6 });
     assert.equal(r.status, 200, JSON.stringify(r.data));
-    const six = installmentOptions(83916)[5];
+    const six = installmentOptions(89910)[5];
     assert.equal(r.data.total_cents, six.total_cents);
     const sent = posted.at(-1)!;
     assert.equal(sent.billingType, 'CREDIT_CARD');
@@ -150,7 +150,7 @@ describe('plano anual', () => {
     sub = (await owner('GET', '/api/shop/subscription')).data;
     assert.equal(sub.installments, 6);
     assert.equal(sub.current.pix, null, 'no cartão não tem PIX');
-    assert.equal(sub.current.amount_cents, 83916, 'a fatura continua com o valor dela');
+    assert.equal(sub.current.amount_cents, 89910, 'a fatura continua com o valor dela');
   });
 
   test('qualquer parcela aprovada no cartão baixa a fatura anual', async () => {
@@ -173,6 +173,6 @@ describe('plano anual', () => {
     const r = await master('PUT', `/api/master/shops/${shopId}/billing`, { plan_id: equipe, monthly_price_cents: null, billing_day: 31, billing_cycle: 'mensal' });
     assert.equal(r.status, 200);
     assert.equal(ensureInvoices(), 0, 'o mês está pago pelo anual');
-    assert.match(invoices(), new RegExp(`anual:${month}=paid=83916`));
+    assert.match(invoices(), new RegExp(`anual:${month}=paid=89910`));
   });
 });

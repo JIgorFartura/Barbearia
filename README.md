@@ -305,7 +305,7 @@ cadastrado a outra barbearia.
   (1 barbeiro), Equipe R$ 99,90 (2 a 6), Equipe 10 R$ 149,90 (7 a 10), Ilimitado R$ 189,90 e Rede
   de 2, 3, 4 ou 10 unidades (valor por unidade, barbeiros ilimitados). Quem se cadastra pelo site
   começa no Equipe; o master ajusta depois do teste grátis.
-- **Períodos com desconto**: mensal, **trimestral (10%)**, **semestral (20%)** e **anual (30%)**, sobre
+- **Períodos com desconto**: mensal, **trimestral (10%)**, **semestral (15%)** e **anual (25%)**, sobre
   as mensalidades do período (os descontos ficam nas configurações do master). A barbearia escolhe em
   *Mensalidade* (ou o master na mensalidade dela); a mensalidade do mês que ainda não venceu vira a
   fatura do período. Paga no **PIX**, no **boleto** ou no **cartão** pela página do Asaas (o cartão é

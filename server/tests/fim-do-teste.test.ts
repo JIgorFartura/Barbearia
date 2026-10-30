@@ -79,7 +79,7 @@ describe('fim do teste grátis', () => {
     assert.equal(status.trialDecision, null);
     const sub = (await owner('GET', '/api/shop/subscription')).data;
     assert.equal(sub.setup_fee_cents, 19700);
-    assert.equal(sub.periods.find((p: { cycle: string }) => p.cycle === 'anual').price_cents, 83916);
+    assert.equal(sub.periods.find((p: { cycle: string }) => p.cycle === 'anual').price_cents, 89910);
   });
 
   test('continuar no mensal: mensalidade e implantação vencem no dia seguinte ao último dia grátis', async () => {
@@ -104,7 +104,7 @@ describe('fim do teste grátis', () => {
     const list = invoices(shopId);
     assert.equal(list.length, 1);
     assert.match(list[0].reference, /^anual:/);
-    assert.deepEqual([list[0].amount_cents, list[0].due_date], [83916, addDays(until, 1)]);
+    assert.deepEqual([list[0].amount_cents, list[0].due_date], [89910, addDays(until, 1)]);
   });
 
   test('trimestral paga a implantação (e parcela em até 3x); semestral não paga', async () => {
@@ -122,7 +122,7 @@ describe('fim do teste grátis', () => {
     assert.equal((await sem.owner('POST', '/api/shop/subscription/continue', { cycle: 'semestral' })).status, 200);
     assert.deepEqual(
       invoices(sem.shopId).map((i) => [i.reference.replace(/\d{4}-\d{2}$/, 'mes'), i.amount_cents]),
-      [['semestral:mes', 47952]],
+      [['semestral:mes', 50949]],
     );
   });
 
