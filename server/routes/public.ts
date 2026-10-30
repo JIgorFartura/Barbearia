@@ -1,30 +1,81 @@
-import { Router } from 'express';
+import { suggestSlug } from '../shops.js';
+import { Router, type Request } from 'express';
+import { growthSettings, referrerByCode, setReferrer, welcomeReferred } from '../growth.js';
+import { listPlans } from '../club.js';
 import { z } from 'zod';
-import { today } from '../config.js';
-import { all, get, run } from '../db.js';
-import { HttpError, idParam, normalizePhone, parseBody } from '../http.js';
-import { customerCard, isRunning, type Campaign } from '../loyalty.js';
+import { shopToday } from '../clock.js';
+import { config } from '../config.js';
+import { checkLoginCode, consumeAccessLink, createCustomerSession, issueLoginCode, sessionCustomer } from '../customerAuth.js';
+import { all, get, nowIso, run } from '../db.js';
+import { HttpError, idParam, normalizePhone, parseBody, rateLimit } from '../http.js';
+import { isRunning, type Campaign } from '../loyalty.js';
+import { llmEnabled } from '../bot/brain.js';
+import { customerByPhone, sendMessage, shopBot } from '../messaging.js';
+import { shopCardStatus } from '../cardSettings.js';
+import { legalInfo } from '../privacy.js';
+import { vapidKeys } from '../push.js';
+import { createSession } from '../auth.js';
+import { platformSettings } from '../billing.js';
+import { signup } from '../signup.js';
+import { zPassword } from './auth.js';
 
-/** Dados da landing page de cada barbearia (/b/:slug) — sem login. */
+/** Dados da landing page de cada barbearia (/b/:slug) e login da área do cliente — sem login. */
 export const publicRouter = Router();
+
+/** Só o que pode aparecer no site (nunca credenciais do WhatsApp nem configurações internas). */
+const PUBLIC_FIELDS = 'id, slug, name, tagline, about, primary_color, accent_color, logo_url, cover_url, whatsapp, instagram, address, hours, bot_name';
 
 interface Shop {
   id: number;
   slug: string;
   name: string;
-  active: number;
 }
 
-function shopBySlug(slug: string): Shop {
-  const shop = get<Shop>('SELECT * FROM barbershops WHERE slug = ? AND active = 1', [slug.toLowerCase()]);
+function shopBySlug(slug: string): Shop & Record<string, unknown> {
+  const shop = get<Shop & Record<string, unknown>>(`SELECT ${PUBLIC_FIELDS} FROM barbershops WHERE slug = ? AND active = 1`, [slug.toLowerCase()]);
   if (!shop) throw new HttpError(404, 'Barbearia não encontrada.');
   return shop;
 }
 
+// ---------- cadastro sozinho (barbearia nova, com os dias grátis)
+
+publicRouter.get('/signup', (_req, res) => {
+  const s = platformSettings();
+  res.json({ enabled: s.signup_enabled, trialDays: s.trial_days });
+});
+
+/** Prévia do endereço do site enquanto o dono digita o nome da barbearia (o mesmo que o cadastro vai criar). */
+publicRouter.get('/signup/link', (req, res) => {
+  const name = typeof req.query.name === 'string' ? req.query.name.trim().slice(0, 80) : '';
+  res.json({ slug: name.length >= 2 ? suggestSlug(name) : null });
+});
+
+publicRouter.post('/signup', (req, res) => {
+  rateLimit(`signup:${req.ip}`, 3, 3600000, 'Muitos cadastros deste endereço. Tente de novo mais tarde.');
+  const body = parseBody(
+    z.object({
+      shop_name: z.string().trim().min(2, 'Informe o nome da barbearia.').max(80),
+      name: z.string().trim().min(2, 'Informe o seu nome.').max(80),
+      phone: z.string().max(30),
+      email: z.string().trim().toLowerCase().email('E-mail inválido.').nullish().or(z.literal('')),
+      password: zPassword,
+      accept: z.literal(true, 'Para criar a conta, aceite os termos de uso e a política de privacidade.'),
+    }),
+    req.body,
+  );
+  const r = signup({ shopName: body.shop_name, name: body.name, phone: body.phone, email: body.email || null, password: body.password });
+  createSession(res, r.userId);
+  res.status(201).json({ ok: true, slug: r.slug });
+});
+
+/** Chave pública dos avisos no celular (o navegador usa para se inscrever). */
+publicRouter.get('/push-key', (_req, res) => {
+  res.json({ key: vapidKeys().publicKey });
+});
+
 publicRouter.get('/shops/:slug', (req, res) => {
-  const shop = shopBySlug(String(req.params.slug));
-  const day = today();
-  const { id, created_at: _created, active: _active, ...profile } = shop as Shop & Record<string, unknown>;
+  const { id, ...profile } = shopBySlug(String(req.params.slug));
+  const day = shopToday(id);
 
   const ads = all<{ id: number; active: number; starts_on: string | null; ends_on: string | null } & Record<string, unknown>>(
     `SELECT a.id, a.title, a.body, a.image_url, a.link_url, a.placement, a.active, a.starts_on, a.ends_on, p.name AS partner
@@ -42,9 +93,19 @@ publicRouter.get('/shops/:slug', (req, res) => {
 
   res.json({
     shop: profile,
+    loggedIn: Boolean(sessionCustomer(req, id)),
+    canBook: Boolean(get('SELECT 1 AS ok FROM barbers b JOIN barber_hours h ON h.barber_id = b.id WHERE b.barbershop_id = ? AND b.active = 1 LIMIT 1', [id])),
     services: all('SELECT id, name, description, price_cents, duration_min, image_url FROM catalog_items WHERE barbershop_id = ? AND kind = ? AND active = 1 ORDER BY name', [id, 'service']),
     products: all('SELECT id, name, description, price_cents, image_url FROM catalog_items WHERE barbershop_id = ? AND kind = ? AND active = 1 ORDER BY name', [id, 'product']),
     partners: all('SELECT id, name, category, description, benefit, instagram, website, logo_url FROM partners WHERE barbershop_id = ? AND active = 1 ORDER BY name', [id]),
+    clubPlans: listPlans(id, { activeOnly: true }).map(({ id: pid, name, description, price_cents, uses_per_month, items }) => ({
+      id: pid,
+      name,
+      description,
+      price_cents,
+      uses_per_month,
+      items: items.map((i) => i.name),
+    })),
     campaigns: campaigns.map(({ id: cid, name, description, unit_label, goal, reward, image_url, ends_on, partner }) => ({
       id: cid,
       name,
@@ -60,6 +121,38 @@ publicRouter.get('/shops/:slug', (req, res) => {
   });
 });
 
+/** "João te indicou": quem é o dono do código e o presente de quem chega por indicação. */
+publicRouter.get('/shops/:slug/referral/:code', (req, res) => {
+  const { id } = shopBySlug(String(req.params.slug));
+  const ref = referrerByCode(id, String(req.params.code));
+  if (!ref) throw new HttpError(404, 'Código de indicação não encontrado.');
+  res.json({ name: ref.name.split(/\s+/)[0], gift: growthSettings(id).friend_reward?.title ?? null });
+});
+
+/** Só a marca (área do cliente): não conta visualização de anúncio. */
+publicRouter.get('/shops/:slug/brand', (req, res) => {
+  const { id, ...profile } = shopBySlug(String(req.params.slug));
+  res.json({ ...profile, connected: shopBot(id).wa_provider !== 'simulador', loggedIn: Boolean(sessionCustomer(req, id)) });
+});
+
+/** Dados da empresa para os termos de uso e a política de privacidade da plataforma. */
+publicRouter.get('/legal', (_req, res) => {
+  res.json(legalInfo());
+});
+
+/** Política de privacidade da barbearia (controladora dos dados dos clientes dela). */
+publicRouter.get('/shops/:slug/privacy', (req, res) => {
+  const { id, name, address, whatsapp, instagram, bot_name } = shopBySlug(String(req.params.slug));
+  res.json({
+    shop: { name, address, whatsapp, instagram, bot_name },
+    legal: legalInfo(),
+    ai: llmEnabled(),
+    whatsapp: shopBot(id).wa_provider !== 'simulador',
+    // Aceita cartão pela Cielo (a política conta que o cartão é digitado só na página da Cielo).
+    online: shopCardStatus(id).available,
+  });
+});
+
 /** Clique no anúncio: conta e redireciona para o link do anunciante (validado no cadastro). */
 publicRouter.get('/ads/:id/click', (req, res) => {
   const ad = get<{ link_url: string | null }>('SELECT link_url FROM ads WHERE id = ? AND active = 1', [idParam(req)]);
@@ -68,23 +161,73 @@ publicRouter.get('/ads/:id/click', (req, res) => {
   res.redirect(302, ad.link_url);
 });
 
-/** "Meu cartão": o cliente consulta os carimbos pelo celular. Mostra só o primeiro nome. */
-publicRouter.post('/shops/:slug/card', (req, res) => {
-  const shop = shopBySlug(String(req.params.slug));
-  const body = parseBody(z.object({ phone: z.string().max(30) }), req.body);
-  const customer = get<{ id: number; name: string }>('SELECT id, name FROM customers WHERE barbershop_id = ? AND phone = ?', [
-    shop.id,
-    normalizePhone(body.phone),
-  ]);
-  if (!customer) throw new HttpError(404, 'Ainda não encontramos esse celular. Peça seu cadastro no balcão!');
-  res.json({
-    firstName: customer.name.split(/\s+/)[0],
-    card: customerCard(shop.id, customer.id).map(({ campaign, progress }) => ({
-      id: campaign.id,
-      name: campaign.name,
-      unit_label: campaign.unit_label,
-      reward: campaign.reward,
-      progress,
-    })),
+// ---------- login da área do cliente
+
+const ip = (req: Request) => req.ip ?? '';
+
+/**
+ * Passo 1: o cliente informa o celular (e o nome, se for novo). O robô manda o código no WhatsApp.
+ * Sem WhatsApp conectado, só em modo demonstração o código aparece na tela.
+ */
+publicRouter.post('/shops/:slug/login/code', async (req, res) => {
+  rateLimit(`code:${ip(req)}`, 10, 3600000, 'Muitos pedidos de código. Tente mais tarde.');
+  const { id } = shopBySlug(String(req.params.slug));
+  const body = parseBody(
+    z.object({ phone: z.string().max(30), name: z.string().trim().max(80).optional(), accept: z.boolean().optional(), referral: z.string().max(20).optional() }),
+    req.body,
+  );
+  const phone = normalizePhone(body.phone);
+  let customer = customerByPhone(id, phone);
+  if (!customer) {
+    if (!body.name || body.name.length < 2) {
+      // Número novo: a tela pede o nome (e o aceite da política) para criar a conta.
+      res.json({ needsName: true });
+      return;
+    }
+    // LGPD: a conta só nasce com o aceite da política de privacidade da barbearia.
+    if (!body.accept) throw new HttpError(400, 'Para criar sua conta, leia e aceite a política de privacidade.');
+    run('INSERT INTO customers (barbershop_id, name, phone, privacy_accepted_at, created_at) VALUES (?, ?, ?, ?, ?)', [id, body.name, phone, nowIso(), nowIso()]);
+    customer = customerByPhone(id, phone)!;
+    // Veio pelo link de um amigo: guarda quem indicou (o presente sai depois de confirmar o celular).
+    setReferrer(id, customer.id, body.referral);
+  }
+  const shop = shopBot(id);
+  const connected = shop.wa_provider !== 'simulador';
+  if (!connected && !config.demoLoginCodes) {
+    throw new HttpError(503, 'O WhatsApp da barbearia ainda não está conectado. Peça seu link de acesso no balcão.');
+  }
+  const code = issueLoginCode(customer.id);
+  const sent = await sendMessage({
+    shop,
+    customerId: customer.id,
+    phone: customer.phone,
+    waId: customer.wa_id,
+    text: `Seu código de acesso à área do cliente da ${shop.name}: *${code}*. Vale por 10 minutos. Não passe para ninguém.`,
+    kind: 'codigo',
+    template: { kind: 'codigo', params: [code] },
   });
+  if (connected && sent.status === 'failed' && !config.demoLoginCodes) throw new HttpError(502, 'Não conseguimos enviar o código pelo WhatsApp. Tente de novo.');
+  res.json({ sent: connected && sent.status === 'sent', demoCode: config.demoLoginCodes && (!connected || sent.status === 'failed') ? code : undefined });
+});
+
+/** Passo 2: confere o código e abre a sessão (180 dias). */
+publicRouter.post('/shops/:slug/login/verify', (req, res) => {
+  rateLimit(`verify:${ip(req)}`, 30, 3600000, 'Muitas tentativas. Tente mais tarde.');
+  const { id } = shopBySlug(String(req.params.slug));
+  const body = parseBody(z.object({ phone: z.string().max(30), code: z.string().max(10) }), req.body);
+  const customer = customerByPhone(id, normalizePhone(body.phone));
+  if (!customer) throw new HttpError(400, 'Código incorreto.');
+  checkLoginCode(customer.id, body.code);
+  createCustomerSession(res, id, customer.id);
+  welcomeReferred(id, customer.id);
+  res.json({ ok: true });
+});
+
+/** Link de acesso enviado pelo robô (ou copiado pelo dono no painel). */
+publicRouter.post('/shops/:slug/login/link', (req, res) => {
+  rateLimit(`link:${ip(req)}`, 30, 3600000, 'Muitas tentativas. Tente mais tarde.');
+  const { id } = shopBySlug(String(req.params.slug));
+  const { token } = parseBody(z.object({ token: z.string().min(10).max(100) }), req.body);
+  createCustomerSession(res, id, consumeAccessLink(id, token));
+  res.json({ ok: true });
 });

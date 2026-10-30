@@ -5,18 +5,28 @@ import { get, nowIso, run } from './db.js';
 import { HttpError } from './http.js';
 
 /**
- * Perfis:
- * - master: dono da plataforma — cadastra as barbearias e os donos de cada uma;
- * - owner: dono da barbearia — cuida da marca, catálogo, parceiros, anúncios, campanhas e clientes.
+ * Perfis com login (e-mail ou celular) e senha; o cliente da barbearia tem a área própria, em customerAuth.ts:
+ * - master: dono da plataforma — cadastra as barbearias e cuida da plataforma (não entra nos painéis);
+ * - owner: dono da barbearia — cuida de tudo; com mais de uma unidade (rede), troca de unidade no painel;
+ * - reception: recepção — agenda, balcão e comanda, sem o financeiro, os relatórios e as configurações;
+ * - barber: barbeiro — vê a própria agenda, fecha os próprios atendimentos e acompanha as comissões.
  */
-export type Role = 'master' | 'owner';
+export type Role = 'master' | 'owner' | 'barber' | 'reception';
 
 export interface AuthUser {
   id: number;
   name: string;
-  email: string;
+  email: string | null;
+  phone: string | null;
   role: Role;
+  /** Unidade em que o login está agora (o dono de uma rede pode trocar). */
   barbershopId: number | null;
+  /** Unidade de origem do login. */
+  homeShopId: number | null;
+  /** Barbeiro ligado a este login (perfil barber). */
+  barberId: number | null;
+  /** Já aceitou os termos de uso da plataforma (dono). */
+  termsAccepted: boolean;
 }
 
 declare global {
@@ -24,6 +34,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthUser;
+      sessionId?: string;
+      rawBody?: Buffer;
     }
   }
 }
@@ -75,13 +87,44 @@ export function destroySession(req: Request, res: Response): void {
 export function loadUser(req: Request, _res: Response, next: NextFunction): void {
   const token = readCookie(req);
   if (token) {
-    const row = get<{ id: number; name: string; email: string; role: Role; barbershop_id: number | null }>(
-      `SELECT u.id, u.name, u.email, u.role, u.barbershop_id
+    const row = get<{
+      id: number;
+      name: string;
+      email: string | null;
+      phone: string | null;
+      role: Role;
+      barbershop_id: number | null;
+      barber_id: number | null;
+      terms_accepted_at: string | null;
+      acting_shop_id: number | null;
+    }>(
+      `SELECT u.id, u.name, u.email, u.phone, u.role, u.barbershop_id, u.barber_id, u.terms_accepted_at, s.acting_shop_id
          FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.id = ? AND s.expires_at > ?`,
       [sha256(token), nowIso()],
     );
-    if (row) req.user = { id: row.id, name: row.name, email: row.email, role: row.role, barbershopId: row.barbershop_id };
+    if (row) {
+      // Dono de rede vendo outra unidade (só as ligadas a ele).
+      const acting =
+        row.role === 'owner' &&
+        row.acting_shop_id &&
+        row.acting_shop_id !== row.barbershop_id &&
+        get('SELECT 1 AS ok FROM shop_members WHERE user_id = ? AND barbershop_id = ?', [row.id, row.acting_shop_id])
+          ? row.acting_shop_id
+          : row.barbershop_id;
+      req.user = {
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        phone: row.phone,
+        role: row.role,
+        barbershopId: acting,
+        homeShopId: row.barbershop_id,
+        barberId: row.barber_id,
+        termsAccepted: Boolean(row.terms_accepted_at),
+      };
+      req.sessionId = sha256(token);
+    }
   }
   next();
 }
@@ -89,11 +132,67 @@ export function loadUser(req: Request, _res: Response, next: NextFunction): void
 export function requireRole(role: Role) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) throw new HttpError(401, 'Faça login para continuar.');
+    // Cada perfil só no que é dele: o master cuida da plataforma e nunca entra no painel de uma barbearia.
     if (req.user.role !== role) throw new HttpError(403, 'Acesso não permitido para este perfil.');
     if (role === 'owner' && !req.user.barbershopId) throw new HttpError(403, 'Usuário sem barbearia vinculada.');
+    if (role === 'barber') {
+      const barber = req.user.barberId ? get<{ active: number }>('SELECT active FROM barbers WHERE id = ?', [req.user.barberId]) : undefined;
+      if (!barber?.active) throw new HttpError(403, 'Seu acesso está desativado. Fale com o dono da barbearia.');
+    }
     next();
   };
 }
+
+/**
+ * O que a recepção pode usar no painel: agenda, balcão (clientes, carimbos, vouchers), ficha do cliente,
+ * comanda e venda de pacote/vale. O resto (financeiro, relatórios, comissões, robô, marca, mensalidade,
+ * LGPD) fica só com o dono: tudo o que não está nesta lista é recusado.
+ */
+const RECEPTION_ROUTES: [string, RegExp][] = [
+  ['GET', /^\/status$/],
+  ['GET', /^\/agenda$/],
+  ['GET', /^\/availability$/],
+  ['POST', /^\/appointments$/],
+  ['POST', /^\/appointments\/\d+\/(cancel|status|confirm)$/],
+  ['POST', /^\/waitlist$/],
+  ['DELETE', /^\/waitlist\/\d+$/],
+  ['GET', /^\/catalog$/],
+  ['GET', /^\/customers$/],
+  ['POST', /^\/customers$/],
+  ['GET', /^\/customers\/\d+$/],
+  ['GET', /^\/customers\/\d+\/(agenda|profile|packages)$/],
+  ['POST', /^\/customers\/\d+\/(access-link|photos)$/],
+  ['PUT', /^\/customers\/\d+\/notes$/],
+  ['GET', /^\/photos\/\d+$/],
+  ['DELETE', /^\/photos\/\d+$/],
+  ['POST', /^\/loyalty\/(earn|redeem)$/],
+  ['DELETE', /^\/loyalty\/events\/\d+$/],
+  ['GET', /^\/vouchers\/[\w-]+$/],
+  ['POST', /^\/vouchers\/redeem$/],
+  ['GET', /^\/finance\/checkout$/],
+  ['POST', /^\/finance\/sales$/],
+  ['POST', /^\/finance\/pix-checkout$/],
+  ['GET', /^\/finance\/pix-checkout\/\d+$/],
+  ['DELETE', /^\/finance\/pix-checkout\/\d+$/],
+  ['GET', /^\/finance\/club$/],
+  ['GET', /^\/packages$/],
+  ['POST', /^\/packages\/sell$/],
+  ['GET', /^\/prepaid$/],
+  ['POST', /^\/gift-cards$/],
+  ['GET', /^\/gift-cards\/[^/]+$/],
+];
+
+/** Painel da barbearia: o dono em tudo; a recepção só no que está em RECEPTION_ROUTES. */
+export function requireShopStaff(req: Request, _res: Response, next: NextFunction): void {
+  if (!req.user) throw new HttpError(401, 'Faça login para continuar.');
+  if (!req.user.barbershopId || !['owner', 'reception'].includes(req.user.role)) throw new HttpError(403, 'Acesso não permitido para este perfil.');
+  if (req.user.role === 'reception' && !RECEPTION_ROUTES.some(([method, path]) => method === req.method && path.test(req.path))) {
+    throw new HttpError(403, 'A recepção não tem acesso a esta parte do painel.');
+  }
+  next();
+}
+
+export const isReception = (req: Request) => req.user?.role === 'reception';
 
 /** Barbearia do dono logado (rotas do painel). */
 export function shopId(req: Request): number {

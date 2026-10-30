@@ -1,7 +1,5 @@
-import { AtSign, Clock, Gift, Handshake, MapPin, MessageCircle, Package, Scissors, Sparkles } from 'lucide-react';
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { StampCard, type Progress } from '../components/StampCard';
-import { Button, ErrorText, Input } from '../components/ui';
+import { AtSign, CalendarCheck, Check, Clock, Crown, Gift, Handshake, MapPin, MessageCircle, Package, Scissors, Sparkles, UserRound } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { instagramLink, money, whatsappLink } from '../lib/format';
 
@@ -19,12 +17,16 @@ interface PageData {
     instagram: string | null;
     address: string | null;
     hours: string | null;
+    bot_name: string;
   };
+  loggedIn: boolean;
+  canBook: boolean;
   services: { id: number; name: string; description: string | null; price_cents: number; duration_min: number | null; image_url: string | null }[];
   products: { id: number; name: string; description: string | null; price_cents: number; image_url: string | null }[];
   partners: { id: number; name: string; category: string | null; description: string | null; benefit: string | null; instagram: string | null; website: string | null; logo_url: string | null }[];
   campaigns: { id: number; name: string; description: string | null; unit_label: string; goal: number; reward: string; image_url: string | null; ends_on: string | null; partner: string | null }[];
   ads: { id: number; title: string; body: string | null; image_url: string | null; hasLink: boolean; placement: 'destaque' | 'mural'; partner: string | null }[];
+  clubPlans: { id: number; name: string; description: string | null; price_cents: number; uses_per_month: number | null; items: string[] }[];
 }
 
 /** Landing page da barbearia (/b/:slug): o mesmo modelo para todas, com a marca de cada uma. */
@@ -58,20 +60,36 @@ export function ShopLanding({ slug }: { slug: string }) {
           <h1 className="text-4xl font-extrabold sm:text-5xl">{shop.name}</h1>
           {shop.tagline && <p className="mt-2 text-lg opacity-90">{shop.tagline}</p>}
           <div className="mt-6 flex flex-wrap gap-3">
-            {shop.whatsapp && (
+            {data.canBook ? (
+              <a href={`/b/${slug}/conta`} className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 font-bold text-zinc-950 shadow" style={{ background: accent }}>
+                <CalendarCheck className="size-5" /> Agendar horário
+              </a>
+            ) : (
+              shop.whatsapp && (
+                <a
+                  href={whatsappLink(shop.whatsapp, `Olá, ${shop.name}! Quero agendar um horário.`)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 font-bold text-zinc-950 shadow"
+                  style={{ background: accent }}
+                >
+                  <MessageCircle className="size-5" /> Agendar pelo WhatsApp
+                </a>
+              )
+            )}
+            <a href={`/b/${slug}/conta`} className="inline-flex items-center gap-2 rounded-full bg-white/15 px-5 py-2.5 font-semibold backdrop-blur hover:bg-white/25">
+              <UserRound className="size-5" /> {data.loggedIn ? 'Minha área' : 'Entrar'}
+            </a>
+            {data.canBook && shop.whatsapp && (
               <a
-                href={whatsappLink(shop.whatsapp, `Olá, ${shop.name}! Quero agendar um horário.`)}
+                href={whatsappLink(shop.whatsapp, `Oi, ${shop.bot_name}!`)}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 font-bold text-zinc-950 shadow"
-                style={{ background: accent }}
+                className="inline-flex items-center gap-2 rounded-full bg-white/15 px-5 py-2.5 font-semibold backdrop-blur hover:bg-white/25"
               >
-                <MessageCircle className="size-5" /> Agendar pelo WhatsApp
+                <MessageCircle className="size-5" /> Falar com o {shop.bot_name}
               </a>
             )}
-            <a href="#cartao" className="inline-flex items-center gap-2 rounded-full bg-white/15 px-5 py-2.5 font-semibold backdrop-blur hover:bg-white/25">
-              <Gift className="size-5" /> Meu cartão fidelidade
-            </a>
           </div>
         </div>
       </header>
@@ -108,7 +126,42 @@ export function ShopLanding({ slug }: { slug: string }) {
           </Section>
         )}
 
-        <CardLookup slug={slug} accent={accent} />
+        {data.clubPlans.length > 0 && (
+          <Section icon={<Crown />} title="Clube de assinatura" accent={accent}>
+            <p className="-mt-2 mb-4 text-zinc-600">Pague um valor fixo por mês e venha sem se preocupar com a conta.</p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {data.clubPlans.map((p) => (
+                <div key={p.id} className="flex flex-col rounded-2xl bg-white p-5 shadow-sm ring-1 ring-zinc-200">
+                  <p className="text-lg font-bold">{p.name}</p>
+                  <p className="mt-1">
+                    <span className="text-3xl font-extrabold tabular-nums">{money(p.price_cents)}</span>
+                    <span className="text-zinc-500"> /mês</span>
+                  </p>
+                  <ul className="mt-3 flex-1 space-y-1 text-sm">
+                    {p.items.map((i) => (
+                      <li key={i} className="flex items-center gap-2">
+                        <Check className="size-4 shrink-0 text-emerald-600" /> {i}
+                      </li>
+                    ))}
+                    <li className="flex items-center gap-2">
+                      <Check className="size-4 shrink-0 text-emerald-600" /> {p.uses_per_month ? `Até ${p.uses_per_month} usos por mês` : 'Use à vontade'}
+                    </li>
+                  </ul>
+                  {p.description && <p className="mt-2 text-sm text-zinc-500">{p.description}</p>}
+                  <a
+                    href={`/b/${slug}/conta?clube=${p.id}`}
+                    className="mt-4 inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 font-bold text-zinc-950"
+                    style={{ background: accent }}
+                  >
+                    Quero assinar
+                  </a>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        <MemberCta slug={slug} accent={accent} botName={shop.bot_name} loggedIn={data.loggedIn} />
 
         {data.services.length > 0 && (
           <Section icon={<Scissors />} title="Serviços" accent={accent}>
@@ -204,6 +257,11 @@ export function ShopLanding({ slug }: { slug: string }) {
             </a>
           )}
         </div>
+        <p className="pb-6 text-center text-xs opacity-70">
+          <a href={`/b/${slug}/privacidade`} className="hover:underline">
+            Política de privacidade
+          </a>
+        </p>
       </footer>
     </div>
   );
@@ -243,61 +301,20 @@ function AdCard({ ad, big }: { ad: PageData['ads'][number]; big?: boolean }) {
   );
 }
 
-interface CardResult {
-  firstName: string;
-  card: { id: number; name: string; unit_label: string; reward: string; progress: Progress }[];
-}
-
-function CardLookup({ slug, accent }: { slug: string; accent: string }) {
-  const [phoneValue, setPhone] = useState('');
-  const [result, setResult] = useState<CardResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    setResult(null);
-    try {
-      setResult(await api<CardResult>('POST', `/api/public/shops/${slug}/card`, { phone: phoneValue }));
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+/** Convite para a área do cliente (agenda, cartão fidelidade e vouchers). */
+function MemberCta({ slug, accent, botName, loggedIn }: { slug: string; accent: string; botName: string; loggedIn: boolean }) {
   return (
     <section id="cartao" className="scroll-mt-6 rounded-3xl bg-zinc-950 p-6 text-white sm:p-8">
       <h2 className="flex items-center gap-2 text-2xl font-bold">
-        <Gift className="size-6" style={{ color: accent }} /> Meu cartão fidelidade
+        <Gift className="size-6" style={{ color: accent }} /> Área do cliente
       </h2>
-      <p className="mt-1 text-zinc-400">Digite seu celular para ver seus carimbos e prêmios.</p>
-      <form onSubmit={submit} className="mt-4 flex max-w-md gap-2">
-        <Input required type="tel" inputMode="tel" placeholder="(11) 98888-7777" value={phoneValue} onChange={(e) => setPhone(e.target.value)} className="!text-zinc-900" />
-        <Button type="submit" loading={busy} className="!text-zinc-950" style={{ background: accent }}>
-          Ver
-        </Button>
-      </form>
-      <div className="mt-4 max-w-2xl">
-        <ErrorText error={error} />
-      </div>
-      {result && (
-        <div className="mt-5 space-y-3">
-          <p className="text-lg">
-            Fala, <b>{result.firstName}</b>! Você faz parte da comunidade. 🤝
-          </p>
-          {result.card.length === 0 && <p className="text-zinc-400">Nenhuma campanha valendo agora. Fique de olho!</p>}
-          <div className="grid gap-3 sm:grid-cols-2">
-            {result.card.map((c) => (
-              <div key={c.id} className="rounded-2xl bg-white p-4 text-zinc-900">
-                <StampCard name={c.name} unit={c.unit_label} reward={c.reward} progress={c.progress} accent={accent} />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <p className="mt-2 max-w-2xl text-zinc-300">
+        Entre com seu celular para agendar, acompanhar seu cartão fidelidade e pegar vouchers de desconto. O {botName}, nosso robô no WhatsApp, te lembra do
+        seu horário de sempre.
+      </p>
+      <a href={`/b/${slug}/conta`} className="mt-5 inline-flex items-center gap-2 rounded-full px-5 py-2.5 font-bold text-zinc-950" style={{ background: accent }}>
+        <UserRound className="size-5" /> {loggedIn ? 'Abrir minha área' : 'Entrar com meu celular'}
+      </a>
     </section>
   );
 }

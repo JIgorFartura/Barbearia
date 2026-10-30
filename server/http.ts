@@ -27,10 +27,18 @@ export function idParam(req: Request, name = 'id'): number {
   return id;
 }
 
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
+/** Quem registra os erros inesperados (ligado no index.ts: vai para o registro que o master vê). */
+let reporter: ((err: unknown, path: string) => void) | null = null;
+export const setErrorReporter = (fn: (err: unknown, path: string) => void) => {
+  reporter = fn;
+};
+
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   const status = err instanceof HttpError ? err.status : ((err as { status?: number }).status ?? 500);
   const message = err instanceof Error ? err.message : 'Erro inesperado.';
   if (status >= 500) console.error('[api]', err);
+  // Erro de programa (não um aviso previsto, como "a Cielo não respondeu"): entra no registro.
+  if (status >= 500 && !(err instanceof HttpError)) reporter?.(err, req.originalUrl);
   if (res.headersSent) return;
   res.status(status).json({ error: status >= 500 && !(err instanceof HttpError) ? 'Erro interno.' : message });
 }
@@ -63,6 +71,18 @@ export const zUrl = z
 export const zCents = z.number().int().min(0).max(100_000_000);
 export const zBool = z.boolean();
 export const zId = z.number().int().positive();
+
+// Limite de pedidos por chave (ex.: IP) numa janela de tempo, em memória.
+const hits = new Map<string, { count: number; until: number }>();
+export function rateLimit(key: string, max: number, windowMs: number, message: string): void {
+  const now = Date.now();
+  const entry = hits.get(key);
+  if (!entry || entry.until < now) {
+    hits.set(key, { count: 1, until: now + windowMs });
+    return;
+  }
+  if (++entry.count > max) throw new HttpError(429, message);
+}
 
 /** Celular só com dígitos (com DDD). */
 export function normalizePhone(value: string): string {

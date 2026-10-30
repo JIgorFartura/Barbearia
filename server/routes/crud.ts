@@ -13,6 +13,8 @@ interface CrudOptions {
   /** Campos que apontam para outras tabelas da barbearia: { partner_id: 'partners' }. */
   refs?: Record<string, string>;
   label: string;
+  /** Condição fixa (do código) das linhas que esta tela enxerga, ex.: "reward_only = 0". */
+  scope?: string;
 }
 
 /**
@@ -21,6 +23,7 @@ interface CrudOptions {
  */
 export function crudRoutes(router: Router, opts: CrudOptions): void {
   const columns = Object.keys(opts.schema.shape);
+  const scope = opts.scope ? ` AND ${opts.scope}` : '';
 
   const parse = (req: { body: unknown }, shop: number) => {
     const data = parseBody(opts.schema, req.body) as Record<string, unknown>;
@@ -34,7 +37,7 @@ export function crudRoutes(router: Router, opts: CrudOptions): void {
   };
 
   router.get(opts.path, (req, res) => {
-    res.json(all(`SELECT * FROM ${opts.table} WHERE barbershop_id = ? ORDER BY ${opts.order}`, [shopId(req)]));
+    res.json(all(`SELECT * FROM ${opts.table} WHERE barbershop_id = ?${scope} ORDER BY ${opts.order}`, [shopId(req)]));
   });
 
   router.post(opts.path, (req, res) => {
@@ -53,7 +56,7 @@ export function crudRoutes(router: Router, opts: CrudOptions): void {
     const id = idParam(req);
     const data = parse(req, shop);
     const { changes } = run(
-      `UPDATE ${opts.table} SET ${columns.map((c) => `${c} = :${c}`).join(', ')} WHERE id = :id AND barbershop_id = :barbershop_id`,
+      `UPDATE ${opts.table} SET ${columns.map((c) => `${c} = :${c}`).join(', ')} WHERE id = :id AND barbershop_id = :barbershop_id${scope}`,
       { ...data, id, barbershop_id: shop },
     );
     if (!changes) throw new HttpError(404, `${opts.label} não encontrado(a).`);
@@ -61,7 +64,7 @@ export function crudRoutes(router: Router, opts: CrudOptions): void {
   });
 
   router.delete(`${opts.path}/:id`, (req, res) => {
-    const { changes } = run(`DELETE FROM ${opts.table} WHERE id = ? AND barbershop_id = ?`, [idParam(req), shopId(req)]);
+    const { changes } = run(`DELETE FROM ${opts.table} WHERE id = ? AND barbershop_id = ?${scope}`, [idParam(req), shopId(req)]);
     if (!changes) throw new HttpError(404, `${opts.label} não encontrado(a).`);
     res.json({ ok: true });
   });
