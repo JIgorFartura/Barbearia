@@ -221,9 +221,9 @@ tx(() => {
   addEntry(shop, { type: 'out', category: 'Contas (água, luz, internet)', description: 'Conta de luz', amount_cents: 31500, method: null, date: addDays(today, 3), status: 'pending' }, null);
 
   // Plataforma: plano, PIX do master e um aviso para as barbearias.
-  const platformPlan = run("INSERT INTO plans (name, price_cents, description, active, created_at) VALUES ('Comunidade', 14990, 'Robô, agenda, financeiro e fidelidade', 1, ?)", [now]).lastInsertRowid;
+  const platformPlan = get<{ id: number }>("SELECT id FROM plans WHERE name = 'Equipe'")!.id;
   run('UPDATE barbershops SET plan_id = ?, billing_day = 10 WHERE id = ?', [platformPlan, shop]);
-  savePlatformSettings({ grace_days: 5, trial_days: 14, pix_key: 'pix@sistemabarbearia.com.br', pix_name: 'Sistema Barbearia', pix_city: 'São Paulo', signup_enabled: true });
+  savePlatformSettings({ grace_days: 5, trial_days: 14, pix_key: 'pix@bladr.com.br', pix_name: 'Bladr', pix_city: 'São Paulo', signup_enabled: true });
   run(
     "INSERT INTO announcements (title, body, level, active, created_at) VALUES ('Financeiro integrado', 'Agora cada atendimento fechado na Agenda entra no caixa, calcula a comissão do barbeiro e dá o carimbo do cartão fidelidade.', 'novidade', 1, ?)",
     [now],

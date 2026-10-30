@@ -1,6 +1,6 @@
 import { hashPassword } from './auth.js';
 import { platformSettings } from './billing.js';
-import { all, nowIso, run, tx } from './db.js';
+import { all, get, nowIso, run, tx } from './db.js';
 import { HttpError, normalizePhone } from './http.js';
 import { sendPlatformMessage } from './platform.js';
 import { assertFreeEmail, assertFreePhone, createShop, suggestSlug } from './shops.js';
@@ -17,7 +17,9 @@ export function signup(input: { shopName: string; name: string; phone: string; e
     if (input.email) assertFreeEmail(input.email);
     assertFreePhone(phone);
     const slug = suggestSlug(input.shopName);
-    const shopId = createShop({ name: input.shopName, slug });
+    // Começa no plano Equipe (o mais comum); o master ajusta depois do teste grátis.
+    const plan = get<{ id: number }>("SELECT id FROM plans WHERE name = 'Equipe' AND active = 1");
+    const shopId = createShop({ name: input.shopName, slug, planId: plan?.id ?? null });
     const userId = run("INSERT INTO users (barbershop_id, role, name, email, phone, password_hash, terms_accepted_at, created_at) VALUES (?, 'owner', ?, ?, ?, ?, ?, ?)", [
       shopId,
       input.name,

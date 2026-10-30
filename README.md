@@ -297,6 +297,10 @@ cadastrado a outra barbearia.
 
 - O master define **planos** (ou um valor por barbearia), o **dia de vencimento** e os **dias
   grátis**. As faturas são geradas sozinhas; dá para criar uma **cobrança avulsa**.
+- **Planos já cadastrados** numa instalação nova (o master pode mudar ou criar outros): Solo R$ 69,90
+  (1 barbeiro), Equipe R$ 99,90 (2 a 6), Equipe 10 R$ 149,90 (7 a 10), Ilimitado R$ 189,90 e Rede
+  de 2, 3, 4 ou 10 unidades (valor por unidade, barbeiros ilimitados). Quem se cadastra pelo site
+  começa no Equipe; o master ajusta depois do teste grátis.
 - **Cortesia** (botão *Cortesia* na barbearia): a barbearia usa tudo **sem mensalidade até o master
   desmarcar**. Não sai fatura, o acesso não bloqueia, o cartão automático da mensalidade é desligado e
   as faturas em aberto que ainda não venceram são canceladas. A data "combinado até" e a anotação são

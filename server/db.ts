@@ -1202,6 +1202,20 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbershops ADD COLUMN courtesy_until TEXT;
   ALTER TABLE barbershops ADD COLUMN courtesy_note TEXT;
   `,
+  // 27: planos da Bladr já cadastrados numa instalação nova (rede: o valor é por unidade).
+  `
+  INSERT INTO plans (name, price_cents, description, active, created_at)
+  SELECT * FROM (VALUES
+    ('Solo', 6990, '1 barbeiro · tudo incluso', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    ('Equipe', 9990, '2 a 6 barbeiros · tudo incluso', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    ('Equipe 10', 14990, '7 a 10 barbeiros · tudo incluso', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    ('Ilimitado', 18990, 'Barbeiros ilimitados · 1 unidade · tudo incluso', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    ('Rede · 2 unidades', 14995, 'Por unidade (R$ 299,90 no total) · barbeiros ilimitados', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    ('Rede · 3 unidades', 13997, 'Por unidade (R$ 419,90 no total) · barbeiros ilimitados', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    ('Rede · 4 unidades', 12998, 'Por unidade (R$ 519,90 no total) · barbeiros ilimitados', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    ('Rede · 10 unidades', 9999, 'Por unidade (R$ 999,90 no total) · barbeiros ilimitados', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  ) WHERE NOT EXISTS (SELECT 1 FROM plans);
+  `,
 ];
 
 function migrate(): void {
