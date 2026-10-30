@@ -41,7 +41,7 @@ function Layout({ title, back, children }: { title: string; back: { href: string
 function useLegal(): Legal | null {
   const [legal, setLegal] = useState<Legal | null>(null);
   useEffect(() => {
-    api<Legal>('GET', '/api/public/legal').then(setLegal, () => setLegal({ company: 'Sistema Barbearia', document: '', email: '', address: '' }));
+    api<Legal>('GET', '/api/public/legal').then(setLegal, () => setLegal({ company: 'Bladr', document: '', email: '', address: '' }));
   }, []);
   return legal;
 }
@@ -54,7 +54,7 @@ export function TermsPage() {
   const l = useLegal();
   if (!l) return null;
   return (
-    <Layout title="Termos de uso" back={{ href: '/', label: 'Sistema Barbearia' }}>
+    <Layout title="Termos de uso" back={{ href: '/', label: 'Bladr' }}>
       <h2>1. O serviço</h2>
       <p>
         {who(l)} oferece uma plataforma on-line para barbearias: site com a marca da barbearia, agenda, robô de atendimento no WhatsApp, programa de fidelidade,
@@ -159,10 +159,10 @@ export function PrivacyPage() {
   const l = useLegal();
   if (!l) return null;
   return (
-    <Layout title="Política de privacidade" back={{ href: '/', label: 'Sistema Barbearia' }}>
+    <Layout title="Política de privacidade" back={{ href: '/', label: 'Bladr' }}>
       <h2>1. Quem somos</h2>
       <p>
-        {who(l)} é a responsável pela plataforma Sistema Barbearia. Encarregado de dados (DPO): {contact(l)}.
+        {who(l)} é a responsável pela plataforma Bladr. Encarregado de dados (DPO): {contact(l)}.
       </p>
       <h2>2. Dados que tratamos</h2>
       <ul>

@@ -124,7 +124,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     process.exit(1);
   });
   app.listen(config.port, () => {
-    console.log(`Sistema Barbearia em http://localhost:${config.port}`);
+    console.log(`Bladr em http://localhost:${config.port}`);
     console.log(llmEnabled() ? `Robô com IA ligado (${config.botModel}).` : 'Robô sem IA (defina ANTHROPIC_API_KEY): respostas por menu.');
   });
   if (config.automations) startAutomations();

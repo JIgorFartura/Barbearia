@@ -289,7 +289,7 @@ export function informPayment(shopId: number, invoiceId: number): InvoiceView {
 export async function invoicePix(inv: InvoiceView): Promise<{ payload: string; qr: string } | null> {
   const s = platformSettings();
   if (!s.pix_key || inv.status !== 'open') return null;
-  const payload = pixPayload({ key: s.pix_key, name: s.pix_name || 'Sistema Barbearia', city: s.pix_city || 'Brasil', amountCents: inv.amount_cents, txid: `FAT${inv.id}` });
+  const payload = pixPayload({ key: s.pix_key, name: s.pix_name || 'Bladr', city: s.pix_city || 'Brasil', amountCents: inv.amount_cents, txid: `FAT${inv.id}` });
   return { payload, qr: await QRCode.toDataURL(payload, { margin: 1, width: 260 }) };
 }
 

@@ -1,4 +1,4 @@
-# Sistema Barbearia
+# Bladr
 
 Plataforma **white-label** para barbearias: o sistema é um só, e cada barbearia ganha o **próprio
 site com a sua marca** (logo, cores, fotos, contatos), um **robô no WhatsApp com o nome que ela

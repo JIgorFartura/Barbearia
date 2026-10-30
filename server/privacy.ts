@@ -24,7 +24,7 @@ export function legalInfo(): LegalInfo {
   const rows = all<{ key: string; value: string }>("SELECT key, value FROM platform_settings WHERE key LIKE 'legal_%'");
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   return {
-    company: map.legal_company || 'Sistema Barbearia',
+    company: map.legal_company || 'Bladr',
     document: map.legal_document ?? '',
     email: map.legal_email ?? '',
     address: map.legal_address ?? '',

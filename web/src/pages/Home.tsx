@@ -1,4 +1,5 @@
-import { BarChart3, Bot, CalendarCheck, Camera, Crown, MessageCircle, Scissors, Smartphone, Wallet } from 'lucide-react';
+import { BarChart3, Bot, CalendarCheck, Camera, Crown, MessageCircle, Smartphone, Wallet } from 'lucide-react';
+import { BladrMark } from '../components/BladrMark';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { Me } from '../App';
 import { Button, ErrorText, Field, Input } from '../components/ui';
@@ -23,7 +24,7 @@ export function Home({ me, onLogin }: { me: Me; onLogin: () => void }) {
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-10 sm:px-6 lg:grid-cols-[1.2fr_1fr] lg:py-20">
         <div>
           <div className="mb-8 flex items-center gap-2 text-lg font-bold">
-            <Scissors className="size-6 text-gold" /> Sistema Barbearia
+            <BladrMark className="size-8 ring-1 ring-white/10 rounded-lg" /> Bladr
           </div>
           <h1 className="text-4xl font-extrabold leading-tight sm:text-5xl">
             A agenda cheia e o caixa em dia: <span className="text-gold">o sistema trabalha por você</span> no WhatsApp.

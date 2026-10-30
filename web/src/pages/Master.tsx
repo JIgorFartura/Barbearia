@@ -14,7 +14,6 @@ import {
   LogOut,
   Megaphone,
   Plus,
-  Scissors,
   Server,
   ShieldCheck,
   Store,
@@ -24,6 +23,7 @@ import {
   Wallet,
   WifiOff,
 } from 'lucide-react';
+import { BladrMark } from '../components/BladrMark';
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
@@ -122,7 +122,7 @@ export function Master({ me, onLogout }: { me: Me; onLogout: () => void }) {
       <header className="bg-zinc-950 text-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <div className="flex items-center gap-2 font-bold">
-            <Scissors className="size-5 text-gold" /> Sistema Barbearia <Badge tone="gold">Master</Badge>
+            <BladrMark className="size-7 ring-1 ring-white/10 rounded-lg" /> Bladr <Badge tone="gold">Master</Badge>
           </div>
           <div className="flex items-center gap-3 text-sm">
             <button className="flex items-center gap-1 text-zinc-300 hover:text-white" onClick={() => setAccount(true)}>
@@ -351,7 +351,7 @@ function NewShopModal({ plans, onClose, onDone }: { plans: Plan[]; onClose: () =
       });
       // Mensagem pronta para entregar o acesso ao dono.
       setCreated(
-        `Olá, ${form.ownerName.split(' ')[0]}! A ${form.name} já está no Sistema Barbearia.\n\nPainel: ${location.origin}\nE-mail: ${form.ownerEmail}\nSenha inicial: ${form.ownerPassword}\n\nSite da barbearia: ${location.origin}/b/${form.slug}`,
+        `Olá, ${form.ownerName.split(' ')[0]}! A ${form.name} já está no Bladr.\n\nPainel: ${location.origin}\nE-mail: ${form.ownerEmail}\nSenha inicial: ${form.ownerPassword}\n\nSite da barbearia: ${location.origin}/b/${form.slug}`,
       );
       onDone();
     } catch (err) {

@@ -23,7 +23,7 @@ interface ShopBrand {
 const shopBrand = (slug: string) =>
   get<ShopBrand>('SELECT slug, name, primary_color, accent_color FROM barbershops WHERE slug = ? AND active = 1', [slug.toLowerCase()]);
 
-const platformName = () => get<{ value: string }>("SELECT value FROM platform_settings WHERE key = 'legal_company'")?.value || 'Sistema Barbearia';
+const platformName = () => get<{ value: string }>("SELECT value FROM platform_settings WHERE key = 'legal_company'")?.value || 'Bladr';
 
 // ---------- ícone (PNG desenhado na hora e guardado em memória)
 

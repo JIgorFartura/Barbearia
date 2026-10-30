@@ -57,7 +57,7 @@ export async function errorAlerts(now: Date = new Date()): Promise<number> {
   const since = fresh.reduce((min, e) => (e.first_at < min ? e.first_at : min), fresh[0].first_at);
   const sinceLabel = new Date(since).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
   const first = fresh[0].message.slice(0, 120);
-  const text = `⚠️ Sistema Barbearia: ${total} erro(s) desde ${sinceLabel}. O mais recente: "${first}". Veja em Master, aba Sistema.`;
+  const text = `⚠️ Bladr: ${total} erro(s) desde ${sinceLabel}. O mais recente: "${first}". Veja em Master, aba Sistema.`;
   const masters = all<{ id: number; phone: string }>("SELECT id, phone FROM users WHERE role = 'master' AND phone IS NOT NULL");
   let sent = 0;
   for (const m of masters) {
