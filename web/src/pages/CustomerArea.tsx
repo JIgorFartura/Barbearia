@@ -164,7 +164,7 @@ function lastCutPreset(me: MeData): { appt: Appointment; preset: BookingPreset; 
   const interval = me.habit?.intervalDays;
   if (interval) {
     const due = addDays(appt.starts_at.slice(0, 10), interval);
-    if (due > today && due <= addDays(today, 13) && weekdayOf(due) !== 0) date = due;
+    if (due >= today && due <= addDays(today, 13) && weekdayOf(due) !== 0) date = due;
   }
   const photo = me.photos.find((p) => p.created_at.slice(0, 10) >= appt.starts_at.slice(0, 10)) ?? null;
   return { appt, preset: { serviceId: appt.service_id ?? null, barberId: appt.barber_id ?? null, date, time: appt.starts_at.slice(11, 16) }, photo };
