@@ -20,6 +20,8 @@ const { runAutomations } = await import('../automations.js');
 const { buildContext } = await import('../bot/brain.js');
 const { shopBot } = await import('../messaging.js');
 const { shopNow } = await import('../clock.js');
+const { localToIso } = await import('../time.js');
+const { platformPayments } = await import('../gatewayPayments.js');
 
 let server: Server;
 let base = '';
@@ -41,6 +43,30 @@ function shop(slug: string, timezone: string | null) {
 }
 const sp = shop('sp', null);
 const manaus = shop('manaus', 'America/Manaus');
+
+describe('dia local e horário UTC', () => {
+  test('meia-noite local vira o instante certo em UTC', () => {
+    assert.equal(localToIso('2026-10-29 00:00', 'America/Sao_Paulo'), '2026-10-29T03:00:00.000Z');
+    assert.equal(localToIso('2026-10-29 22:30', 'America/Manaus'), '2026-10-30T02:30:00.000Z');
+    assert.equal(localToIso('2026-11-01 00:00', 'America/Sao_Paulo'), '2026-11-01T03:00:00.000Z');
+  });
+
+  test('a mensalidade paga às 22h30 de Brasília conta no dia dela, não no seguinte', () => {
+    const shopId = run("INSERT INTO barbershops (slug, name, bot_name, created_at) VALUES ('virada', 'Barbearia Virada', 'João', ?)", [nowIso()]).lastInsertRowid;
+    const pay = (external: string, at: string) =>
+      run(
+        "INSERT INTO gateway_payments (kind, provider, external_id, barbershop_id, value_cents, status, created_at, updated_at) VALUES ('mensalidade', 'asaas', ?, ?, 14990, 'RECEIVED', ?, ?)",
+        [external, shopId, at, at],
+      );
+    pay('virada-1', '2026-10-30T01:30:00.000Z'); // 29/10 às 22h30 em Brasília
+    pay('virada-2', '2026-10-30T03:10:00.000Z'); // 30/10 às 0h10 em Brasília
+    assert.deepEqual(
+      platformPayments({ from: '2026-10-29', to: '2026-10-29' }).items.map((i) => i.value_cents),
+      [14990],
+    );
+    assert.equal(platformPayments({ from: '2026-10-30', to: '2026-10-31' }).items.length, 1);
+  });
+});
 
 describe('fuso horário por barbearia', () => {
   test('o "agora" de cada barbearia segue o fuso dela', () => {

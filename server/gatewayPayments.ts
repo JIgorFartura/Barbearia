@@ -1,4 +1,5 @@
 import { all, get, nowIso, run } from './db.js';
+import { addDays, localNow, localToIso } from './time.js';
 
 /**
  * Registro dos pagamentos online: mensalidades das barbearias (cartão pela Cielo; PIX ou boleto pelo
@@ -125,7 +126,7 @@ export function updateGatewayPayment(
       status,
       p.billingType && p.billingType !== 'UNDEFINED' ? p.billingType : null,
       typeof p.netValue === 'number' ? Math.round(p.netValue * 100) : null,
-      ['CONFIRMED', 'RECEIVED'].includes(status) ? (paidAt ?? nowIso().slice(0, 10)) : null,
+      ['CONFIRMED', 'RECEIVED'].includes(status) ? (paidAt ?? localNow().date) : null,
       nowIso(),
       row.id,
     ],
@@ -144,11 +145,12 @@ const view = ({ external_id: _id, invoice_url: _url, ...r }: GatewayPaymentRow) 
  * valores e situação). O que os clientes pagam às barbearias não passa pela plataforma e não aparece aqui.
  */
 export function platformPayments(filter: { from: string; to: string }) {
+  // O período é em dias locais; created_at é UTC (às 22h de Brasília já é o dia seguinte em UTC).
   const rows = all<GatewayPaymentRow & { shop: string | null }>(
     `SELECT g.*, b.name AS shop FROM gateway_payments g LEFT JOIN barbershops b ON b.id = g.barbershop_id
-      WHERE g.kind = 'mensalidade' AND substr(g.created_at, 1, 10) >= ? AND substr(g.created_at, 1, 10) <= ?
+      WHERE g.kind = 'mensalidade' AND g.created_at >= ? AND g.created_at < ?
       ORDER BY g.id DESC LIMIT 500`,
-    [filter.from, filter.to],
+    [localToIso(`${filter.from} 00:00`), localToIso(`${addDays(filter.to, 1)} 00:00`)],
   );
   const items = rows.map(({ shop, ...r }) => ({ ...view(r), shop }));
   const paid = items.filter((i) => i.paid);

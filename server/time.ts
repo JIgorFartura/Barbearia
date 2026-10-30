@@ -36,6 +36,14 @@ export function localNow(at: Date = new Date(), timeZone: string = config.timezo
   return { date, time, weekday: weekdayOf(date), stamp: `${date} ${time}` };
 }
 
+/** O instante (ISO, UTC) de um horário de parede "AAAA-MM-DD HH:MM" no fuso (padrão: o do servidor). */
+export function localToIso(stamp: string, timeZone: string = config.timezone): string {
+  const asUtc = Date.parse(`${stamp.replace(' ', 'T')}:00Z`);
+  const seen = localNow(new Date(asUtc), timeZone).stamp;
+  const offset = Date.parse(`${seen.replace(' ', 'T')}:00Z`) - asUtc;
+  return new Date(asUtc - offset).toISOString();
+}
+
 const naive = (date: string, time = '00:00') => new Date(`${date}T${time}:00Z`);
 const pad = (n: number) => String(n).padStart(2, '0');
 

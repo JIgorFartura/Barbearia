@@ -21,6 +21,7 @@ const { shopBot } = await import('../messaging.js');
 const { handleInbound } = await import('../bot/inbound.js');
 const { metaBody, zMetaConfig } = await import('../whatsapp.js');
 const { checkConnections, setConnection } = await import('../connection.js');
+const { localNow } = await import('../time.js');
 
 let server: Server;
 let base = '';
@@ -239,7 +240,9 @@ describe('WhatsApp da barbearia desconectado', () => {
     });
     await new Promise((r) => setTimeout(r, 50));
     assert.equal(get<{ wa_status: string }>('SELECT wa_status FROM barbershops WHERE id = ?', [shopId])!.wa_status, 'down');
-    assert.ok(get<{ n: number }>('SELECT COUNT(*) AS n FROM platform_messages')!.n > before);
+    // O webhook usa o relógio de verdade: o aviso sai na hora das 7h às 22h; fora disso, fica para a manhã.
+    const now = localNow().time;
+    assert.equal(get<{ n: number }>('SELECT COUNT(*) AS n FROM platform_messages')!.n > before, now >= '07:00' && now < '22:00');
 
     // Caiu de novo às 23h: sem mensagem de madrugada; às 8h o dono é avisado.
     await setConnection(shopId, true, 'conectado', at('2026-11-06 22:50'));
