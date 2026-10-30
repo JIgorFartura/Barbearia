@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { cancelInvoice, invoice, markInvoicePaid, type InvoiceView } from './billing.js';
+import { cancelInvoice, installmentOptions, invoice, markInvoicePaid, type InvoiceView } from './billing.js';
 import { all, get, run, tx } from './db.js';
 import { platformCardReady } from './cardSettings.js';
 import { recordGatewayPayment } from './gatewayPayments.js';
@@ -174,11 +174,19 @@ const inFlight = new Set<number>();
  */
 export async function chargeInvoice(invoiceId: number): Promise<boolean> {
   if (!asaasEnabled() || inFlight.has(invoiceId)) return false;
-  const inv = get<{ id: number; barbershop_id: number; status: string; amount_cents: number; due_date: string; description: string; asaas_payment_id: string | null }>(
-    'SELECT id, barbershop_id, status, amount_cents, due_date, description, asaas_payment_id FROM invoices WHERE id = ?',
-    [invoiceId],
-  );
-  if (!inv || inv.status !== 'open') return false;
+  const inv = get<{
+    id: number;
+    barbershop_id: number;
+    status: string;
+    reference: string;
+    amount_cents: number;
+    due_date: string;
+    description: string;
+    asaas_payment_id: string | null;
+    installments: number | null;
+  }>('SELECT id, barbershop_id, status, reference, amount_cents, due_date, description, asaas_payment_id, installments FROM invoices WHERE id = ?', [invoiceId]);
+  // Parcelada no cartão: a cobrança é a do cartão (sem PIX).
+  if (!inv || inv.status !== 'open' || inv.installments) return false;
   inFlight.add(invoiceId);
   try {
     let paymentId = inv.asaas_payment_id;
@@ -189,7 +197,8 @@ export async function chargeInvoice(invoiceId: number): Promise<boolean> {
         customer,
         // Indefinida: na página do Asaas a barbearia escolhe PIX, cartão ou boleto. Com o cartão pela
         // Cielo (mais barato e automático), o Asaas fica só com o PIX.
-        billingType: platformCardReady() ? 'PIX' : 'UNDEFINED',
+        // O anual sempre deixa escolher (inclusive o boleto).
+        billingType: platformCardReady() && !inv.reference.startsWith('anual:') ? 'PIX' : 'UNDEFINED',
         value: inv.amount_cents / 100,
         // O Asaas não aceita vencimento no passado (fatura já vencida vence hoje).
         dueDate: inv.due_date < today ? today : inv.due_date,
@@ -225,7 +234,7 @@ export async function syncAsaasCharges(limit = 20): Promise<number> {
   if (!asaasEnabled()) return 0;
   const pending = all<{ id: number }>(
     `SELECT i.id FROM invoices i JOIN barbershops b ON b.id = i.barbershop_id
-      WHERE i.status = 'open' AND (i.asaas_payment_id IS NULL OR i.asaas_pix_payload IS NULL) AND b.billing_document IS NOT NULL
+      WHERE i.status = 'open' AND (i.asaas_payment_id IS NULL OR i.asaas_pix_payload IS NULL) AND i.installments IS NULL AND b.billing_document IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM card_links l WHERE l.receiver = 'platform' AND l.barbershop_id = i.barbershop_id AND l.kind = 'mensalidade' AND l.status = 'active')
       ORDER BY i.due_date LIMIT ?`,
     [limit],
@@ -249,7 +258,7 @@ export async function asaasPix(
       [inv.id],
     )!;
   let r = read();
-  if (!r.asaas_pix_payload) {
+  if (!r.asaas_pix_payload && !get<{ n: number | null }>('SELECT installments AS n FROM invoices WHERE id = ?', [inv.id])?.n) {
     await chargeInvoice(inv.id);
     r = read();
   }
@@ -267,6 +276,8 @@ export function sameToken(a: string, b: string): boolean {
 
 export interface AsaasPayment {
   id?: string;
+  /** Parcelamento (cartão parcelado): o mesmo em todas as parcelas. */
+  installment?: string | null;
   status?: string;
   billingType?: string;
   value?: number;
@@ -337,10 +348,14 @@ export async function syncManualPayment(invoiceId: number): Promise<void> {
 
 /** Fatura cancelada (ou paga no cartão pela Cielo): remove a cobrança no Asaas. Devolve se removeu. */
 export async function cancelAsaasCharge(invoiceId: number): Promise<boolean> {
-  const inv = get<{ asaas_payment_id: string | null }>('SELECT asaas_payment_id FROM invoices WHERE id = ?', [invoiceId]);
+  const inv = get<{ asaas_payment_id: string | null; asaas_installment_id: string | null }>(
+    'SELECT asaas_payment_id, asaas_installment_id FROM invoices WHERE id = ?',
+    [invoiceId],
+  );
   if (!inv?.asaas_payment_id || !asaasEnabled()) return false;
   try {
-    await asaasCall('DELETE', `/payments/${inv.asaas_payment_id}`);
+    // Parcelado: apaga todas as parcelas de uma vez.
+    await asaasCall('DELETE', inv.asaas_installment_id ? `/installments/${inv.asaas_installment_id}` : `/payments/${inv.asaas_payment_id}`);
     run("UPDATE gateway_payments SET status = 'DELETED', updated_at = ? WHERE external_id = ? AND status IN ('PENDING', 'OVERDUE')", [
       new Date().toISOString(),
       inv.asaas_payment_id,
@@ -350,6 +365,57 @@ export async function cancelAsaasCharge(invoiceId: number): Promise<boolean> {
     run('UPDATE invoices SET asaas_error = ? WHERE id = ?', [`Cancelar no Asaas: ${(err as Error).message}`.slice(0, 300), invoiceId]);
     return false;
   }
+}
+
+/**
+ * Fatura no cartão de crédito, à vista ou parcelada, pela página do Asaas (o cartão é digitado lá).
+ * Os juros a partir da parcela configurada vão no total que o cliente paga; a fatura continua com o
+ * valor dela. Troca a cobrança anterior da fatura (PIX/boleto) por esta.
+ */
+export async function chargeInvoiceCard(invoiceId: number, n: number): Promise<{ url: string; total_cents: number; each_cents: number }> {
+  if (!asaasEnabled()) throw new HttpError(409, 'O pagamento no cartão pelo Asaas não está ligado.');
+  const inv = get<{ id: number; barbershop_id: number; status: string; amount_cents: number; due_date: string; description: string }>(
+    'SELECT id, barbershop_id, status, amount_cents, due_date, description FROM invoices WHERE id = ?',
+    [invoiceId],
+  );
+  if (!inv || inv.status !== 'open') throw new HttpError(409, 'Essa fatura não está em aberto.');
+  const opt = installmentOptions(inv.amount_cents).find((o) => o.n === n);
+  if (!opt) throw new HttpError(400, 'Número de parcelas inválido.');
+  await resetInvoiceCharge(inv.id);
+  const customer = await ensureCustomer(inv.barbershop_id);
+  const today = localNow().date;
+  const p = await asaasCall<{ id: string; invoiceUrl: string | null; installment?: string | null }>('POST', '/payments', {
+    customer,
+    billingType: 'CREDIT_CARD',
+    dueDate: inv.due_date < today ? today : inv.due_date,
+    description: n > 1 ? `${inv.description} · cartão em ${n}x` : inv.description,
+    externalReference: `fatura:${inv.id}`,
+    ...(n > 1 ? { installmentCount: n, totalValue: opt.total_cents / 100 } : { value: opt.total_cents / 100 }),
+  });
+  run(
+    'UPDATE invoices SET asaas_payment_id = ?, asaas_installment_id = ?, installments = ?, asaas_invoice_url = ?, asaas_pix_payload = NULL, asaas_pix_qr = NULL, asaas_error = NULL WHERE id = ?',
+    [p.id, p.installment ?? null, n, p.invoiceUrl ?? null, inv.id],
+  );
+  recordGatewayPayment({
+    externalId: p.id,
+    shopId: inv.barbershop_id,
+    kind: 'mensalidade',
+    invoiceId: inv.id,
+    valueCents: opt.total_cents,
+    method: 'CREDIT_CARD',
+    invoiceUrl: p.invoiceUrl ?? null,
+  });
+  if (!p.invoiceUrl) throw new HttpError(502, 'O Asaas não devolveu a página de pagamento.');
+  return { url: p.invoiceUrl, total_cents: opt.total_cents, each_cents: opt.each_cents };
+}
+
+/** Desfaz a cobrança da fatura no Asaas (para escolher outra forma de pagar): a próxima tela cria a de PIX/boleto. */
+export async function resetInvoiceCharge(invoiceId: number): Promise<void> {
+  if (get<{ id: string | null }>('SELECT asaas_payment_id AS id FROM invoices WHERE id = ?', [invoiceId])?.id) await cancelAsaasCharge(invoiceId);
+  run(
+    'UPDATE invoices SET asaas_payment_id = NULL, asaas_installment_id = NULL, installments = NULL, asaas_invoice_url = NULL, asaas_pix_payload = NULL, asaas_pix_qr = NULL WHERE id = ?',
+    [invoiceId],
+  );
 }
 
 /** Cancela a fatura aqui e no Asaas. */

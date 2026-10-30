@@ -1,8 +1,9 @@
 import type { Request, Router } from 'express';
 import { z } from 'zod';
 import { isReception, shopId } from '../auth.js';
-import { accessStatus, billingInfo, informPayment, invoice, invoicePix, listInvoices, saveBillingInfo, shopBilling, monthlyPrice } from '../billing.js';
-import { asaasEnabled, asaasPix, chargeInvoice } from '../asaas.js';
+import { accessStatus, annualPrice, billingInfo, informPayment, installmentOptions, invoice, invoicePix, listInvoices, platformSettings, saveBillingInfo, shopBilling, monthlyPrice } from '../billing.js';
+import { asaasEnabled, asaasPix, chargeInvoice, chargeInvoiceCard, resetInvoiceCharge } from '../asaas.js';
+import { setBillingCycle } from '../annual.js';
 import { cancelSubscriptionCard, subscriptionCardLink, subscriptionCardState } from '../cards.js';
 import { connectionInfo } from '../connection.js';
 import { availableQty } from '../stock.js';
@@ -140,6 +141,15 @@ export function registerFinanceRoutes(router: Router): void {
       billing_day: s.billing_day,
       trial_until: s.trial_until,
       courtesy: status.courtesy,
+      billing_cycle: s.billing_cycle,
+      // Oferta do anual (para quem está no mensal) e o valor dele.
+      annual:
+        monthlyPrice(s) > 0 && !status.courtesy
+          ? { price_cents: annualPrice(s), per_month_cents: Math.round(annualPrice(s) / 12), discount_pct: platformSettings().annual_discount_pct }
+          : null,
+      // Anual em aberto: parcelas no cartão (juros a partir da parcela configurada, pagos por quem parcela).
+      card_options: current && auto && info.billing_document && current.reference.startsWith('anual:') ? installmentOptions(current.amount_cents) : [],
+      installments: current ? (get<{ n: number | null }>('SELECT installments AS n FROM invoices WHERE id = ?', [current.id])?.n ?? null) : null,
       blocked: status.blocked,
       graceDays: status.graceDays,
       blockOn: status.blockOn,
@@ -148,6 +158,32 @@ export function registerFinanceRoutes(router: Router): void {
       invoices,
       billing: { auto, needsDocument: auto && !info.billing_document, ...info },
     });
+  });
+
+  /** A barbearia passa para o plano anual (com o desconto): a fatura anual sai na hora. */
+  router.post('/subscription/annual', async (req, res) => {
+    const shop = shopId(req);
+    if (accessStatus(shop).courtesy) throw new HttpError(409, 'Sua barbearia está com cortesia: não há mensalidade.');
+    if (monthlyPrice(shopBilling(shop)) <= 0) throw new HttpError(409, 'Sua barbearia ainda não tem mensalidade definida.');
+    await setBillingCycle(shop, 'anual');
+    res.json({ ok: true });
+  });
+
+  /** Fatura no cartão de crédito, à vista ou parcelada, pela página do Asaas. */
+  router.post('/subscription/:id/card', async (req, res) => {
+    const { installments } = parseBody(z.object({ installments: z.number().int().min(1).max(12) }), req.body);
+    const inv = listInvoices({ shopId: shopId(req), status: 'open' }).find((i) => i.id === idParam(req));
+    if (!inv) throw new HttpError(404, 'Fatura não encontrada.');
+    if (installments > 1 && !inv.reference.startsWith('anual:')) throw new HttpError(400, 'O parcelamento é só para o plano anual.');
+    res.json(await chargeInvoiceCard(inv.id, installments));
+  });
+
+  /** Voltar para PIX ou boleto depois de escolher o cartão. */
+  router.post('/subscription/:id/reset-charge', async (req, res) => {
+    const inv = listInvoices({ shopId: shopId(req), status: 'open' }).find((i) => i.id === idParam(req));
+    if (!inv) throw new HttpError(404, 'Fatura não encontrada.');
+    await resetInvoiceCharge(inv.id);
+    res.json({ ok: true });
   });
 
   /** Cartão automático da mensalidade (Cielo): devolve o link para cadastrar o cartão e pagar a fatura em aberto. */

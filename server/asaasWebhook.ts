@@ -27,7 +27,11 @@ export function handleAsaasEvent(token: string | undefined, body: AsaasEvent): {
     const gp = updateGatewayPayment(p.id, event, p);
     if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
       // A cobrança some da fatura quando ela é paga no cartão (Cielo): o registro guarda de qual fatura era.
-      const inv = get<{ id: number }>('SELECT id FROM invoices WHERE asaas_payment_id = ?', [p.id]) ?? (gp?.invoice_id ? { id: gp.invoice_id } : undefined);
+      // Cartão parcelado: qualquer parcela aprovada identifica a fatura pelo parcelamento.
+      const inv =
+        get<{ id: number }>('SELECT id FROM invoices WHERE asaas_payment_id = ?', [p.id]) ??
+        (gp?.invoice_id ? { id: gp.invoice_id } : undefined) ??
+        (p.installment ? get<{ id: number }>('SELECT id FROM invoices WHERE asaas_installment_id = ?', [p.installment]) : undefined);
       if (inv) {
         const r = invoicePaidByAsaas(inv.id, p);
         if (gp && !r.note) run('UPDATE gateway_payments SET applied = 1 WHERE id = ?', [gp.id]);

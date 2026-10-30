@@ -301,6 +301,13 @@ cadastrado a outra barbearia.
   (1 barbeiro), Equipe R$ 99,90 (2 a 6), Equipe 10 R$ 149,90 (7 a 10), Ilimitado R$ 189,90 e Rede
   de 2, 3, 4 ou 10 unidades (valor por unidade, barbeiros ilimitados). Quem se cadastra pelo site
   começa no Equipe; o master ajusta depois do teste grátis.
+- **Plano anual**: uma fatura por ano com desconto (padrão 30% sobre 12 mensalidades). A barbearia
+  passa para o anual sozinha em *Mensalidade* (ou o master escolhe "Anual" na mensalidade dela); a
+  mensalidade do mês que ainda não venceu vira a fatura anual. Paga no **PIX**, no **boleto** ou no
+  **cartão em até 12x** pela página do Asaas (o cartão é digitado lá): sem juros até 2x e, a partir de
+  3x, com juros ao mês (padrão 2,99%, tabela Price) **pagos por quem parcela**; a plataforma recebe o
+  valor da fatura. Qualquer parcela aprovada baixa a fatura. Desconto, juros e parcelas ficam nas
+  configurações do master. Voltando para o mensal, o anual já pago vale até o fim do período.
 - **Cortesia** (botão *Cortesia* na barbearia): a barbearia usa tudo **sem mensalidade até o master
   desmarcar**. Não sai fatura, o acesso não bloqueia, o cartão automático da mensalidade é desligado e
   as faturas em aberto que ainda não venceram são canceladas. A data "combinado até" e a anotação são

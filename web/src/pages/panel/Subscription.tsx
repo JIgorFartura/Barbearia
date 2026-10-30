@@ -24,6 +24,13 @@ interface SubscriptionData {
   billing_day: number;
   trial_until: string | null;
   courtesy: { since: string; until: string | null; note: string | null } | null;
+  billing_cycle: 'mensal' | 'anual';
+  /** Oferta do plano anual (12 mensalidades com desconto). */
+  annual: { price_cents: number; per_month_cents: number; discount_pct: number } | null;
+  /** Fatura anual em aberto: parcelas no cartão (com juros a partir de certa parcela). */
+  card_options: { n: number; each_cents: number; total_cents: number; interest: boolean }[];
+  /** Já escolheu pagar no cartão em N vezes (a página do Asaas está em current.payUrl). */
+  installments: number | null;
   blocked: boolean;
   graceDays: number;
   blockOn: string | null;
@@ -45,6 +52,7 @@ export function Subscription() {
   const [error, setError] = useState<string | null>(null);
   const [editingInfo, setEditingInfo] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [parcelas, setParcelas] = useState(1);
   const load = useCallback(() => {
     api<SubscriptionData>('GET', '/api/shop/subscription').then(setData, (e) => setError(e.message));
   }, []);
@@ -56,6 +64,46 @@ export function Subscription() {
   const card = data.card;
   // Pelo Asaas a fatura é baixada sozinha quando o pagamento cai (sem "Já paguei").
   const auto = Boolean(cur && (cur.payUrl || cur.pix?.auto));
+
+  const annualCur = Boolean(cur?.reference.startsWith('anual:'));
+
+  async function goAnnual() {
+    if (!data?.annual || !confirm(`Passar para o plano anual por ${money(data.annual.price_cents)} por ano? A fatura anual sai agora.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api('POST', '/api/shop/subscription/annual');
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Cartão de crédito (à vista ou parcelado) na página do Asaas. */
+  async function payCardInstallments() {
+    if (!cur) return;
+    setBusy(true);
+    setError(null);
+    try {
+      location.assign((await api<{ url: string }>('POST', `/api/shop/subscription/${cur.id}/card`, { installments: parcelas })).url);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
+  async function resetCharge() {
+    if (!cur) return;
+    setError(null);
+    try {
+      await api('POST', `/api/shop/subscription/${cur.id}/reset-charge`);
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
 
   /** Abre a página da Cielo: paga a fatura em aberto e deixa o cartão cadastrado para os próximos meses. */
   async function payByCard() {
@@ -122,6 +170,18 @@ export function Subscription() {
         />
       )}
 
+      {data.billing_cycle === 'mensal' && data.annual && (
+        <Card className="max-w-xl space-y-2 ring-1 ring-amber-300">
+          <p className="font-semibold">💰 Plano anual: {data.annual.discount_pct}% de desconto</p>
+          <p className="text-sm text-zinc-600">
+            {money(data.annual.price_cents)} por ano (equivale a {money(data.annual.per_month_cents)} por mês). Pague no PIX, no boleto ou no cartão em até 12x.
+          </p>
+          <Button variant="gold" loading={busy} onClick={goAnnual}>
+            Passar para o anual
+          </Button>
+        </Card>
+      )}
+
       {card.active && (
         <Card className="max-w-xl space-y-2">
           <p className="flex items-center gap-2 font-semibold">
@@ -158,7 +218,38 @@ export function Subscription() {
               <CreditCard className="size-4 shrink-0" /> Será cobrada sozinha no cartão, no vencimento ({date(cur.due_date)}).
             </p>
           )}
-          {card.available && !cur.byCard && (
+          {annualCur && data.installments && cur.payUrl && (
+            <div className="space-y-2 rounded-lg bg-zinc-50 p-3">
+              <p className="text-sm font-medium">Cartão de crédito em {data.installments}x</p>
+              <a
+                href={cur.payUrl}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700"
+              >
+                <CreditCard className="size-4" /> Abrir a página de pagamento
+              </a>
+              <button className="text-xs text-zinc-500 underline hover:text-zinc-900" onClick={resetCharge}>
+                Trocar a forma de pagamento (PIX ou boleto)
+              </button>
+            </div>
+          )}
+          {annualCur && !data.installments && data.card_options.length > 0 && (
+            <div className="space-y-2 rounded-lg bg-zinc-50 p-3">
+              <p className="text-sm font-medium">Cartão de crédito</p>
+              <select className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm" value={parcelas} onChange={(e) => setParcelas(Number(e.target.value))}>
+                {data.card_options.map((o) => (
+                  <option key={o.n} value={o.n}>
+                    {o.n}x de {money(o.each_cents)}
+                    {o.interest ? ` (total ${money(o.total_cents)}, com juros)` : ' sem juros'}
+                  </option>
+                ))}
+              </select>
+              <Button className="w-full" loading={busy} onClick={payCardInstallments}>
+                <CreditCard className="size-4" /> Pagar no cartão
+              </Button>
+              <p className="text-center text-xs text-zinc-500">Página segura do Asaas: o cartão é digitado lá. Ou pague abaixo no PIX ou no boleto.</p>
+            </div>
+          )}
+          {card.available && !cur.byCard && !annualCur && (
             <div className="space-y-1">
               <Button className="w-full" loading={busy} onClick={payByCard}>
                 <CreditCard className="size-4" /> {card.active ? 'Usar outro cartão' : 'Pagar no cartão e deixar automático'}
@@ -168,7 +259,7 @@ export function Subscription() {
               </p>
             </div>
           )}
-          {card.available && !cur.byCard && cur.pix && <p className="text-center text-xs text-zinc-400">ou pague este mês no PIX</p>}
+          {card.available && !cur.byCard && !annualCur && cur.pix && <p className="text-center text-xs text-zinc-400">ou pague este mês no PIX</p>}
           {cur.pix && (
             <div className="grid items-center gap-4 sm:grid-cols-[180px_1fr]">
               <img src={cur.pix.qr} alt="QR Code PIX" className="mx-auto size-44 rounded-lg ring-1 ring-zinc-200" />
@@ -188,14 +279,14 @@ export function Subscription() {
               </div>
             </div>
           )}
-          {cur.payUrl && !card.available && (
+          {cur.payUrl && (!card.available || annualCur) && !data.installments && (
             <a
               href={cur.payUrl}
               target="_blank"
               rel="noreferrer"
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700"
             >
-              <CreditCard className="size-4" /> {cur.pix ? 'Pagar com cartão ou boleto' : 'Pagar com cartão, boleto ou PIX'}
+              <CreditCard className="size-4" /> {annualCur ? 'Pagar com boleto' : cur.pix ? 'Pagar com cartão ou boleto' : 'Pagar com cartão, boleto ou PIX'}
             </a>
           )}
           {!cur.pix && !cur.payUrl && !card.available && <p className="text-sm text-zinc-500">Fale com o administrador da plataforma para receber os dados de pagamento.</p>}

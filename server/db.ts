@@ -1216,6 +1216,12 @@ const MIGRATIONS: (string | Rebuild)[] = [
     ('Rede · 10 unidades', 9999, 'Por unidade (R$ 999,90 no total) · barbeiros ilimitados', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   ) WHERE NOT EXISTS (SELECT 1 FROM plans);
   `,
+  // 28: plano anual (uma fatura por ano, com desconto) e a cobrança parcelada no cartão pelo Asaas.
+  `
+  ALTER TABLE barbershops ADD COLUMN billing_cycle TEXT NOT NULL DEFAULT 'mensal' CHECK (billing_cycle IN ('mensal', 'anual'));
+  ALTER TABLE invoices ADD COLUMN asaas_installment_id TEXT;
+  ALTER TABLE invoices ADD COLUMN installments INTEGER;
+  `,
 ];
 
 function migrate(): void {

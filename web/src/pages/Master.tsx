@@ -56,6 +56,7 @@ interface ShopRow {
   monthly_price_cents: number | null;
   price_cents: number;
   billing_day: number;
+  billing_cycle: 'mensal' | 'anual';
   trial_until: string | null;
   released_until: string | null;
   /** Cortesia do master: sem mensalidade até desmarcar (until é só o combinado). */
@@ -489,6 +490,7 @@ function ShopBillingModal({ shop, plans, onClose, onDone }: { shop: ShopRow; pla
     price: shop.monthly_price_cents != null ? centsToInput(shop.monthly_price_cents) : '',
     billing_day: String(shop.billing_day),
     trial_until: shop.trial_until ?? '',
+    billing_cycle: shop.billing_cycle,
   });
   const [error, setError] = useState<string | null>(null);
   async function submit(e: FormEvent) {
@@ -500,6 +502,7 @@ function ShopBillingModal({ shop, plans, onClose, onDone }: { shop: ShopRow; pla
         monthly_price_cents: form.price ? parseMoney(form.price) : null,
         billing_day: Number(form.billing_day) || 10,
         trial_until: form.trial_until || null,
+        billing_cycle: form.billing_cycle,
       });
       onDone();
     } catch (err) {
@@ -528,6 +531,12 @@ function ShopBillingModal({ shop, plans, onClose, onDone }: { shop: ShopRow; pla
             <Input type="number" min={1} max={31} value={form.billing_day} onChange={(e) => setForm({ ...form, billing_day: e.target.value })} />
           </Field>
         </div>
+        <Field label="Cobrança" hint="Anual: uma fatura por ano, com o desconto do anual (PIX, boleto ou cartão parcelado).">
+          <select className={inputClass} value={form.billing_cycle} onChange={(e) => setForm({ ...form, billing_cycle: e.target.value as 'mensal' | 'anual' })}>
+            <option value="mensal">Mensal</option>
+            <option value="anual">Anual</option>
+          </select>
+        </Field>
         <Field label="Grátis até (teste)">
           <Input type="date" value={form.trial_until} onChange={(e) => setForm({ ...form, trial_until: e.target.value })} />
         </Field>
@@ -759,6 +768,10 @@ interface Settings {
   pix_key: string;
   pix_name: string;
   pix_city: string;
+  annual_discount_pct: number;
+  card_interest_pct: number;
+  interest_free_installments: number;
+  max_installments: number;
 }
 
 function BillingTab() {
@@ -1006,6 +1019,18 @@ function SettingsCard() {
           </Field>
           <Field label="Teste grátis (dias)" hint="Padrão para barbearias novas.">
             <Input type="number" min={0} max={365} value={s.trial_days} onChange={(e) => set('trial_days', Number(e.target.value))} />
+          </Field>
+          <Field label="Desconto do plano anual (%)" hint="Sobre 12 mensalidades.">
+            <Input type="number" min={0} max={90} value={s.annual_discount_pct} onChange={(e) => set('annual_discount_pct', Number(e.target.value))} />
+          </Field>
+          <Field label="Juros do cartão (% ao mês)" hint="Pagos por quem parcela o anual.">
+            <Input type="number" min={0} max={15} step="0.01" value={s.card_interest_pct} onChange={(e) => set('card_interest_pct', Number(e.target.value))} />
+          </Field>
+          <Field label="Parcelas sem juros" hint="2 = juros a partir de 3x.">
+            <Input type="number" min={1} max={12} value={s.interest_free_installments} onChange={(e) => set('interest_free_installments', Number(e.target.value))} />
+          </Field>
+          <Field label="Máximo de parcelas">
+            <Input type="number" min={1} max={12} value={s.max_installments} onChange={(e) => set('max_installments', Number(e.target.value))} />
           </Field>
         </div>
         <label className="flex items-start gap-2 text-sm">

@@ -18,6 +18,13 @@ export interface PlatformSettings {
   pix_key: string;
   pix_name: string;
   pix_city: string;
+  /** Plano anual: desconto sobre 12 mensalidades (%). */
+  annual_discount_pct: number;
+  /** Cartão parcelado: juros ao mês (%) pagos por quem parcela, a partir da parcela abaixo. */
+  card_interest_pct: number;
+  /** Até quantas parcelas sem juros (2 = juros a partir de 3x). */
+  interest_free_installments: number;
+  max_installments: number;
 }
 
 export function platformSettings(): PlatformSettings {
@@ -30,6 +37,10 @@ export function platformSettings(): PlatformSettings {
     pix_key: map.pix_key ?? '',
     pix_name: map.pix_name ?? '',
     pix_city: map.pix_city ?? '',
+    annual_discount_pct: Number(map.annual_discount_pct ?? 30),
+    card_interest_pct: Number(map.card_interest_pct ?? 2.99),
+    interest_free_installments: Number(map.interest_free_installments ?? 2),
+    max_installments: Number(map.max_installments ?? 12),
   };
 }
 
@@ -57,12 +68,13 @@ interface ShopBilling {
   courtesy_since: string | null;
   courtesy_until: string | null;
   courtesy_note: string | null;
+  billing_cycle: 'mensal' | 'anual';
 }
 
 export function shopBilling(shopId: number): ShopBilling {
   const s = get<ShopBilling>(
     `SELECT b.id, b.name, b.active, b.created_at, b.plan_id, p.name AS plan_name, p.price_cents AS plan_price, b.monthly_price_cents,
-            b.billing_day, b.trial_until, b.released_until, b.courtesy_since, b.courtesy_until, b.courtesy_note
+            b.billing_day, b.trial_until, b.released_until, b.courtesy_since, b.courtesy_until, b.courtesy_note, b.billing_cycle
        FROM barbershops b LEFT JOIN plans p ON p.id = b.plan_id WHERE b.id = ?`,
     [shopId],
   );
@@ -72,6 +84,42 @@ export function shopBilling(shopId: number): ShopBilling {
 
 /** Valor da mensalidade: o combinado com a barbearia ou o preço do plano. */
 export const monthlyPrice = (s: Pick<ShopBilling, 'monthly_price_cents' | 'plan_price'>) => s.monthly_price_cents ?? s.plan_price ?? 0;
+
+/** Plano anual: 12 mensalidades com o desconto do anual. */
+export const annualPrice = (s: Pick<ShopBilling, 'monthly_price_cents' | 'plan_price'>) =>
+  Math.round(monthlyPrice(s) * 12 * (1 - platformSettings().annual_discount_pct / 100));
+
+/**
+ * Parcelas no cartão: sem juros até o limite; daí em diante, juros compostos ao mês (tabela Price)
+ * pagos por quem parcela. O total já vem com os juros: a plataforma recebe o valor da fatura.
+ */
+export function installmentOptions(amountCents: number): { n: number; each_cents: number; total_cents: number; interest: boolean }[] {
+  const { card_interest_pct, interest_free_installments, max_installments } = platformSettings();
+  const i = card_interest_pct / 100;
+  const out = [];
+  for (let n = 1; n <= max_installments; n++) {
+    const interest = n > interest_free_installments && i > 0;
+    const each = interest ? Math.ceil((amountCents * i) / (1 - (1 + i) ** -n)) : Math.ceil(amountCents / n);
+    out.push({ n, each_cents: each, total_cents: interest ? each * n : amountCents, interest });
+  }
+  return out;
+}
+
+/** Fatura anual que cobre o mês "AAAA-MM" (paga ou em aberto). */
+function annualCovering(shopId: number, month: string): { reference: string } | undefined {
+  return all<{ reference: string }>("SELECT reference FROM invoices WHERE barbershop_id = ? AND reference LIKE 'anual:%' AND status <> 'cancelled'", [shopId]).find(
+    (r) => {
+      const start = r.reference.slice(6);
+      return month >= start && month < addMonths(start, 12);
+    },
+  );
+}
+
+const addMonths = (reference: string, n: number) => {
+  const [y, m] = reference.split('-').map(Number);
+  const t = y * 12 + (m - 1) + n;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+};
 
 /** Vencimento do mês "AAAA-MM" no dia escolhido (dia 31 vira o último dia do mês). */
 export function dueDate(reference: string, day: number): string {
@@ -87,17 +135,30 @@ const monthName = (reference: string) => `${MONTHS[Number(reference.slice(5, 7))
  * Gera a fatura do mês corrente de cada barbearia ativa com mensalidade (uma vez por mês).
  * Não cobra meses cujo vencimento cai antes do cadastro ou dentro do período grátis.
  */
-export function ensureInvoices(now: Date = new Date()): number {
+export function ensureInvoices(now: Date = new Date(), onlyShopId?: number): number {
   const today = localNow(now).date;
   const reference = today.slice(0, 7);
   let created = 0;
-  for (const { id } of all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1')) {
+  for (const { id } of all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1').filter((s) => !onlyShopId || s.id === onlyShopId)) {
     const s = shopBilling(id);
     const amount = monthlyPrice(s);
     if (amount <= 0 || s.courtesy_since) continue;
     const due = dueDate(reference, s.billing_day);
     if (due < isoToLocal(s.created_at).slice(0, 10)) continue;
     if (s.trial_until && due <= s.trial_until) continue;
+    // Mês já coberto por um plano anual: não cobra de novo.
+    if (annualCovering(id, reference)) continue;
+    if (s.billing_cycle === 'anual') {
+      // O anual começa no mês ainda não pago (se a mensalidade do mês já foi paga, começa no próximo).
+      if (get("SELECT 1 AS ok FROM invoices WHERE barbershop_id = ? AND reference = ? AND status <> 'cancelled'", [id, reference])) continue;
+      const end = addMonths(reference, 11);
+      created += run(
+        `INSERT INTO invoices (barbershop_id, reference, description, amount_cents, due_date, created_at)
+         VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(barbershop_id, reference) DO NOTHING`,
+        [id, `anual:${reference}`, `Plano anual ${monthName(reference)} a ${monthName(end)}${s.plan_name ? ` · ${s.plan_name}` : ''}`, annualPrice(s), due < today ? today : due, nowIso()],
+      ).changes;
+      continue;
+    }
     const { changes } = run(
       `INSERT INTO invoices (barbershop_id, reference, description, amount_cents, due_date, created_at)
        VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(barbershop_id, reference) DO NOTHING`,
@@ -304,9 +365,10 @@ export function platformRevenue(now?: Date) {
   const month = today.slice(0, 7);
   const shops = all<{ id: number }>('SELECT id FROM barbershops WHERE active = 1').map((s) => shopBilling(s.id));
   const paying = shops.filter((s) => monthlyPrice(s) > 0 && !(s.trial_until && s.trial_until >= today) && !s.courtesy_since);
+  const perMonth = (s: ShopBilling) => (s.billing_cycle === 'anual' ? Math.round(annualPrice(s) / 12) : monthlyPrice(s));
   const sum = (sql: string, params: unknown[] = []) => get<{ v: number }>(sql, params)?.v ?? 0;
   return {
-    mrr: paying.reduce((t, s) => t + monthlyPrice(s), 0),
+    mrr: paying.reduce((t, s) => t + perMonth(s), 0),
     payingShops: paying.length,
     trialShops: shops.filter((s) => s.trial_until && s.trial_until >= today).length,
     courtesyShops: shops.filter((s) => s.courtesy_since).length,

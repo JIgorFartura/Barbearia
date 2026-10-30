@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { platformPayments } from '../gatewayPayments.js';
 import { stopSubscriptionCard, subscriptionPriceChanged } from '../cards.js';
+import { setBillingCycle } from '../annual.js';
 import { cieloWebhookUrl, platformCardReady, platformCielo, savePlatformCielo, secretHint } from '../cardSettings.js';
 import { CieloError, testCielo } from '../cielo.js';
 import { PIX_KEY_TYPES, guessPixKeyType, normalizePixKey, pixKeyType } from '../pix.js';
@@ -84,6 +85,7 @@ masterRouter.get('/shops', (_req, res) => {
         monthly_price_cents: billing.monthly_price_cents,
         price_cents: monthlyPrice(billing),
         billing_day: billing.billing_day,
+        billing_cycle: billing.billing_cycle,
         trial_until: billing.trial_until,
         released_until: billing.released_until,
         courtesy: access.courtesy,
@@ -121,6 +123,7 @@ const zBilling = z.object({
   /** Valor combinado (vazio = preço do plano). */
   monthly_price_cents: z.number().int().min(0).max(100_000_000).nullish().transform((v) => v ?? null),
   billing_day: z.number().int().min(1).max(31),
+  billing_cycle: z.enum(['mensal', 'anual']).nullish(),
 });
 
 function assertPlan(planId: number | null) {
@@ -217,6 +220,7 @@ masterRouter.put('/shops/:id/billing', async (req, res) => {
   if (!changes) throw new HttpError(404, 'Barbearia não encontrada.');
   // Mudou o valor: o cartão automático (no valor antigo) é desligado e a barbearia cadastra de novo.
   await subscriptionPriceChanged(id);
+  if (body.billing_cycle) await setBillingCycle(id, body.billing_cycle);
   res.json({ ok: true });
 });
 
@@ -318,6 +322,10 @@ masterRouter.put('/settings', (req, res) => {
       pix_key: z.string().trim().max(77),
       pix_name: z.string().trim().max(60),
       pix_city: z.string().trim().max(40),
+      annual_discount_pct: z.number().min(0).max(90).default(30),
+      card_interest_pct: z.number().min(0).max(15).default(2.99),
+      interest_free_installments: z.number().int().min(1).max(12).default(2),
+      max_installments: z.number().int().min(1).max(12).default(12),
     }),
     req.body,
   );
