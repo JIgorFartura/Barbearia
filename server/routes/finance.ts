@@ -148,7 +148,8 @@ export function registerFinanceRoutes(router: Router): void {
           ? { price_cents: annualPrice(s), per_month_cents: Math.round(annualPrice(s) / 12), discount_pct: platformSettings().annual_discount_pct }
           : null,
       // Anual em aberto: parcelas no cartão (juros a partir da parcela configurada, pagos por quem parcela).
-      card_options: current && auto && info.billing_document && current.reference.startsWith('anual:') ? installmentOptions(current.amount_cents) : [],
+      card_options:
+        current && auto && info.billing_document && (current.reference.startsWith('anual:') || current.reference === 'implantacao') ? installmentOptions(current.amount_cents) : [],
       installments: current ? (get<{ n: number | null }>('SELECT installments AS n FROM invoices WHERE id = ?', [current.id])?.n ?? null) : null,
       blocked: status.blocked,
       graceDays: status.graceDays,
@@ -174,7 +175,7 @@ export function registerFinanceRoutes(router: Router): void {
     const { installments } = parseBody(z.object({ installments: z.number().int().min(1).max(12) }), req.body);
     const inv = listInvoices({ shopId: shopId(req), status: 'open' }).find((i) => i.id === idParam(req));
     if (!inv) throw new HttpError(404, 'Fatura não encontrada.');
-    if (installments > 1 && !inv.reference.startsWith('anual:')) throw new HttpError(400, 'O parcelamento é só para o plano anual.');
+    if (installments > 1 && !inv.reference.startsWith('anual:') && inv.reference !== 'implantacao') throw new HttpError(400, 'O parcelamento é só para o plano anual e a implantação.');
     res.json(await chargeInvoiceCard(inv.id, installments));
   });
 

@@ -86,6 +86,7 @@ masterRouter.get('/shops', (_req, res) => {
         price_cents: monthlyPrice(billing),
         billing_day: billing.billing_day,
         billing_cycle: billing.billing_cycle,
+        setup_fee_waived: Boolean(billing.setup_fee_waived),
         trial_until: billing.trial_until,
         released_until: billing.released_until,
         courtesy: access.courtesy,
@@ -124,6 +125,7 @@ const zBilling = z.object({
   monthly_price_cents: z.number().int().min(0).max(100_000_000).nullish().transform((v) => v ?? null),
   billing_day: z.number().int().min(1).max(31),
   billing_cycle: z.enum(['mensal', 'anual']).nullish(),
+  setup_fee_waived: z.boolean().nullish(),
 });
 
 function assertPlan(planId: number | null) {
@@ -220,6 +222,7 @@ masterRouter.put('/shops/:id/billing', async (req, res) => {
   if (!changes) throw new HttpError(404, 'Barbearia não encontrada.');
   // Mudou o valor: o cartão automático (no valor antigo) é desligado e a barbearia cadastra de novo.
   await subscriptionPriceChanged(id);
+  if (body.setup_fee_waived != null) run('UPDATE barbershops SET setup_fee_waived = ? WHERE id = ?', [body.setup_fee_waived ? 1 : 0, id]);
   if (body.billing_cycle) await setBillingCycle(id, body.billing_cycle);
   res.json({ ok: true });
 });
@@ -326,6 +329,8 @@ masterRouter.put('/settings', (req, res) => {
       card_interest_pct: z.number().min(0).max(15).default(2.99),
       interest_free_installments: z.number().int().min(1).max(12).default(2),
       max_installments: z.number().int().min(1).max(12).default(12),
+      setup_fee_cents: z.number().int().min(0).max(10_000_000).default(0),
+      setup_free_on_annual: z.boolean().default(true),
     }),
     req.body,
   );

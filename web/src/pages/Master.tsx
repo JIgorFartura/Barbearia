@@ -57,6 +57,7 @@ interface ShopRow {
   price_cents: number;
   billing_day: number;
   billing_cycle: 'mensal' | 'anual';
+  setup_fee_waived: boolean;
   trial_until: string | null;
   released_until: string | null;
   /** Cortesia do master: sem mensalidade até desmarcar (until é só o combinado). */
@@ -491,6 +492,7 @@ function ShopBillingModal({ shop, plans, onClose, onDone }: { shop: ShopRow; pla
     billing_day: String(shop.billing_day),
     trial_until: shop.trial_until ?? '',
     billing_cycle: shop.billing_cycle,
+    setup_fee_waived: shop.setup_fee_waived,
   });
   const [error, setError] = useState<string | null>(null);
   async function submit(e: FormEvent) {
@@ -503,6 +505,7 @@ function ShopBillingModal({ shop, plans, onClose, onDone }: { shop: ShopRow; pla
         billing_day: Number(form.billing_day) || 10,
         trial_until: form.trial_until || null,
         billing_cycle: form.billing_cycle,
+        setup_fee_waived: form.setup_fee_waived,
       });
       onDone();
     } catch (err) {
@@ -537,6 +540,10 @@ function ShopBillingModal({ shop, plans, onClose, onDone }: { shop: ShopRow; pla
             <option value="anual">Anual</option>
           </select>
         </Field>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 size-4" checked={form.setup_fee_waived} onChange={(e) => setForm({ ...form, setup_fee_waived: e.target.checked })} />
+          <span>Isentar a taxa de implantação (ela só é cobrada uma vez, junto com a primeira cobrança).</span>
+        </label>
         <Field label="Grátis até (teste)">
           <Input type="date" value={form.trial_until} onChange={(e) => setForm({ ...form, trial_until: e.target.value })} />
         </Field>
@@ -772,6 +779,8 @@ interface Settings {
   card_interest_pct: number;
   interest_free_installments: number;
   max_installments: number;
+  setup_fee_cents: number;
+  setup_free_on_annual: boolean;
 }
 
 function BillingTab() {
@@ -1032,7 +1041,16 @@ function SettingsCard() {
           <Field label="Máximo de parcelas">
             <Input type="number" min={1} max={12} value={s.max_installments} onChange={(e) => set('max_installments', Number(e.target.value))} />
           </Field>
+          <Field label="Taxa de implantação (R$)" hint="Uma vez, junto com a primeira cobrança. 0 = não cobra.">
+            <Input inputMode="decimal" defaultValue={centsToInput(s.setup_fee_cents)} onBlur={(e) => set('setup_fee_cents', parseMoney(e.target.value))} />
+          </Field>
         </div>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 size-4" checked={s.setup_free_on_annual} onChange={(e) => set('setup_free_on_annual', e.target.checked)} />
+          <span>
+            <b>Implantação grátis no plano anual</b>: quem paga o ano não paga a implantação.
+          </span>
+        </label>
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-0.5 size-4" checked={s.signup_enabled} onChange={(e) => set('signup_enabled', e.target.checked)} />
           <span>

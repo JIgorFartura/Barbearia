@@ -65,7 +65,8 @@ export function Subscription() {
   // Pelo Asaas a fatura é baixada sozinha quando o pagamento cai (sem "Já paguei").
   const auto = Boolean(cur && (cur.payUrl || cur.pix?.auto));
 
-  const annualCur = Boolean(cur?.reference.startsWith('anual:'));
+  // Anual ou implantação: PIX, boleto ou cartão parcelado pelo Asaas (sem o cartão automático mensal).
+  const annualCur = Boolean(cur && (cur.reference.startsWith('anual:') || cur.reference === 'implantacao'));
 
   async function goAnnual() {
     if (!data?.annual || !confirm(`Passar para o plano anual por ${money(data.annual.price_cents)} por ano? A fatura anual sai agora.`)) return;

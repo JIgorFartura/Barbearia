@@ -1222,6 +1222,10 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE invoices ADD COLUMN asaas_installment_id TEXT;
   ALTER TABLE invoices ADD COLUMN installments INTEGER;
   `,
+  // 29: taxa de implantação (uma vez, junto com a primeira cobrança) e a isenção por barbearia.
+  `
+  ALTER TABLE barbershops ADD COLUMN setup_fee_waived INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 function migrate(): void {

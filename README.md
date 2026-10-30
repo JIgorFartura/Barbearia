@@ -275,6 +275,10 @@ cadastrado a outra barbearia.
 - **Criar minha barbearia** na página inicial: nome, celular, senha e o aceite dos termos; começa
   nos dias grátis e já entra no painel. O master recebe um aviso no WhatsApp a cada cadastro e pode
   fechar o cadastro (*Financeiro → Cadastro aberto no site*, ao lado dos dias grátis).
+- **Assistente de marca** (abre logo depois do cadastro e em *Minha marca*): o dono envia o logo e as
+  cores saem dele sozinhas (a principal escurecida até o texto branco ficar legível), ou o sistema
+  desenha um logo com as iniciais (círculo, quadrado ou selo). Escolhe a paleta (a do logo ou uma das
+  prontas), a frase, vê como o site fica e salva tudo de uma vez.
 - **Importar planilha** (*Balcão*): CSV do Excel, do Google Planilhas ou do sistema antigo, com
   nome, celular e aniversário. As colunas são achadas pelo cabeçalho, as primeiras linhas aparecem
   antes de importar, quem já está cadastrado fica como está e cada linha pulada diz o motivo.
@@ -308,6 +312,10 @@ cadastrado a outra barbearia.
   3x, com juros ao mês (padrão 2,99%, tabela Price) **pagos por quem parcela**; a plataforma recebe o
   valor da fatura. Qualquer parcela aprovada baixa a fatura. Desconto, juros e parcelas ficam nas
   configurações do master. Voltando para o mensal, o anual já pago vale até o fim do período.
+- **Taxa de implantação** (configurações do master; 0 = não cobra): vem **uma vez**, junto com a
+  primeira cobrança depois do teste grátis, e dá para pagar no PIX, no boleto ou no cartão parcelado
+  (como o anual). O master isenta por barbearia e pode deixar a implantação **grátis no plano anual**
+  (passando para o anual, a implantação ainda não paga é cancelada). Quem já pagava antes não é cobrado.
 - **Cortesia** (botão *Cortesia* na barbearia): a barbearia usa tudo **sem mensalidade até o master
   desmarcar**. Não sai fatura, o acesso não bloqueia, o cartão automático da mensalidade é desligado e
   as faturas em aberto que ainda não venceram são canceladas. A data "combinado até" e a anotação são

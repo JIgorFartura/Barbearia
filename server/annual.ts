@@ -1,5 +1,5 @@
 import { cancelInvoiceEverywhere } from './asaas.js';
-import { ensureInvoices, listInvoices, shopBilling } from './billing.js';
+import { ensureInvoices, listInvoices, platformSettings, shopBilling } from './billing.js';
 import { stopSubscriptionCard } from './cards.js';
 import { run } from './db.js';
 import { localNow } from './time.js';
@@ -16,6 +16,8 @@ export async function setBillingCycle(shopId: number, cycle: 'mensal' | 'anual',
   const open = listInvoices({ shopId, status: 'open' }, now);
   if (cycle === 'anual') {
     for (const inv of open.filter((i) => /^\d{4}-\d{2}$/.test(i.reference) && i.due_date >= today)) await cancelInvoiceEverywhere(inv.id);
+    // No anual a implantação sai grátis (se ainda não foi paga).
+    if (platformSettings().setup_free_on_annual) for (const inv of open.filter((i) => i.reference === 'implantacao')) await cancelInvoiceEverywhere(inv.id);
     await stopSubscriptionCard(shopId);
   } else {
     for (const inv of open.filter((i) => i.reference.startsWith('anual:'))) await cancelInvoiceEverywhere(inv.id);

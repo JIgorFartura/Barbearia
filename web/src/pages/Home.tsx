@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { Me } from '../App';
 import { Button, ErrorText, Field, Input } from '../components/ui';
 import { api } from '../lib/api';
+import { navigate } from '../lib/router';
 import { LegalLinks } from './Legal';
 
 const FEATURES = [
@@ -86,6 +87,8 @@ function SignupCard({ trialDays, onBack, onDone }: { trialDays: number; onBack: 
     setError(null);
     try {
       await api('POST', '/api/public/signup', { ...form, email: form.email || null, accept });
+      // Primeira parada depois do cadastro: o assistente de marca.
+      navigate('/painel/marca?assistente=1');
       onDone();
     } catch (err) {
       setError((err as Error).message);

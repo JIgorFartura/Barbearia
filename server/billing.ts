@@ -25,6 +25,10 @@ export interface PlatformSettings {
   /** Até quantas parcelas sem juros (2 = juros a partir de 3x). */
   interest_free_installments: number;
   max_installments: number;
+  /** Taxa de implantação (0 = não cobra): uma vez, junto com a primeira cobrança depois do teste. */
+  setup_fee_cents: number;
+  /** No plano anual a implantação sai grátis. */
+  setup_free_on_annual: boolean;
 }
 
 export function platformSettings(): PlatformSettings {
@@ -41,6 +45,8 @@ export function platformSettings(): PlatformSettings {
     card_interest_pct: Number(map.card_interest_pct ?? 2.99),
     interest_free_installments: Number(map.interest_free_installments ?? 2),
     max_installments: Number(map.max_installments ?? 12),
+    setup_fee_cents: Number(map.setup_fee_cents ?? 0),
+    setup_free_on_annual: map.setup_free_on_annual !== 'false',
   };
 }
 
@@ -69,12 +75,13 @@ interface ShopBilling {
   courtesy_until: string | null;
   courtesy_note: string | null;
   billing_cycle: 'mensal' | 'anual';
+  setup_fee_waived: number;
 }
 
 export function shopBilling(shopId: number): ShopBilling {
   const s = get<ShopBilling>(
     `SELECT b.id, b.name, b.active, b.created_at, b.plan_id, p.name AS plan_name, p.price_cents AS plan_price, b.monthly_price_cents,
-            b.billing_day, b.trial_until, b.released_until, b.courtesy_since, b.courtesy_until, b.courtesy_note, b.billing_cycle
+            b.billing_day, b.trial_until, b.released_until, b.courtesy_since, b.courtesy_until, b.courtesy_note, b.billing_cycle, b.setup_fee_waived
        FROM barbershops b LEFT JOIN plans p ON p.id = b.plan_id WHERE b.id = ?`,
     [shopId],
   );
@@ -103,6 +110,17 @@ export function installmentOptions(amountCents: number): { n: number; each_cents
     out.push({ n, each_cents: each, total_cents: interest ? each * n : amountCents, interest });
   }
   return out;
+}
+
+/** Fatura da implantação (uma vez): a menos que esteja isenta ou seja anual com a implantação grátis. */
+function setupFeeInvoice(s: ShopBilling, due: string): number {
+  const { setup_fee_cents, setup_free_on_annual } = platformSettings();
+  if (setup_fee_cents <= 0 || s.setup_fee_waived || (s.billing_cycle === 'anual' && setup_free_on_annual)) return 0;
+  return run(
+    `INSERT INTO invoices (barbershop_id, reference, description, amount_cents, due_date, created_at)
+     VALUES (?, 'implantacao', 'Implantação: site, marca e configuração do sistema', ?, ?, ?) ON CONFLICT(barbershop_id, reference) DO NOTHING`,
+    [s.id, setup_fee_cents, due, nowIso()],
+  ).changes;
 }
 
 /** Fatura anual que cobre o mês "AAAA-MM" (paga ou em aberto). */
@@ -148,6 +166,8 @@ export function ensureInvoices(now: Date = new Date(), onlyShopId?: number): num
     if (s.trial_until && due <= s.trial_until) continue;
     // Mês já coberto por um plano anual: não cobra de novo.
     if (annualCovering(id, reference)) continue;
+    // Primeira cobrança da barbearia: a implantação vem junto (uma vez só).
+    if (!get("SELECT 1 AS ok FROM invoices WHERE barbershop_id = ? AND reference <> 'implantacao'", [id])) created += setupFeeInvoice(s, due < today ? today : due);
     if (s.billing_cycle === 'anual') {
       // O anual começa no mês ainda não pago (se a mensalidade do mês já foi paga, começa no próximo).
       if (get("SELECT 1 AS ok FROM invoices WHERE barbershop_id = ? AND reference = ? AND status <> 'cancelled'", [id, reference])) continue;
@@ -187,6 +207,7 @@ export function nextMonthlyInvoice(shopId: number, now: Date = new Date()): Invo
     [shopId],
   );
   const reference = latest ? nextMonth(latest.reference) : localNow(now).date.slice(0, 7);
+  if (!latest) setupFeeInvoice(s, dueDate(reference, s.billing_day));
   const id = run(
     `INSERT INTO invoices (barbershop_id, reference, description, amount_cents, due_date, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
     [shopId, reference, `Mensalidade ${monthName(reference)}${s.plan_name ? ` · ${s.plan_name}` : ''}`, amount, dueDate(reference, s.billing_day), nowIso()],
