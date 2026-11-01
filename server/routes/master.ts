@@ -333,6 +333,8 @@ masterRouter.put('/settings', (req, res) => {
       max_installments: z.number().int().min(1).max(12).default(12),
       setup_fee_cents: z.number().int().min(0).max(10_000_000).default(0),
       setup_free_on_annual: z.boolean().default(true),
+      broadcast_monthly_limit: z.number().int().min(0).max(100_000).default(300),
+      marketing_msg_cost_cents: z.number().int().min(0).max(10_000).default(40),
     }),
     req.body,
   );

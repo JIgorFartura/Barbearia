@@ -1277,6 +1277,27 @@ const MIGRATIONS: (string | Rebuild)[] = [
   );
   CREATE INDEX sale_tips_barber ON sale_tips (barber_id, payout_id);
   `,
+  // 34: promoções no WhatsApp para um grupo de clientes (com limite por mês).
+  `
+  CREATE TABLE broadcasts (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    segment TEXT NOT NULL,
+    label TEXT NOT NULL,
+    text TEXT NOT NULL,
+    recipients INTEGER NOT NULL,
+    customer_ids TEXT NOT NULL,
+    cost_cents INTEGER,
+    month TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sending', 'sent')),
+    sent INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    finished_at TEXT
+  );
+  CREATE INDEX broadcasts_month ON broadcasts (barbershop_id, month);
+  `,
 ];
 
 function migrate(): void {

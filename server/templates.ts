@@ -49,6 +49,12 @@ export const TEMPLATES = {
     body: '{{1}}, é a sua vez na {{2}}! O {{3}} já vai te atender (senha {{4}}).',
     example: ['João', 'Barbearia Navalha de Ouro', 'Paulo', '7'],
   },
+  campanha: {
+    label: 'Promoção para um grupo de clientes',
+    category: 'MARKETING',
+    body: 'Olá, {{1}}! Novidade da {{2}}: {{3}} Para não receber promoções, responda PARAR.',
+    example: ['João', 'Barbearia Navalha de Ouro', 'Sábado tem corte + barba por R$ 60. Responda aqui para marcar!'],
+  },
   costume: {
     label: 'Oferta do horário de costume',
     category: 'MARKETING',

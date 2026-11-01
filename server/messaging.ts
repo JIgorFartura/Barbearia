@@ -22,6 +22,7 @@ export type MessageKind =
   | 'liberado'
   | 'vazio'
   | 'fila'
+  | 'campanha'
   | 'aviso';
 
 export interface ShopBot {

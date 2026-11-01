@@ -785,6 +785,8 @@ interface Settings {
   max_installments: number;
   setup_fee_cents: number;
   setup_free_on_annual: boolean;
+  broadcast_monthly_limit: number;
+  marketing_msg_cost_cents: number;
 }
 
 function BillingTab() {
@@ -1053,6 +1055,12 @@ function SettingsCard() {
           </Field>
           <Field label="Taxa de implantação (R$)" hint="Uma vez, junto com a primeira cobrança. 0 = não cobra.">
             <Input inputMode="decimal" defaultValue={centsToInput(s.setup_fee_cents)} onBlur={(e) => set('setup_fee_cents', parseMoney(e.target.value))} />
+          </Field>
+          <Field label="Promoções no WhatsApp por mês" hint="Mensagens por barbearia por mês (cada uma é paga à Meta na API oficial).">
+            <Input type="number" min={0} value={s.broadcast_monthly_limit} onChange={(e) => set('broadcast_monthly_limit', Number(e.target.value))} />
+          </Field>
+          <Field label="Custo de cada mensagem de marketing (R$)" hint="Só para a prévia que o dono vê. Confira a tabela atual da Meta.">
+            <Input inputMode="decimal" defaultValue={centsToInput(s.marketing_msg_cost_cents)} onBlur={(e) => set('marketing_msg_cost_cents', parseMoney(e.target.value))} />
           </Field>
         </div>
         <label className="flex items-start gap-2 text-sm">

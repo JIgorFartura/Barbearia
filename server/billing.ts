@@ -31,6 +31,10 @@ export interface PlatformSettings {
   setup_fee_cents: number;
   /** No semestral e no anual a implantação sai grátis. */
   setup_free_on_annual: boolean;
+  /** Promoções no WhatsApp: mensagens por barbearia por mês. */
+  broadcast_monthly_limit: number;
+  /** Custo estimado de cada mensagem de marketing na Meta (para a prévia do dono). */
+  marketing_msg_cost_cents: number;
 }
 
 export function platformSettings(): PlatformSettings {
@@ -51,6 +55,8 @@ export function platformSettings(): PlatformSettings {
     max_installments: Number(map.max_installments ?? 12),
     setup_fee_cents: Number(map.setup_fee_cents ?? 0),
     setup_free_on_annual: map.setup_free_on_annual !== 'false',
+    broadcast_monthly_limit: Number(map.broadcast_monthly_limit ?? 300),
+    marketing_msg_cost_cents: Number(map.marketing_msg_cost_cents ?? 40),
   };
 }
 

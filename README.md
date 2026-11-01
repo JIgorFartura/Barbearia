@@ -281,6 +281,18 @@ cliente:
   mostrar os números ao anunciante.
 - **Parceiros**: logo, ramo, Instagram e o benefício de quem é cliente da barbearia.
 
+## Promoções no WhatsApp
+
+Em *Promoções no WhatsApp* o dono manda uma promoção para um grupo: todos os clientes, os de um
+barbeiro (quem cortou por último com ele), quem não vem há 30 a 180 dias, os aniversariantes do mês
+ou os assinantes do clube. `{nome}` vira o primeiro nome de cada um e o aviso *Para não receber
+promoções, responda PARAR* vai no fim. Antes de mandar, a prévia mostra quantos recebem e, na API
+oficial, o custo estimado na Meta (cada promoção é mensagem de marketing paga). Quem respondeu PARAR
+ou foi apagado (LGPD) nunca recebe, cada cliente recebe no máximo uma promoção por semana, e há um
+limite de mensagens por barbearia por mês, definido pelo master junto com o custo estimado de cada
+mensagem. O envio corre em segundo plano e o histórico mostra quantas foram entregues. Só o dono
+manda (a recepção não vê). Modelo da Meta: `campanha`.
+
 ## Fila de chegada (sem horário marcado)
 
 Para barbearias que atendem por ordem de chegada, só assim ou junto com a agenda. O dono liga em
