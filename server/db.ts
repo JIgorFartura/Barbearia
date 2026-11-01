@@ -1327,6 +1327,12 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbershops ADD COLUMN fee_credito_pct REAL NOT NULL DEFAULT 0;
   ALTER TABLE barbershops ADD COLUMN fee_pix_pct REAL NOT NULL DEFAULT 0;
   `,
+  // 40: guia de barbearias da Bladr (só quem quer aparecer) com a cidade e o bairro.
+  `
+  ALTER TABLE barbershops ADD COLUMN guide_listed INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE barbershops ADD COLUMN city TEXT;
+  ALTER TABLE barbershops ADD COLUMN district TEXT;
+  `,
 ];
 
 function migrate(): void {

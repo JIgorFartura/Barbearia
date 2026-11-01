@@ -12,6 +12,7 @@ import {
   Handshake,
   ListOrdered,
   Send,
+  Share2,
   LayoutDashboard,
   Lock,
   LogOut,
@@ -58,6 +59,7 @@ import { Subscription } from './panel/Subscription';
 import { Summary } from './panel/Summary';
 import { Queue } from './panel/Queue';
 import { Broadcasts } from './panel/Broadcasts';
+import { Promote } from './panel/Promote';
 import { Units, switchUnit } from './panel/Units';
 import { DeskContext } from '../lib/role';
 import { PushBanner } from '../components/AppInstall';
@@ -75,6 +77,7 @@ const SECTIONS = [
   { id: 'pacotes', label: 'Pacotes e vale-presente', icon: PackageCheck },
   { id: 'campanhas', label: 'Campanhas', icon: Gift },
   { id: 'promocoes', label: 'Promoções no WhatsApp', icon: Send },
+  { id: 'divulgar', label: 'Divulgar', icon: Share2 },
   { id: 'beneficios', label: 'Benefícios', icon: Ticket },
   { id: 'indicacoes', label: 'Indicação e promoções', icon: UserPlus },
   { id: 'parceiros', label: 'Parceiros', icon: Handshake },
@@ -228,6 +231,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       break;
     case 'promocoes':
       content = <Broadcasts />;
+      break;
+    case 'divulgar':
+      content = <Promote shopName={me.shop?.name ?? ''} />;
       break;
     case 'barbeiros':
       content = <Barbers />;

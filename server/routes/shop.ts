@@ -25,6 +25,7 @@ import { registerPrepaidRoutes } from './prepaid.js';
 import { registerTeamRoutes } from './team.js';
 import { registerQueueRoutes } from './queue.js';
 import { registerBroadcastRoutes } from './broadcast.js';
+import { registerPromoteRoutes } from './promote.js';
 import { lowStock } from '../stock.js';
 import { reviewsOverview, shopRating } from '../reviews.js';
 import { shopCardStatus } from '../cardSettings.js';
@@ -50,6 +51,7 @@ registerPrepaidRoutes(shopRouter);
 registerTeamRoutes(shopRouter);
 registerQueueRoutes(shopRouter);
 registerBroadcastRoutes(shopRouter);
+registerPromoteRoutes(shopRouter);
 
 // ---------- marca (o que aparece na landing page)
 

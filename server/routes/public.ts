@@ -20,6 +20,7 @@ import { signup } from '../signup.js';
 import { joinQueue, leaveByToken, publicEntry, queueEnabled, queueView } from '../queue.js';
 import { services } from '../scheduling.js';
 import { barberIcs } from '../calendar.js';
+import { shopRating } from '../reviews.js';
 import { zPassword } from './auth.js';
 
 /** Dados da landing page de cada barbearia (/b/:slug) e login da área do cliente — sem login. */
@@ -188,6 +189,19 @@ publicRouter.get('/queue/:token', (req, res) => {
 publicRouter.post('/queue/:token/leave', (req, res) => {
   leaveByToken(String(req.params.token));
   res.json({ ok: true });
+});
+
+/** Guia de barbearias da Bladr: só quem pediu para aparecer, por cidade (e bairro). */
+publicRouter.get('/guide', (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase().slice(0, 60) : '';
+  const shops = all<{ id: number; slug: string; name: string; tagline: string | null; logo_url: string | null; primary_color: string; accent_color: string; address: string | null; city: string; district: string | null; queue_enabled: number }>(
+    `SELECT id, slug, name, tagline, logo_url, primary_color, accent_color, address, city, district, queue_enabled FROM barbershops
+      WHERE active = 1 AND guide_listed = 1 AND city IS NOT NULL ORDER BY city COLLATE NOCASE, district COLLATE NOCASE, name COLLATE NOCASE`,
+  ).filter((s) => !q || `${s.name} ${s.city} ${s.district ?? ''}`.toLowerCase().includes(q));
+  res.json({
+    cities: [...new Set(all<{ city: string }>('SELECT city FROM barbershops WHERE active = 1 AND guide_listed = 1 AND city IS NOT NULL').map((c) => c.city))].sort(),
+    shops: shops.slice(0, 200).map(({ id, ...s }) => ({ ...s, rating: shopRating(id) })),
+  });
 });
 
 /** Agenda do barbeiro para o Google Agenda (link secreto). */

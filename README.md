@@ -323,6 +323,14 @@ limite de mensagens por barbearia por mês, definido pelo master junto com o cus
 mensagem. O envio corre em segundo plano e o histórico mostra quantas foram entregues. Só o dono
 manda (a recepção não vê). Modelo da Meta: `campanha`.
 
+## Divulgar e guia de barbearias
+
+Em *Divulgar*, o dono tem os links (site com o botão Agendar, fila de chegada e área do cliente), o QR
+Code do site com cartaz para imprimir e o passo a passo para pôr o botão **Agendar** no Perfil da
+Empresa do Google, no Instagram (botão de ação e bio) e na saudação do WhatsApp Business. Marcando
+*Aparecer no guia* (com a cidade e o bairro), a barbearia entra no **guia público** em `/barbearias`,
+com busca por cidade, bairro ou nome, a nota dos clientes e o botão de agendar. Só aparece quem marcar.
+
 ## Fila de chegada (sem horário marcado)
 
 Para barbearias que atendem por ordem de chegada, só assim ou junto com a agenda. O dono liga em

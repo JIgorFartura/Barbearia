@@ -10,6 +10,7 @@ const Master = lazy(() => import('./pages/Master').then((m) => ({ default: m.Mas
 const Panel = lazy(() => import('./pages/Panel').then((m) => ({ default: m.Panel })));
 const PrivacyPage = lazy(() => import('./pages/Legal').then((m) => ({ default: m.PrivacyPage })));
 const ShopLanding = lazy(() => import('./pages/ShopLanding').then((m) => ({ default: m.ShopLanding })));
+const Guide = lazy(() => import('./pages/Guide').then((m) => ({ default: m.Guide })));
 const QueuePage = lazy(() => import('./pages/QueuePage').then((m) => ({ default: m.QueuePage })));
 const ShopPrivacyPage = lazy(() => import('./pages/Legal').then((m) => ({ default: m.ShopPrivacyPage })));
 const TermsPage = lazy(() => import('./pages/Legal').then((m) => ({ default: m.TermsPage })));
@@ -43,7 +44,7 @@ function Routes() {
   const refresh = useCallback(() => api<Me>('GET', '/api/auth/me').then(setMe), []);
   // Site da barbearia (/b/barbearia-do-ze), área do cliente (/conta), fila de chegada (/fila) e privacidade.
   const shopMatch = /^\/b\/([a-z0-9-]+)(\/conta|\/privacidade|\/fila)?\/?$/.exec(path);
-  const publicPage = Boolean(shopMatch) || path === '/termos' || path === '/privacidade';
+  const publicPage = Boolean(shopMatch) || path === '/termos' || path === '/privacidade' || path === '/barbearias';
   useEffect(() => {
     // As páginas públicas não dependem do login do painel.
     if (!publicPage) refresh();
@@ -55,6 +56,7 @@ function Routes() {
     return shopMatch[2] ? <CustomerArea slug={shopMatch[1]} /> : <ShopLanding slug={shopMatch[1]} />;
   }
   if (path === '/termos') return <TermsPage />;
+  if (path === '/barbearias') return <Guide />;
   if (path === '/privacidade') return <PrivacyPage />;
 
   if (!me) return null;
