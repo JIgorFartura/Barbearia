@@ -1,4 +1,5 @@
 import { all, get, nowIso, run, tx } from './db.js';
+import { depositOnCancel } from './deposits.js';
 import { HttpError } from './http.js';
 import { customerNow, shopNow } from './clock.js';
 import { availableComeback, useComeback } from './comeback.js';
@@ -267,6 +268,8 @@ export function cancel(shopId: number, appointmentId: number, opts: { customerId
   if (a.status !== 'scheduled') throw new HttpError(409, 'Esse horário já foi cancelado.');
   if (opts.customerId && a.starts_at < shopNow(shopId, opts.now).stamp) throw new HttpError(409, 'Esse horário já passou.');
   run("UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [nowIso(), appointmentId]);
+  // Sinal: crédito (com antecedência ou pela barbearia), fica com a barbearia (em cima da hora) ou some (não pago).
+  depositOnCancel(shopId, appointmentId, { byCustomer: Boolean(opts.customerId), now: opts.now });
   void notifyCancelled(shopId, a, !opts.customerId).catch((err) => console.error('[aviso no celular]', err));
   return appointment(appointmentId)!;
 }

@@ -30,6 +30,8 @@ interface CheckoutData {
     starts_at: string;
   } | null;
   reserved: { catalog_item_id: number; name: string; qty: number }[];
+  /** Sinal já pago do horário (abatido no que falta pagar). */
+  deposit_cents?: number;
   catalog: CatalogItem[];
   barbers: { id: number; name: string }[];
   /** Asaas da barbearia ligado: o PIX sai com QR próprio e a venda fecha sozinha quando cai. */
@@ -290,7 +292,8 @@ export function CheckoutModal({
   const giftCents = gift ? Math.min(gift.balance, total) : 0;
   // Gorjeta: vai inteira para o barbeiro e é paga junto (fora do total da venda).
   const tipCents = parseMoney(tip);
-  const toPay = total - giftCents + tipCents;
+  const depositCents = Math.min(data?.deposit_cents ?? 0, total - giftCents);
+  const toPay = total - giftCents - depositCents + tipCents;
   const lineBarbers = [...new Set(lines.map((l) => l.barber_id).filter((b): b is number => b != null))];
 
   const update = (key: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -660,12 +663,17 @@ export function CheckoutModal({
             <p className="flex justify-between text-lg font-bold">
               <span>Total</span> <span className="tabular-nums">{money(total)}</span>
             </p>
+            {depositCents > 0 && (
+              <p className="flex justify-between text-sky-800">
+                <span>Sinal já pago</span> <span className="tabular-nums">− {money(depositCents)}</span>
+              </p>
+            )}
             {tipCents > 0 && (
               <p className="flex justify-between text-emerald-800">
                 <span>Gorjeta (para o barbeiro)</span> <span className="tabular-nums">+ {money(tipCents)}</span>
               </p>
             )}
-            {(giftCents > 0 || tipCents > 0) && (
+            {(giftCents > 0 || tipCents > 0 || depositCents > 0) && (
               <>
                 {giftCents > 0 && (
                   <p className="flex justify-between text-violet-800">

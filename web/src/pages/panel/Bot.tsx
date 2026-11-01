@@ -1,4 +1,5 @@
 import { Bot as BotIcon, CheckCircle2, Copy, MessageSquare, RefreshCw, Send, Smartphone, UserX, WifiOff, Zap } from 'lucide-react';
+import { DepositCard } from './DepositCard';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -156,6 +157,7 @@ export function Bot() {
           </div>
         </form>
       )}
+      {tab === 'lembretes' && <DepositCard />}
       {tab === 'simulador' && <Simulator botName={s.bot_name} />}
       {tab === 'conversas' && <Conversations />}
       {tab === 'sumidos' && <Away days={s.winback_days} />}

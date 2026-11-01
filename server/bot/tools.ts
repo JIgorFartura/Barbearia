@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { depositText, requireDeposit } from '../deposits.js';
 import { askConsumption, describeItems, reserveItems } from '../consumption.js';
 import { config } from '../config.js';
 import { issueAccessLink } from '../customerAuth.js';
@@ -80,7 +81,7 @@ export const TOOLS = {
     description: 'Marca o horário do cliente desta conversa. Use quando ele já escolheu dia, hora e barbeiro (e o serviço, se não for corte).',
     needsCustomer: true,
     schema: z.object({ data: zDate, hora: zTime, barbeiro_id: zId, servico_id: zId.optional() }),
-    run: (ctx, input) => {
+    run: async (ctx, input) => {
       // Aceitou a oferta do robô: vale o desconto que ela prometeu (horário vazio).
       const offer = get<{ id: number; discount_percent: number | null }>(
         "SELECT id, discount_percent FROM bot_offers WHERE customer_id = ? AND status = 'pending' AND barber_id = ? AND starts_at = ? ORDER BY id DESC LIMIT 1",
@@ -100,7 +101,14 @@ export const TOOLS = {
       if (offer) run("UPDATE bot_offers SET status = 'accepted', appointment_id = ? WHERE id = ?", [a.id, offer.id]);
       // Se o cliente costuma consumir algo (ex.: 1 cerveja), já deixa a pergunta pronta para o SIM/NÃO.
       const pergunta = askConsumption(ctx.shop.id, a.id, ctx.now);
-      return { ok: true, agendamento: describeAppointment(a), pergunta_consumo: pergunta ?? undefined };
+      // Quem faltou antes (e a barbearia pede): o sinal no PIX para segurar o horário.
+      const deposit = requireDeposit(ctx.shop.id, a.id, ctx.now);
+      return {
+        ok: true,
+        agendamento: describeAppointment(a),
+        pergunta_consumo: pergunta ?? undefined,
+        sinal: deposit ? `${await depositText(ctx.shop.id, deposit, ctx.now)} (Repasse ao cliente exatamente, com o código do PIX inteiro.)` : undefined,
+      };
     },
   }),
 

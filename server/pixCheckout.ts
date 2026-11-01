@@ -105,7 +105,7 @@ export async function startPixCheckout(
   }
   const sale = previewSale({ ...input, shopId, userId, method: 'pix', now });
   // A gorjeta vai no mesmo PIX (e entra para o barbeiro quando o pagamento cai).
-  const amount = sale.total_cents - sale.gift_cents + sale.tip_cents;
+  const amount = sale.total_cents - sale.gift_cents - sale.prepaid_cents + sale.tip_cents;
   if (amount <= 0) throw new HttpError(400, 'Não sobra nada para pagar no PIX: registre a venda normalmente.');
   const customerId = sale.customer_id ?? null;
 

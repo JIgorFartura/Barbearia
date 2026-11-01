@@ -13,6 +13,7 @@ import { customerPackages, giftCardByCode } from '../prepaid.js';
 import { autoSaleNfse } from '../shopNfse.js';
 import { addPhoto, barberSeesCustomer, customerProfile, deletePhoto, photoOf, profileSummary, saveNotes, sendPhoto, zNotes, zPhoto } from '../profile.js';
 import { callNext, leaveQueue, queueEnabled, queueView, startEntry } from '../queue.js';
+import { depositOnNoShow, prepaidDeposit } from '../deposits.js';
 import { dayAgenda } from '../scheduling.js';
 import { availableQty } from '../stock.js';
 import { addDays, isDate } from '../time.js';
@@ -97,6 +98,7 @@ barberRouter.post('/appointments/:id/status', (req, res) => {
   const { status } = parseBody(z.object({ status: z.enum(['scheduled', 'no_show']) }), req.body);
   if (a.status === 'cancelled') throw new HttpError(409, 'Esse horário foi cancelado.');
   run('UPDATE appointments SET status = ? WHERE id = ?', [status, a.id]);
+  depositOnNoShow(a.id, status === 'no_show');
   res.json({ ok: true });
 });
 
@@ -176,6 +178,7 @@ barberRouter.get('/checkout', (req, res) => {
   res.json({
     appointment,
     reserved: appointmentId ? reservedItems(appointmentId) : [],
+    deposit_cents: appointmentId ? (prepaidDeposit(appointmentId)?.amount_cents ?? 0) : 0,
     catalog: all<{ id: number; kind: string; name: string; price_cents: number; track_stock: number }>(
       'SELECT id, kind, name, price_cents, track_stock FROM catalog_items WHERE barbershop_id = ? AND active = 1 ORDER BY kind DESC, name COLLATE NOCASE',
       [shop],

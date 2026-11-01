@@ -1309,6 +1309,12 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE club_members ADD COLUMN next_plan_id INTEGER REFERENCES club_plans(id);
   ALTER TABLE charges ADD COLUMN plan_change_to INTEGER REFERENCES club_plans(id);
   `,
+  // 37: sinal só para quem falta (desligado = 0 faltas).
+  `
+  ALTER TABLE barbershops ADD COLUMN deposit_no_shows INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE barbershops ADD COLUMN deposit_cents INTEGER NOT NULL DEFAULT 2000;
+  ALTER TABLE barbershops ADD COLUMN deposit_hold_min INTEGER NOT NULL DEFAULT 60;
+  `,
 ];
 
 function migrate(): void {

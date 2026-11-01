@@ -1,4 +1,5 @@
 import { Router, type Request } from 'express';
+import { appointmentDeposit, depositView, requireDeposit } from '../deposits.js';
 import { z } from 'zod';
 import { charge, chargePix, claimCharge, type ChargeView } from '../charges.js';
 import { asaasChargePix, cancelPixAuto, pixAutoOn, saveCustomerCpf, startPixAuto } from '../shopAsaas.js';
@@ -51,7 +52,7 @@ function ctx(req: Request): Ctx {
   return { shopId: shop.id, slug, customerId };
 }
 
-customerRouter.get('/me', (req, res) => {
+customerRouter.get('/me', async (req, res) => {
   const { shopId, customerId } = ctx(req);
   const customer = get<Record<string, unknown>>(
     'SELECT id, name, phone, pref_weekday, pref_time, pref_barber_id, pref_service_id, pref_interval_days, reminders_opt_out, birth_date, privacy_accepted_at FROM customers WHERE id = ?',
@@ -62,7 +63,7 @@ customerRouter.get('/me', (req, res) => {
     privacyAccepted: Boolean(customer.privacy_accepted_at),
     habit: customerHabit(customerId),
     lastVisit: lastVisitDate(customerId),
-    upcoming: upcomingFor(customerId).map((a) => ({ ...a, items: reservedItems(a.id) })),
+    upcoming: await Promise.all(upcomingFor(customerId).map(async (a) => ({ ...a, items: reservedItems(a.id), deposit: await depositView(appointmentDeposit(a.id)) }))),
     // Dias em que ele está na lista de espera (o robô avisa quando abrir vaga).
     waitlist: customerWaitlist(customerId).map(({ id, date, period, barber_id, barber_name, service_name, offers }) => ({ id, date, period, barber_id, barber_name, service_name, offers })),
     history: historyFor(customerId).slice(0, 10),
@@ -107,7 +108,7 @@ customerRouter.get('/availability', (req, res) => {
   res.json(freeTimes(shopId, date, { barberId: num(req.query.barber_id), serviceId: num(req.query.service_id) }).map((d) => ({ ...d, promo })));
 });
 
-customerRouter.post('/appointments', (req, res) => {
+customerRouter.post('/appointments', async (req, res) => {
   const { shopId, customerId } = ctx(req);
   const body = parseBody(
     z.object({
@@ -121,6 +122,8 @@ customerRouter.post('/appointments', (req, res) => {
   const appointment = book({ shopId, customerId, barberId: body.barber_id, serviceId: body.service_id, date: body.date, time: body.time, source: 'cliente' });
   res.status(201).json({
     ...appointment,
+    // Quem faltou antes (e a barbearia pede): sinal no PIX para segurar o horário.
+    deposit: await depositView(requireDeposit(shopId, appointment.id)),
     // Mesma pergunta do robô: "posso avisar o Paulo da sua cerveja?"
     suggestion: suggestionFor(shopId, appointment.id),
   });
@@ -149,6 +152,15 @@ customerRouter.get('/vitrine', (req, res) => {
     partners: all('SELECT id, name, category, description, benefit, instagram, website, logo_url FROM partners WHERE barbershop_id = ? AND active = 1 ORDER BY name', [shopId]),
     ads: ads.map(({ id, title, body, image_url, link_url, placement, partner }) => ({ id, title, body, image_url, hasLink: Boolean(link_url), placement, partner })),
   });
+});
+
+/** "Já paguei o sinal": segura o horário enquanto a barbearia confere o PIX. */
+customerRouter.post('/deposits/:id/claim', (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const c = charge(idParam(req), shopId);
+  if (c.kind !== 'sinal') throw new HttpError(404, 'Sinal não encontrado.');
+  claimCharge(shopId, customerId, c.id);
+  res.json({ ok: true });
 });
 
 customerRouter.post('/appointments/:id/items', async (req, res) => {
