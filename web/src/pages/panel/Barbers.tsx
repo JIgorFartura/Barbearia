@@ -141,6 +141,7 @@ export function Barbers() {
           Barbeiros podem fechar os próprios atendimentos (lançar a venda e a forma de pagamento pelo celular)
         </label>
       )}
+      <FeesCard />
       {list?.length === 0 && (
         <EmptyState icon={<Users className="size-6" />} title="Nenhum barbeiro ainda" text="Cadastre quem atende e o expediente de cada um." />
       )}
@@ -717,5 +718,81 @@ function AccessModal({ barber, reset, onClose, onDone }: { barber: Barber; reset
         </form>
       )}
     </Modal>
+  );
+}
+
+interface Fees {
+  enabled: boolean;
+  debito_pct: number;
+  credito_pct: number;
+  pix_pct: number;
+}
+
+/** Taxa da maquininha descontada antes da comissão (só nas comissões em %). */
+function FeesCard() {
+  const [f, setF] = useState<Fees | null>(null);
+  const [open, setOpen] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<Fees>('GET', '/api/shop/commission-fees').then(setF, () => undefined);
+  }, []);
+  if (!f) return null;
+  async function save(next: Fees) {
+    setMsg(null);
+    setError(null);
+    try {
+      setF(await api<Fees>('PUT', '/api/shop/commission-fees', next));
+      setMsg('Salvo.');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  const pct = (key: 'debito_pct' | 'credito_pct' | 'pix_pct', label: string) => (
+    <Field label={label}>
+      <Input type="number" min={0} max={20} step="0.01" value={f[key]} onChange={(e) => setF({ ...f, [key]: Number(e.target.value) || 0 })} />
+    </Field>
+  );
+  return (
+    <div className="mb-4 rounded-xl bg-white px-4 py-3 text-sm ring-1 ring-zinc-200">
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          className="size-4 accent-zinc-900"
+          checked={f.enabled}
+          onChange={(e) => {
+            const next = { ...f, enabled: e.target.checked };
+            setF(next);
+            setOpen(e.target.checked);
+            void save(next);
+          }}
+        />
+        Descontar a taxa da maquininha antes de calcular a comissão
+        {f.enabled && !open && (
+          <button className="ml-auto text-xs font-medium text-zinc-500 underline" onClick={() => setOpen(true)}>
+            Débito {f.debito_pct}% · Crédito {f.credito_pct}% · PIX {f.pix_pct}%
+          </button>
+        )}
+      </label>
+      {f.enabled && open && (
+        <div className="mt-3 space-y-3">
+          <p className="text-xs text-zinc-500">
+            Ex.: corte de R$ 100 no crédito com taxa de 4% e comissão de 50%: o barbeiro recebe 50% de R$ 96 (R$ 48). Comissões em valor fixo não mudam.
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            {pct('debito_pct', 'Débito (%)')}
+            {pct('credito_pct', 'Crédito (%)')}
+            {pct('pix_pct', 'PIX (%)')}
+          </div>
+          <ErrorText error={error} />
+          <div className="flex items-center gap-3">
+            <Button className="!py-1.5" onClick={() => save(f).then(() => setOpen(false))}>
+              Salvar taxas
+            </Button>
+            {msg && <span className="text-emerald-700">{msg}</span>}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

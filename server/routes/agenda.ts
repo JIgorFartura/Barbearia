@@ -1,4 +1,5 @@
 import type { Router } from 'express';
+import { commissionFees, saveCommissionFees } from '../finance.js';
 import { calendarLink } from '../calendar.js';
 import { depositOnNoShow } from '../deposits.js';
 import { z } from 'zod';
@@ -208,6 +209,17 @@ export function registerAgendaRoutes(router: Router): void {
     const { barber_can_close } = parseBody(z.object({ barber_can_close: zBool }), req.body);
     run('UPDATE barbershops SET barber_can_close = ? WHERE id = ?', [barber_can_close, shopId(req)]);
     res.json({ barber_can_close: barber_can_close ? 1 : 0 });
+  });
+
+  /** Taxa da maquininha descontada antes de calcular a comissão. */
+  router.get('/commission-fees', (req, res) => {
+    res.json(commissionFees(shopId(req)));
+  });
+
+  router.put('/commission-fees', (req, res) => {
+    const pct = z.number().min(0).max(20);
+    const body = parseBody(z.object({ enabled: z.boolean(), debito_pct: pct, credito_pct: pct, pix_pct: pct }), req.body);
+    res.json(saveCommissionFees(shopId(req), body));
   });
 
   // Folgas e bloqueios

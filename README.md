@@ -241,6 +241,9 @@ barbearia.
   pagamento "Split do Asaas" e a saída de *Comissões* no caixa). Quem não tem Wallet ID recebe pelo
   pagamento de comissões, como sempre. O split vale para o PIX da comanda pelo Asaas; dinheiro, cartão
   na maquininha e PIX da chave seguem no pagamento de comissões.
+- **Taxa da maquininha antes da comissão** (opcional, em *Barbeiros*): o dono informa a taxa do débito,
+  do crédito e do PIX, e a comissão em % passa a ser calculada sobre o valor sem a taxa (ex.: corte de
+  R$ 100 no crédito a 4% com 50% de comissão: R$ 48). Comissão em valor fixo não muda.
 - **Gorjeta na comanda**: valor livre ou 10%/15% num toque. Vai **inteira para o barbeiro** (para quem
   fez o serviço, ou quem o dono escolher quando a comanda tem dois), soma na comissão a pagar e no
   extrato dele, e entra no caixa como *Gorjetas*, fora do faturamento da barbearia. No PIX da comanda,

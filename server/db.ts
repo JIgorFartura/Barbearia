@@ -1320,6 +1320,13 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbers ADD COLUMN calendar_token TEXT;
   CREATE UNIQUE INDEX barbers_calendar ON barbers (calendar_token) WHERE calendar_token IS NOT NULL;
   `,
+  // 39: taxa da maquininha (por forma de pagamento) descontada antes de calcular a comissão.
+  `
+  ALTER TABLE barbershops ADD COLUMN fee_before_commission INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE barbershops ADD COLUMN fee_debito_pct REAL NOT NULL DEFAULT 0;
+  ALTER TABLE barbershops ADD COLUMN fee_credito_pct REAL NOT NULL DEFAULT 0;
+  ALTER TABLE barbershops ADD COLUMN fee_pix_pct REAL NOT NULL DEFAULT 0;
+  `,
 ];
 
 function migrate(): void {

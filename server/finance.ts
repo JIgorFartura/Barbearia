@@ -54,6 +54,41 @@ export function commissionFor(barberId: number | null, kind: 'service' | 'produc
   return Math.round((netCents * pct) / 100);
 }
 
+// ---------- taxa da maquininha antes da comissão
+
+export interface CommissionFees {
+  enabled: boolean;
+  debito_pct: number;
+  credito_pct: number;
+  pix_pct: number;
+}
+
+export function commissionFees(shopId: number): CommissionFees {
+  const r = get<{ fee_before_commission: number; fee_debito_pct: number; fee_credito_pct: number; fee_pix_pct: number }>(
+    'SELECT fee_before_commission, fee_debito_pct, fee_credito_pct, fee_pix_pct FROM barbershops WHERE id = ?',
+    [shopId],
+  )!;
+  return { enabled: Boolean(r.fee_before_commission), debito_pct: r.fee_debito_pct, credito_pct: r.fee_credito_pct, pix_pct: r.fee_pix_pct };
+}
+
+export function saveCommissionFees(shopId: number, f: CommissionFees): CommissionFees {
+  run('UPDATE barbershops SET fee_before_commission = ?, fee_debito_pct = ?, fee_credito_pct = ?, fee_pix_pct = ? WHERE id = ?', [
+    f.enabled ? 1 : 0,
+    f.debito_pct,
+    f.credito_pct,
+    f.pix_pct,
+    shopId,
+  ]);
+  return commissionFees(shopId);
+}
+
+/** % da taxa da forma de pagamento que sai antes da comissão (0 se o dono não ligou). */
+function feePctFor(shopId: number, method: Method): number {
+  const f = commissionFees(shopId);
+  if (!f.enabled) return 0;
+  return method === 'debito' ? f.debito_pct : method === 'credito' ? f.credito_pct : method === 'pix' ? f.pix_pct : 0;
+}
+
 // ---------- vendas
 
 export interface SaleItemInput {
@@ -293,10 +328,12 @@ export function createSale(input: SaleInput): SaleResult {
       run('INSERT INTO gift_card_uses (gift_card_id, sale_id, amount_cents, created_at) VALUES (?, ?, ?, ?)', [gift.id, saleId, gift.amount, nowIso()]);
     }
 
+    // Taxa da maquininha (se o dono ligou): sai do valor antes da comissão em %.
+    const feePct = feePctFor(shop, input.method);
     for (const i of items) {
       const gross = i.unit * i.qty;
       // A comissão em % incide sobre o valor cobrado: o desconto é dividido entre os itens.
-      const net = subtotal ? Math.round((gross * total) / subtotal) : 0;
+      const net = Math.round(((subtotal ? (gross * total) / subtotal : 0) * (100 - feePct)) / 100);
       const commission = i.clubMemberId
         ? Math.round((commissionFor(i.barberId, i.kind, i.catalogId, i.qty, i.listCents) * (club?.commissionPct ?? 100)) / 100)
         : i.packageId
