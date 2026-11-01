@@ -37,6 +37,18 @@ export const TEMPLATES = {
     body: 'Olá, {{1}}! Como não recebemos a sua confirmação, liberamos o horário de {{2}} na {{3}}. Se ainda quiser vir, responda que a gente vê outro horário.',
     example: ['João', 'sábado, 24/10 às 11h', 'Barbearia Navalha de Ouro'],
   },
+  fila: {
+    label: 'Entrou na fila de chegada',
+    category: 'UTILITY',
+    body: 'Olá, {{1}}! Você entrou na fila da {{2}} com a senha {{3}}. Previsão de atendimento: {{4}}. Avisamos por aqui quando for a sua vez.',
+    example: ['João', 'Barbearia Navalha de Ouro', '7', '15:40'],
+  },
+  fila_vez: {
+    label: 'Sua vez na fila de chegada',
+    category: 'UTILITY',
+    body: '{{1}}, é a sua vez na {{2}}! O {{3}} já vai te atender (senha {{4}}).',
+    example: ['João', 'Barbearia Navalha de Ouro', 'Paulo', '7'],
+  },
   costume: {
     label: 'Oferta do horário de costume',
     category: 'MARKETING',

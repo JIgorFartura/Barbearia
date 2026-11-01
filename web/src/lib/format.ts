@@ -37,3 +37,6 @@ export const instagramLink = (handle: string) => `https://instagram.com/${handle
 
 /** De onde veio o desconto do horário. */
 export const promoLabel = (kind: 'vazio' | 'volta' | null | undefined) => (kind === 'volta' ? 'desconto de volta' : 'horário vazio');
+
+/** Minutos por extenso curto: "40 min", "2h", "6h18". */
+export const minutesLabel = (min: number) => (min < 60 ? `${min} min` : `${Math.floor(min / 60)}h${min % 60 ? String(min % 60).padStart(2, '0') : ''}`);

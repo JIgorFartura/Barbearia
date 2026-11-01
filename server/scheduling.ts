@@ -87,22 +87,24 @@ export function resolveService(shopId: number, serviceId: number | null | undefi
   return list.find((s) => /^corte/i.test(s.name)) ?? list[0] ?? null;
 }
 
-const durationOf = (service: Service | null) => service?.duration_min || DEFAULT_DURATION;
+export const durationOf = (service: Service | null) => service?.duration_min || DEFAULT_DURATION;
 
-interface Range {
+export interface Range {
   start: number;
   end: number;
 }
 
-function workRanges(barberId: number, date: string): Range[] {
+export function workRanges(barberId: number, date: string): Range[] {
   return all<{ start_time: string; end_time: string }>('SELECT start_time, end_time FROM barber_hours WHERE barber_id = ? AND weekday = ?', [
     barberId,
     weekdayOf(date),
-  ]).map((r) => ({ start: toMinutes(r.start_time), end: toMinutes(r.end_time) }));
+  ])
+    .map((r) => ({ start: toMinutes(r.start_time), end: toMinutes(r.end_time) }))
+    .sort((a, b) => a.start - b.start);
 }
 
 /** Horários ocupados no dia (agendamentos e bloqueios), em minutos desde 00:00. */
-function busyRanges(barberId: number, date: string, ignoreAppointmentId = 0): Range[] {
+export function busyRanges(barberId: number, date: string, ignoreAppointmentId = 0): Range[] {
   const dayStart = `${date} 00:00`;
   const dayEnd = `${addDays(date, 1)} 00:00`;
   const clip = (stamp: string, fallback: number) => (stamp.slice(0, 10) === date ? toMinutes(stamp.slice(11)) : fallback);

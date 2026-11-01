@@ -1238,6 +1238,32 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbershops ADD COLUMN billing_months INTEGER NOT NULL DEFAULT 1 CHECK (billing_months IN (1, 3, 6, 12));
   UPDATE barbershops SET billing_months = 12 WHERE billing_cycle = 'anual';
   `,
+  // 32: fila de chegada (quem vem sem horário). Corre ao lado da agenda: quem tem horário marcado
+  // mantém o horário dele, e a fila usa só os intervalos livres de cada barbeiro.
+  `
+  ALTER TABLE barbershops ADD COLUMN queue_enabled INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE queue_entries (
+    id INTEGER PRIMARY KEY,
+    barbershop_id INTEGER NOT NULL REFERENCES barbershops(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    ticket INTEGER NOT NULL,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    phone TEXT,
+    barber_id INTEGER REFERENCES barbers(id) ON DELETE SET NULL,
+    service_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL,
+    served_by INTEGER REFERENCES barbers(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'called', 'serving', 'done', 'left')),
+    source TEXT NOT NULL DEFAULT 'qr' CHECK (source IN ('qr', 'balcao')),
+    token TEXT NOT NULL UNIQUE,
+    sale_id INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    called_at TEXT,
+    started_at TEXT,
+    finished_at TEXT
+  );
+  CREATE INDEX queue_day ON queue_entries (barbershop_id, date, status);
+  `,
 ];
 
 function migrate(): void {

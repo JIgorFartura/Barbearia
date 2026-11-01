@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { queueLink, queueView } from '../queue.js';
 import { config } from '../config.js';
 import { describeItems, usualConsumption } from '../consumption.js';
 import { availableQty } from '../stock.js';
@@ -60,6 +61,14 @@ export function buildContext(ctx: BotContext): string {
   if (shop.address) lines.push(`Endereço: ${shop.address}.`);
   if (shop.hours) lines.push(`Funcionamento: ${shop.hours}.`);
   if (shop.whatsapp) lines.push(`WhatsApp da equipe: ${shop.whatsapp}.`);
+  if (shop.queue_enabled) {
+    // Ordem de chegada: a fila corre ao lado da agenda (quem marcou mantém o horário).
+    const q = queueView(shop.id, ctx.now);
+    const waiting = q.entries.filter((e) => e.status === 'waiting').length;
+    lines.push(
+      `FILA DE CHEGADA: a barbearia também atende sem horário marcado. Quem quiser vir sem marcar entra na fila pelo link ${queueLink(shop.slug)} e é avisado aqui quando for a vez. Agora: ${waiting} esperando; quem entrar agora tem previsão ${q.nextFree.expected_at ?? 'só amanhã (hoje não cabe mais)'}. Quem prefere hora certa, marque na agenda normalmente.`,
+    );
+  }
   lines.push(`Agora: ${WEEKDAYS[now.weekday]}, ${now.date.slice(8, 10)}/${now.date.slice(5, 7)}/${now.date.slice(0, 4)}, ${now.time}.`);
   const calendar = Array.from({ length: 15 }, (_, i) => {
     const d = addDays(now.date, i);

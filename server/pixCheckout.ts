@@ -12,7 +12,7 @@ import { ensureCustomer, normalizeCpf, qrFrom, saveCustomerCpf, shopAsaasCall, s
  */
 
 /** A comanda como foi montada na tela (vira a venda quando o PIX cai). */
-export type PixSaleInput = Pick<SaleInput, 'appointmentId' | 'customerId' | 'items' | 'discountCents' | 'giftCode' | 'giftCents' | 'notes'>;
+export type PixSaleInput = Pick<SaleInput, 'appointmentId' | 'customerId' | 'items' | 'discountCents' | 'giftCode' | 'giftCents' | 'notes' | 'queueEntryId'>;
 
 export interface PixCheckoutView {
   id: number;

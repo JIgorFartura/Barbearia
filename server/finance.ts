@@ -84,6 +84,8 @@ export interface SaleInput {
   giftCents?: number | null;
   /** Categoria da entrada no caixa (padrão: Atendimentos). */
   category?: string;
+  /** Atendimento da fila de chegada que esta comanda fecha. */
+  queueEntryId?: number | null;
   now?: Date;
   /** Só conferir e calcular (previewSale): sem avisos para fora (prêmio de indicação). */
   preview?: boolean;
@@ -185,6 +187,17 @@ export function createSale(input: SaleInput): SaleResult {
       }
       customerId = a.customer_id;
       defaultBarber = a.barber_id;
+    }
+    // Da fila de chegada: o cliente e o barbeiro que chamou já vêm da senha.
+    if (input.queueEntryId) {
+      const q = get<{ customer_id: number | null; served_by: number | null; status: string }>('SELECT customer_id, served_by, status FROM queue_entries WHERE id = ? AND barbershop_id = ?', [
+        input.queueEntryId,
+        shop,
+      ]);
+      if (!q) throw new HttpError(404, 'Ninguém com essa senha na fila.');
+      if (!['waiting', 'called', 'serving'].includes(q.status)) throw new HttpError(409, 'Esse atendimento da fila já foi fechado.');
+      customerId = customerId ?? q.customer_id;
+      defaultBarber = defaultBarber ?? q.served_by;
     }
     if (customerId && !get('SELECT 1 AS ok FROM customers WHERE id = ? AND barbershop_id = ?', [customerId, shop])) throw new HttpError(404, 'Cliente não encontrado.');
     if (!input.items.length) throw new HttpError(400, 'Inclua pelo menos um item.');
@@ -289,6 +302,15 @@ export function createSale(input: SaleInput): SaleResult {
 
     // Produtos com controle de estoque saem da prateleira.
     stockOutForSale(shop, saleId, items, input.userId);
+
+    if (input.queueEntryId) {
+      run("UPDATE queue_entries SET status = 'done', sale_id = ?, finished_at = ?, started_at = COALESCE(started_at, ?) WHERE id = ?", [
+        saleId,
+        nowIso(),
+        nowIso(),
+        input.queueEntryId,
+      ]);
+    }
 
     const customerName = customerId ? get<{ name: string }>('SELECT name FROM customers WHERE id = ?', [customerId])?.name : null;
     // O que foi pago com vale-presente já entrou no caixa quando o vale foi vendido.

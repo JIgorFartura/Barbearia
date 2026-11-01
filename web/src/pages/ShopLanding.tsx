@@ -1,4 +1,4 @@
-import { AtSign, CalendarCheck, Check, Clock, Crown, Gift, Handshake, MapPin, MessageCircle, Package, Scissors, Sparkles, UserRound } from 'lucide-react';
+import { AtSign, CalendarCheck, Check, Clock, Crown, Gift, Handshake, ListOrdered, MapPin, MessageCircle, Package, Scissors, Sparkles, UserRound } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { instagramLink, money, whatsappLink } from '../lib/format';
@@ -7,6 +7,8 @@ interface PageData {
   shop: {
     slug: string;
     name: string;
+    /** Atende por ordem de chegada (fila pelo celular), além ou no lugar da agenda. */
+    queue_enabled: number;
     tagline: string | null;
     about: string | null;
     primary_color: string;
@@ -76,6 +78,11 @@ export function ShopLanding({ slug }: { slug: string }) {
                   <MessageCircle className="size-5" /> Agendar pelo WhatsApp
                 </a>
               )
+            )}
+            {Boolean(shop.queue_enabled) && (
+              <a href={`/b/${slug}/fila`} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 font-bold text-zinc-950 shadow">
+                <ListOrdered className="size-5" /> Entrar na fila
+              </a>
             )}
             <a href={`/b/${slug}/conta`} className="inline-flex items-center gap-2 rounded-full bg-white/15 px-5 py-2.5 font-semibold backdrop-blur hover:bg-white/25">
               <UserRound className="size-5" /> {data.loggedIn ? 'Minha área' : 'Entrar'}

@@ -17,13 +17,15 @@ import { vapidKeys } from '../push.js';
 import { createSession } from '../auth.js';
 import { platformSettings } from '../billing.js';
 import { signup } from '../signup.js';
+import { joinQueue, leaveByToken, publicEntry, queueEnabled, queueView } from '../queue.js';
+import { services } from '../scheduling.js';
 import { zPassword } from './auth.js';
 
 /** Dados da landing page de cada barbearia (/b/:slug) e login da área do cliente — sem login. */
 export const publicRouter = Router();
 
 /** Só o que pode aparecer no site (nunca credenciais do WhatsApp nem configurações internas). */
-const PUBLIC_FIELDS = 'id, slug, name, tagline, about, primary_color, accent_color, logo_url, cover_url, whatsapp, instagram, address, hours, bot_name';
+const PUBLIC_FIELDS = 'id, slug, name, tagline, about, primary_color, accent_color, logo_url, cover_url, whatsapp, instagram, address, hours, bot_name, queue_enabled';
 
 interface Shop {
   id: number;
@@ -133,6 +135,58 @@ publicRouter.get('/shops/:slug/referral/:code', (req, res) => {
 publicRouter.get('/shops/:slug/brand', (req, res) => {
   const { id, ...profile } = shopBySlug(String(req.params.slug));
   res.json({ ...profile, connected: shopBot(id).wa_provider !== 'simulador', loggedIn: Boolean(sessionCustomer(req, id)) });
+});
+
+// ---------- fila de chegada (QR Code no balcão)
+
+/** Como está a fila agora: quantos esperando, a previsão de quem chegar e o que escolher. */
+publicRouter.get('/shops/:slug/queue', (req, res) => {
+  const { id, ...profile } = shopBySlug(String(req.params.slug));
+  if (!queueEnabled(id)) return res.json({ shop: profile, enabled: false });
+  const view = queueView(id);
+  res.json({
+    shop: profile,
+    enabled: true,
+    waiting: view.entries.filter((e) => e.status === 'waiting').length,
+    next: view.nextFree,
+    barbers: view.barbers.map((b) => ({ id: b.id, name: b.name })),
+    services: services(id).map(({ id: sid, name, duration_min }) => ({ id: sid, name, duration_min })),
+  });
+});
+
+publicRouter.post('/shops/:slug/queue', async (req, res) => {
+  rateLimit(`fila:${ip(req)}`, 6, 3600000, 'Muitas entradas na fila deste aparelho. Fale com a recepção.');
+  const { id } = shopBySlug(String(req.params.slug));
+  const body = parseBody(
+    z.object({
+      name: z.string().trim().min(2, 'Informe o seu nome.').max(80),
+      phone: z.string().max(30),
+      barber_id: z.number().int().positive().nullish(),
+      service_id: z.number().int().positive().nullish(),
+      accept: z.literal(true, 'Para entrar na fila, aceite a política de privacidade.'),
+    }),
+    req.body,
+  );
+  const entry = await joinQueue({
+    shopId: id,
+    name: body.name,
+    phone: normalizePhone(body.phone),
+    barberId: body.barber_id,
+    serviceId: body.service_id,
+    source: 'qr',
+    privacyAccepted: true,
+  });
+  res.status(201).json({ token: entry.token });
+});
+
+/** A senha do cliente (pelo link): posição, previsão e se já foi chamado. */
+publicRouter.get('/queue/:token', (req, res) => {
+  res.json(publicEntry(String(req.params.token)));
+});
+
+publicRouter.post('/queue/:token/leave', (req, res) => {
+  leaveByToken(String(req.params.token));
+  res.json({ ok: true });
 });
 
 /** Dados da empresa para os termos de uso e a política de privacidade da plataforma. */

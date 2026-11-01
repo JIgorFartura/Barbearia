@@ -78,6 +78,7 @@ const zEntry = z.object({
 /** A comanda montada na tela (venda direta ou PIX com confirmação automática). */
 const zComanda = z.object({
   appointment_id: zId.nullish(),
+  queue_entry_id: zId.nullish(),
   customer_id: zId.nullish(),
   items: z
     .array(
@@ -356,6 +357,7 @@ export function registerFinanceRoutes(router: Router): void {
       shopId: shopId(req),
       userId: req.user!.id,
       appointmentId: body.appointment_id,
+      queueEntryId: body.queue_entry_id,
       customerId: body.customer_id,
       items: body.items,
       discountCents: body.discount_cents,
@@ -392,6 +394,7 @@ export function registerFinanceRoutes(router: Router): void {
       req.user!.id,
       {
         appointmentId: body.appointment_id,
+        queueEntryId: body.queue_entry_id,
         customerId: body.customer_id,
         items: body.items,
         discountCents: body.discount_cents,

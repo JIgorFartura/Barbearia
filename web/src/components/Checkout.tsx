@@ -115,14 +115,24 @@ const OWNER: CheckoutEndpoints = {
  * Fechar o atendimento (ou uma venda de balcão): itens, quem atendeu, desconto e forma de pagamento.
  * Gera a entrada no caixa, a comissão do barbeiro e os carimbos das campanhas.
  */
+/** Atendimento da fila de chegada: a comanda já vem com o cliente, o serviço e o barbeiro que chamou. */
+export interface QueuePreset {
+  id: number;
+  customer: { id: number; name: string } | null;
+  serviceId: number | null;
+  barberId: number | null;
+}
+
 export function CheckoutModal({
   appointmentId,
+  queue,
   customer: presetCustomer,
   onClose,
   onDone,
   endpoints = OWNER,
 }: {
   appointmentId?: number;
+  queue?: QueuePreset;
   customer?: { id: number; name: string } | null;
   onClose: () => void;
   onDone: () => void;
@@ -130,7 +140,7 @@ export function CheckoutModal({
 }) {
   const [data, setData] = useState<CheckoutData | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
-  const [customer, setCustomer] = useState<{ id: number; name: string } | null>(presetCustomer ?? null);
+  const [customer, setCustomer] = useState<{ id: number; name: string } | null>(presetCustomer ?? queue?.customer ?? null);
   const [q, setQ] = useState('');
   const [found, setFound] = useState<{ id: number; name: string; phone: string }[]>([]);
   const [discount, setDiscount] = useState('');
@@ -154,6 +164,13 @@ export function CheckoutModal({
     api<CheckoutData>('GET', `${endpoints.checkout}${appointmentId ? `?appointment_id=${appointmentId}` : ''}`).then((d) => {
       setData(d);
       const a = d.appointment;
+      if (!a && queue) {
+        // Da fila: o serviço escolhido (ou o primeiro corte) no nome do barbeiro que chamou.
+        const services = d.catalog.filter((c) => c.kind === 'service');
+        const service = services.find((c) => c.id === queue.serviceId) ?? services.find((c) => /^corte/i.test(c.name)) ?? services[0];
+        if (service) setLines([{ key: nextKey++, catalog_item_id: service.id, kind: 'service', name: service.name, qty: 1, unit_price_cents: service.price_cents, barber_id: queue.barberId }]);
+        return;
+      }
       if (!a) return;
       setCustomer({ id: a.customer_id, name: a.customer_name });
       const service = d.catalog.find((c) => c.id === a.service_id);
@@ -288,6 +305,7 @@ export function CheckoutModal({
 
   const comanda = () => ({
     appointment_id: appointmentId ?? null,
+    queue_entry_id: queue?.id ?? null,
     customer_id: appointmentId ? null : (customer?.id ?? null),
     items: lines.map((l) => ({
       catalog_item_id: l.catalog_item_id,

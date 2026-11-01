@@ -21,6 +21,7 @@ export type MessageKind =
   | 'espera'
   | 'liberado'
   | 'vazio'
+  | 'fila'
   | 'aviso';
 
 export interface ShopBot {
@@ -43,6 +44,8 @@ export interface ShopBot {
   habit_weekday: number;
   habit_time: string;
   winback_enabled: number;
+  /** Atende por ordem de chegada (fila pelo celular), junto com a agenda. */
+  queue_enabled?: number;
   winback_days: number;
   winback_message: string | null;
   /** Quem já tem ritmo é chamado quando passa bem do tempo dele (senão, todos pelo prazo). */

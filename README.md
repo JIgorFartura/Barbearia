@@ -277,6 +277,25 @@ cliente:
   mostrar os números ao anunciante.
 - **Parceiros**: logo, ramo, Instagram e o benefício de quem é cliente da barbearia.
 
+## Fila de chegada (sem horário marcado)
+
+Para barbearias que atendem por ordem de chegada, só assim ou junto com a agenda. O dono liga em
+*Fila de chegada*. **A fila não mexe na agenda**: quem tem horário marcado mantém o horário, e a
+previsão de cada um da fila usa só os intervalos livres de cada barbeiro (expediente menos horários
+marcados e bloqueios).
+
+- **QR Code do balcão**: o cartaz sai pronto para imprimir. O cliente aponta a câmera, informa nome e
+  celular (com o aceite da política), escolhe o barbeiro e o serviço se quiser, e recebe a senha com
+  quantos estão na frente e a previsão. Pelo link da senha ele acompanha e pode sair da fila.
+- **Chegou alguém**: a recepção põe na fila quem chegou no balcão (o celular é opcional).
+- **Chamar o próximo**: no painel e no app do barbeiro. Vem o primeiro que escolheu aquele barbeiro ou
+  qualquer um, e ele é avisado no WhatsApp (e no app, se instalou). O cartão de cada barbeiro mostra o
+  próximo horário marcado e quanto tempo ele tem livre até lá.
+- **Fechar comanda**: abre a comanda com o cliente, o serviço e o barbeiro; ao fechar, o atendimento da
+  fila termina. Também dá para marcar *Sentou*, *Volta pra fila* ou *Não veio*.
+- O site mostra o botão *Entrar na fila*, e o robô do WhatsApp passa o link e a previsão para quem
+  pergunta. Modelos da Meta novos: `fila` (entrou na fila) e `fila_vez` (é a sua vez).
+
 ## Rede com filiais
 
 O dono abre mais unidades em *Unidades* (começam nos dias grátis, com as cores e o nome do robô da

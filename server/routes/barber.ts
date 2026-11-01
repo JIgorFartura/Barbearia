@@ -12,6 +12,7 @@ import { HttpError, idParam, parseBody, zId, zText } from '../http.js';
 import { customerPackages, giftCardByCode } from '../prepaid.js';
 import { autoSaleNfse } from '../shopNfse.js';
 import { addPhoto, barberSeesCustomer, customerProfile, deletePhoto, photoOf, profileSummary, saveNotes, sendPhoto, zNotes, zPhoto } from '../profile.js';
+import { callNext, leaveQueue, queueEnabled, queueView, startEntry } from '../queue.js';
 import { dayAgenda } from '../scheduling.js';
 import { availableQty } from '../stock.js';
 import { addDays, isDate } from '../time.js';
@@ -39,6 +40,13 @@ function myAppointment(req: Request, id: number) {
   ]);
   if (!a || a.barber_id !== barber) throw new HttpError(404, 'Horário não encontrado na sua agenda.');
   return a;
+}
+
+/** Cliente da fila chamado por este barbeiro. */
+function myQueueEntry(req: Request, id: number) {
+  const { shop, barber } = ids(req);
+  const q = get<{ served_by: number | null }>('SELECT served_by FROM queue_entries WHERE id = ? AND barbershop_id = ?', [id, shop]);
+  if (!q || q.served_by !== barber) throw new HttpError(404, 'Esse cliente da fila não está com você.');
 }
 
 const canClose = (shop: number) => Boolean(get<{ barber_can_close: number }>('SELECT barber_can_close FROM barbershops WHERE id = ?', [shop])?.barber_can_close);
@@ -207,6 +215,7 @@ barberRouter.post('/sales', (req, res) => {
   const body = parseBody(
     z.object({
       appointment_id: zId.nullish(),
+      queue_entry_id: zId.nullish(),
       customer_id: zId.nullish(),
       items: z
         .array(
@@ -232,11 +241,13 @@ barberRouter.post('/sales', (req, res) => {
     req.body,
   );
   if (body.appointment_id) myAppointment(req, body.appointment_id);
+  if (body.queue_entry_id) myQueueEntry(req, body.queue_entry_id);
   if (body.items.some((i) => i.barber_id && i.barber_id !== barber)) throw new HttpError(403, 'Você só lança vendas no seu nome.');
   const result = createSale({
       shopId: shop,
       userId: user,
       appointmentId: body.appointment_id,
+      queueEntryId: body.queue_entry_id,
       customerId: body.customer_id,
       // No horário dele, item sem barbeiro fica com ele; "sem comissão" só na venda de balcão.
       items: body.items,
@@ -248,6 +259,33 @@ barberRouter.post('/sales', (req, res) => {
     });
   autoSaleNfse(shop, result.sale.id);
   res.status(201).json(result);
+});
+
+// ---------- fila de chegada: ele vê a fila e chama o próximo para a cadeira dele
+
+barberRouter.get('/queue', (req, res) => {
+  const { shop } = ids(req);
+  const view = queueView(shop);
+  // O barbeiro vê a fila (nomes e senhas), sem o celular de ninguém.
+  res.json({ enabled: queueEnabled(shop), ...view, entries: view.entries.map(({ phone: _phone, token: _token, ...e }) => e) });
+});
+
+barberRouter.post('/queue/call', async (req, res) => {
+  const { shop, barber } = ids(req);
+  const called = await callNext(shop, barber);
+  res.json({ called: called ? { ...called, phone: null, token: null } : null });
+});
+
+barberRouter.post('/queue/:id/start', (req, res) => {
+  const { shop, barber } = ids(req);
+  startEntry(shop, idParam(req), barber);
+  res.json({ ok: true });
+});
+
+barberRouter.post('/queue/:id/left', (req, res) => {
+  const { shop, barber } = ids(req);
+  leaveQueue(shop, idParam(req), barber);
+  res.json({ ok: true });
 });
 
 /** Meus ganhos: só a parte dele (comissão em aberto, extrato das comissões e pagamentos recebidos). */

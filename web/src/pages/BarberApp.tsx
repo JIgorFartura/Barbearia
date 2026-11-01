@@ -1,13 +1,13 @@
-import { CalendarDays, ChevronLeft, ChevronRight, LogOut, MessageCircle, Phone, Receipt, Star, UserCog, Wallet } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, ListOrdered, LogOut, Megaphone, MessageCircle, Phone, Receipt, Star, UserCog, Wallet } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
-import { CheckoutModal, type CheckoutEndpoints } from '../components/Checkout';
+import { CheckoutModal, type CheckoutEndpoints, type QueuePreset } from '../components/Checkout';
 import { ProfileLine, ProfileModal, type ProfileSummary } from '../components/Profile';
 import { PushBanner } from '../components/AppInstall';
 import { Badge, Button, Card, ErrorText } from '../components/ui';
 import { api } from '../lib/api';
-import { addDays, cap, date as fmtDate, dayLabel, money, promoLabel, todayStr, whatsappLink } from '../lib/format';
+import { addDays, cap, date as fmtDate, dayLabel, hourLabel, minutesLabel, money, promoLabel, todayStr, whatsappLink } from '../lib/format';
 
 interface BarberMe {
   barber: { id: number; name: string; photo_url: string | null };
@@ -164,6 +164,7 @@ function BarberAgenda({ info }: { info: BarberMe }) {
         </button>
       </div>
       <ErrorText error={error} />
+      {isToday && <BarberQueue info={info} onClosed={load} />}
       {data?.blocks.map((b) => (
         <p key={b.id} className="rounded-xl bg-zinc-100 px-4 py-2 text-sm text-zinc-600">
           Folga/bloqueio {b.starts_at.slice(11)}–{b.ends_at.slice(11)}
@@ -266,6 +267,111 @@ function BarberAgenda({ info }: { info: BarberMe }) {
         />
       )}
     </section>
+  );
+}
+
+interface QueueEntry {
+  id: number;
+  ticket: number;
+  customer_id: number | null;
+  name: string;
+  barber_id: number | null;
+  service_id: number | null;
+  service_name: string | null;
+  served_by: number | null;
+  status: 'waiting' | 'called' | 'serving';
+}
+
+/** Fila de chegada (se a barbearia usa): quem está esperando e o "chamar o próximo" para a cadeira dele. */
+function BarberQueue({ info, onClosed }: { info: BarberMe; onClosed: () => void }) {
+  const [data, setData] = useState<{
+    enabled: boolean;
+    entries: QueueEntry[];
+    barbers: { id: number; next_appointment: { time: string; customer: string } | null; free_min: number }[];
+  } | null>(null);
+  const [closing, setClosing] = useState<QueuePreset | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => api<typeof data>('GET', '/api/barber/queue').then(setData, () => undefined), []);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  async function act(url: string) {
+    setError(null);
+    try {
+      const r = await api<{ called?: QueueEntry | null }>('POST', url);
+      if (r && 'called' in r && !r.called) setError('Ninguém esperando por você agora.');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    load();
+  }
+
+  if (!data?.enabled) return null;
+  const me = info.barber.id;
+  const mine = data.entries.find((e) => e.status !== 'waiting' && e.served_by === me);
+  const forMe = data.entries.filter((e) => e.status === 'waiting' && (!e.barber_id || e.barber_id === me));
+  const lane = data.barbers.find((b) => b.id === me);
+  return (
+    <Card className="!p-4">
+      <p className="flex items-center gap-2 font-semibold">
+        <ListOrdered className="size-5 text-zinc-400" /> Fila de chegada
+        <Badge>{forMe.length} esperando</Badge>
+      </p>
+      <ErrorText error={error} />
+      {mine ? (
+        <div className="mt-3 rounded-xl bg-emerald-50 p-3 ring-1 ring-emerald-200">
+          <p className="font-semibold">
+            Senha {mine.ticket} · {mine.name}
+          </p>
+          <p className="text-xs text-emerald-800">{mine.status === 'called' ? 'Chamado, a caminho da cadeira' : 'Na cadeira'}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {mine.status === 'called' && (
+              <Button className="!px-2.5 !py-1 text-xs" onClick={() => act(`/api/barber/queue/${mine.id}/start`)}>
+                Sentou
+              </Button>
+            )}
+            {info.canClose && (
+              <Button
+                className="!px-2.5 !py-1 text-xs"
+                variant="gold"
+                onClick={() => setClosing({ id: mine.id, customer: mine.customer_id ? { id: mine.customer_id, name: mine.name } : null, serviceId: mine.service_id, barberId: me })}
+              >
+                Fechar comanda
+              </Button>
+            )}
+            <Button className="!px-2.5 !py-1 text-xs" variant="ghost" onClick={() => act(`/api/barber/queue/${mine.id}/left`)}>
+              Não veio
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {lane?.next_appointment && (
+            <p className="mt-2 text-sm text-zinc-500">
+              Próximo horário marcado: {hourLabel(lane.next_appointment.time)} ({lane.next_appointment.customer}). Livre por {minutesLabel(lane.free_min)}.
+            </p>
+          )}
+          <Button className="mt-3 w-full" disabled={!forMe.length} onClick={() => act('/api/barber/queue/call')}>
+            <Megaphone className="size-4" /> Chamar o próximo{forMe[0] ? ` (senha ${forMe[0].ticket})` : ''}
+          </Button>
+        </>
+      )}
+      {closing && (
+        <CheckoutModal
+          queue={closing}
+          endpoints={ENDPOINTS}
+          onClose={() => setClosing(null)}
+          onDone={() => {
+            setClosing(null);
+            load();
+            onClosed();
+          }}
+        />
+      )}
+    </Card>
   );
 }
 

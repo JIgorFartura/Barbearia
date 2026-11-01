@@ -10,6 +10,7 @@ import {
   HandCoins,
   Gift,
   Handshake,
+  ListOrdered,
   LayoutDashboard,
   Lock,
   LogOut,
@@ -54,6 +55,7 @@ import { Reviews } from './panel/Reviews';
 import { Stock } from './panel/Stock';
 import { Subscription } from './panel/Subscription';
 import { Summary } from './panel/Summary';
+import { Queue } from './panel/Queue';
 import { Units, switchUnit } from './panel/Units';
 import { DeskContext } from '../lib/role';
 import { PushBanner } from '../components/AppInstall';
@@ -61,6 +63,7 @@ import { PushBanner } from '../components/AppInstall';
 const SECTIONS = [
   { id: '', label: 'Resumo', icon: LayoutDashboard },
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
+  { id: 'fila', label: 'Fila de chegada', icon: ListOrdered },
   { id: 'balcao', label: 'Balcão', icon: Store },
   { id: 'financeiro', label: 'Financeiro', icon: Wallet },
   { id: 'relatorios', label: 'Relatórios', icon: BarChart3 },
@@ -115,7 +118,7 @@ const period = (r: Row) =>
   r.starts_on || r.ends_on ? `${r.starts_on ? date(r.starts_on) : 'já'} até ${r.ends_on ? date(r.ends_on) : 'sem fim'}` : 'Sem data de término';
 
 /** O que a recepção vê no painel (sem o financeiro, os relatórios e as configurações). */
-const DESK_SECTIONS = ['agenda', 'balcao', 'pacotes'];
+const DESK_SECTIONS = ['agenda', 'fila', 'balcao', 'pacotes'];
 
 /** Painel do dono da barbearia (e, com menos telas, da recepção). */
 export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
@@ -216,6 +219,9 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
       break;
     case 'agenda':
       content = <Agenda />;
+      break;
+    case 'fila':
+      content = <Queue />;
       break;
     case 'barbeiros':
       content = <Barbers />;
