@@ -193,6 +193,10 @@ em dia não pagam sinal.
   do dia sai com X% de desconto para quem marca no mesmo dia (marcando antes, preço normal).
 - **Barbeiros**: expediente com pausas, folgas, bloqueios, comissão (por serviço, inclusive valor
   fixo) e acesso ao sistema. **Recepção**: logins do balcão, sem o financeiro.
+- **Agenda no Google Agenda**: no app do barbeiro, *Ver minha agenda no Google Agenda* dá um link
+  secreto de calendário (.ics) que o Google Agenda e o calendário do iPhone leem sozinhos, com os
+  horários dele (primeiro nome do cliente e serviço, sem celular). O dono também copia o link em
+  *Barbeiros*. Gerar um link novo desliga o antigo.
 
 ## Clube de assinatura
 

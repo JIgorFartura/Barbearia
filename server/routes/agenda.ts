@@ -1,4 +1,5 @@
 import type { Router } from 'express';
+import { calendarLink } from '../calendar.js';
 import { depositOnNoShow } from '../deposits.js';
 import { z } from 'zod';
 import { hashPassword, isReception, shopId } from '../auth.js';
@@ -149,6 +150,11 @@ export function registerAgendaRoutes(router: Router): void {
   });
 
   // Acesso do barbeiro ao sistema (login pelo celular ou e-mail)
+  /** Link da agenda do barbeiro para o Google Agenda (o dono passa para quem não usa o app). */
+  router.get('/barbers/:id/calendar', (req, res) => {
+    res.json({ url: calendarLink(shopId(req), barberOf(shopId(req), idParam(req)).id) });
+  });
+
   router.post('/barbers/:id/access', (req, res) => {
     const shop = shopId(req);
     const id = barberOf(shop, idParam(req)).id;

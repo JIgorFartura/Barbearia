@@ -19,6 +19,7 @@ import { platformSettings } from '../billing.js';
 import { signup } from '../signup.js';
 import { joinQueue, leaveByToken, publicEntry, queueEnabled, queueView } from '../queue.js';
 import { services } from '../scheduling.js';
+import { barberIcs } from '../calendar.js';
 import { zPassword } from './auth.js';
 
 /** Dados da landing page de cada barbearia (/b/:slug) e login da área do cliente — sem login. */
@@ -187,6 +188,13 @@ publicRouter.get('/queue/:token', (req, res) => {
 publicRouter.post('/queue/:token/leave', (req, res) => {
   leaveByToken(String(req.params.token));
   res.json({ ok: true });
+});
+
+/** Agenda do barbeiro para o Google Agenda (link secreto). */
+publicRouter.get('/calendar/:file', (req, res) => {
+  const token = String(req.params.file).replace(/\.ics$/, '');
+  res.type('text/calendar; charset=utf-8').setHeader('cache-control', 'no-store');
+  res.send(barberIcs(token));
 });
 
 /** Dados da empresa para os termos de uso e a política de privacidade da plataforma. */

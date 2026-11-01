@@ -1315,6 +1315,11 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbershops ADD COLUMN deposit_cents INTEGER NOT NULL DEFAULT 2000;
   ALTER TABLE barbershops ADD COLUMN deposit_hold_min INTEGER NOT NULL DEFAULT 60;
   `,
+  // 38: link secreto da agenda do barbeiro para o Google Agenda (.ics).
+  `
+  ALTER TABLE barbers ADD COLUMN calendar_token TEXT;
+  CREATE UNIQUE INDEX barbers_calendar ON barbers (calendar_token) WHERE calendar_token IS NOT NULL;
+  `,
 ];
 
 function migrate(): void {

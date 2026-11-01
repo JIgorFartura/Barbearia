@@ -164,6 +164,7 @@ function BarberAgenda({ info }: { info: BarberMe }) {
         </button>
       </div>
       <ErrorText error={error} />
+      <CalendarLink />
       {isToday && <BarberQueue info={info} onClosed={load} />}
       {data?.blocks.map((b) => (
         <p key={b.id} className="rounded-xl bg-zinc-100 px-4 py-2 text-sm text-zinc-600">
@@ -371,6 +372,47 @@ function BarberQueue({ info, onClosed }: { info: BarberMe; onClosed: () => void 
           }}
         />
       )}
+    </Card>
+  );
+}
+
+/** Link da agenda dele para o Google Agenda (ou o calendário do iPhone). */
+function CalendarLink() {
+  const [url, setUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  if (!url) {
+    return (
+      <button className="flex items-center gap-1.5 text-sm font-medium text-zinc-600 underline" onClick={() => api<{ url: string }>('GET', '/api/barber/calendar').then((r) => setUrl(r.url))}>
+        <CalendarDays className="size-4" /> Ver minha agenda no Google Agenda
+      </button>
+    );
+  }
+  const webcal = url.replace(/^https?:/, 'webcal:');
+  return (
+    <Card className="!p-4 space-y-2 text-sm">
+      <p className="font-semibold">Sua agenda no Google Agenda</p>
+      <p className="text-zinc-600">
+        <b>No celular</b>: toque em <i>Adicionar ao calendário</i>. <b>No Google Agenda (computador)</b>: Outras agendas → + → <i>Do URL</i> → cole o link. Os
+        horários aparecem com o primeiro nome do cliente e se atualizam sozinhos.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <a href={webcal} className="rounded-lg bg-zinc-900 px-3 py-1.5 font-medium text-white">
+          Adicionar ao calendário
+        </a>
+        <Button
+          variant="ghost"
+          className="!py-1.5"
+          onClick={() =>
+            navigator.clipboard.writeText(url).then(
+              () => setCopied(true),
+              () => undefined,
+            )
+          }
+        >
+          {copied ? 'Copiado!' : 'Copiar link'}
+        </Button>
+      </div>
+      <p className="text-xs text-zinc-500">O link é só seu: não compartilhe.</p>
     </Card>
   );
 }

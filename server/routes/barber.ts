@@ -14,6 +14,7 @@ import { autoSaleNfse } from '../shopNfse.js';
 import { addPhoto, barberSeesCustomer, customerProfile, deletePhoto, photoOf, profileSummary, saveNotes, sendPhoto, zNotes, zPhoto } from '../profile.js';
 import { callNext, leaveQueue, queueEnabled, queueView, startEntry } from '../queue.js';
 import { depositOnNoShow, prepaidDeposit } from '../deposits.js';
+import { calendarLink } from '../calendar.js';
 import { dayAgenda } from '../scheduling.js';
 import { availableQty } from '../stock.js';
 import { addDays, isDate } from '../time.js';
@@ -266,6 +267,18 @@ barberRouter.post('/sales', (req, res) => {
     });
   autoSaleNfse(shop, result.sale.id);
   res.status(201).json(result);
+});
+
+// ---------- agenda dele no Google Agenda (link secreto .ics)
+
+barberRouter.get('/calendar', (req, res) => {
+  const { shop, barber } = ids(req);
+  res.json({ url: calendarLink(shop, barber) });
+});
+
+barberRouter.post('/calendar/renew', (req, res) => {
+  const { shop, barber } = ids(req);
+  res.json({ url: calendarLink(shop, barber, { renew: true }) });
 });
 
 // ---------- fila de chegada: ele vê a fila e chama o próximo para a cadeira dele

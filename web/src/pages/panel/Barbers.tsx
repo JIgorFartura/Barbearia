@@ -199,6 +199,19 @@ export function Barbers() {
                   Dar acesso ao sistema (agenda e comissões no celular dele)
                 </button>
               )}
+              <button
+                className="font-medium text-zinc-600 hover:text-zinc-900"
+                onClick={() =>
+                  api<{ url: string }>('GET', `/api/shop/barbers/${b.id}/calendar`).then((r) =>
+                    navigator.clipboard.writeText(r.url).then(
+                      () => alert(`Link da agenda do ${b.name} copiado. No Google Agenda: Outras agendas → + → Do URL → cole o link.`),
+                      () => prompt('Link da agenda (Google Agenda → Outras agendas → + → Do URL):', r.url),
+                    ),
+                  )
+                }
+              >
+                Link para o Google Agenda
+              </button>
             </div>
             <div className="mt-3 flex gap-2 border-t border-zinc-100 pt-3">
               <Button variant="ghost" className="!px-3 !py-1.5" onClick={() => setEditing(b)}>
