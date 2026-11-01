@@ -1,7 +1,7 @@
 import { AsaasError } from './asaas.js';
 import { shopNow } from './clock.js';
 import { get, run, tx } from './db.js';
-import { addEntry, createSale, previewSale, type SaleInput, type SaleResult } from './finance.js';
+import { addEntry, createSale, previewSale, recordSplitPayout, type SaleInput, type SaleResult, type SaleView } from './finance.js';
 import { HttpError } from './http.js';
 import { ensureCustomer, normalizeCpf, qrFrom, saveCustomerCpf, shopAsaasCall, shopAsaasOn } from './shopAsaas.js';
 
@@ -38,6 +38,8 @@ interface Row {
   sale_id: number | null;
   stamps: string | null;
   error: string | null;
+  /** Repasse de cada barbeiro pelo split do Asaas ([{barberId, cents}]). */
+  splits: string | null;
 }
 
 const rowOf = (shopId: number, id: number) => get<Row>('SELECT * FROM pix_checkouts WHERE id = ? AND barbershop_id = ?', [id, shopId]);
@@ -77,6 +79,20 @@ async function payerFor(shopId: number, customerId: number | null, payerCpf: str
  * Gera o PIX da comanda. A venda é conferida antes (itens, estoque, vale-presente) com o mesmo cálculo
  * do registro, sem gravar nada; o valor do PIX é o total menos o que o vale-presente paga.
  */
+/** Comissão + gorjeta de cada barbeiro com carteira Asaas, se a barbearia ligou o split. */
+function commissionSplits(shopId: number, sale: SaleView): { barberId: number; walletId: string; cents: number }[] {
+  if (!get<{ split_commissions: number }>('SELECT split_commissions FROM barbershops WHERE id = ?', [shopId])?.split_commissions) return [];
+  const by = new Map<number, number>();
+  for (const i of sale.items) if (i.barber_id && i.commission_cents > 0) by.set(i.barber_id, (by.get(i.barber_id) ?? 0) + i.commission_cents);
+  if (sale.tip_cents > 0 && sale.tip_barber_id) by.set(sale.tip_barber_id, (by.get(sale.tip_barber_id) ?? 0) + sale.tip_cents);
+  const out: { barberId: number; walletId: string; cents: number }[] = [];
+  for (const [barberId, cents] of by) {
+    const wallet = get<{ asaas_wallet_id: string | null }>('SELECT asaas_wallet_id FROM barbers WHERE id = ? AND barbershop_id = ?', [barberId, shopId])?.asaas_wallet_id;
+    if (wallet) out.push({ barberId, walletId: wallet, cents });
+  }
+  return out;
+}
+
 export async function startPixCheckout(
   shopId: number,
   userId: number,
@@ -102,12 +118,15 @@ export async function startPixCheckout(
   }
   if (!asaasCustomer) return { needsCpf: true };
 
-  const id = run('INSERT INTO pix_checkouts (barbershop_id, user_id, customer_id, payload, amount_cents, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
+  // Split: a comissão (e a gorjeta) de cada barbeiro com conta Asaas cai direto na conta dele.
+  const splits = commissionSplits(shopId, sale);
+  const id = run('INSERT INTO pix_checkouts (barbershop_id, user_id, customer_id, payload, amount_cents, splits, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [
     shopId,
     userId,
     customerId,
     JSON.stringify(input),
     amount,
+    splits.length ? JSON.stringify(splits.map(({ barberId, cents }) => ({ barberId, cents }))) : null,
     now.toISOString(),
   ]).lastInsertRowid;
   try {
@@ -118,6 +137,7 @@ export async function startPixCheckout(
       dueDate: shopNow(shopId, now).date,
       description: `Comanda #${id}`,
       externalReference: `comanda:${id}`,
+      ...(splits.length ? { split: splits.map((s) => ({ walletId: s.walletId, fixedValue: s.cents / 100 })) } : {}),
     });
     run('UPDATE pix_checkouts SET asaas_payment_id = ? WHERE id = ?', [payment.id, id]);
     const qr = await shopAsaasCall<{ encodedImage?: string; payload: string }>(shopId, 'GET', `/payments/${payment.id}/pixQrCode`);
@@ -160,6 +180,8 @@ export function settlePixCheckout(shopId: number, id: number | null, paymentId: 
       // Cancelado na tela e pago mesmo assim: a comanda pode ter sido fechada de outro jeito.
       if (r.status === 'cancelled') throw new HttpError(409, 'pago depois de cancelado');
       const result = createSale({ ...input, shopId, userId: r.user_id, method: 'pix', now });
+      // O que o Asaas já repassou ao barbeiro pelo split fica como comissão paga.
+      for (const s of (r.splits ? JSON.parse(r.splits) : []) as { barberId: number }[]) recordSplitPayout(shopId, result.sale.id, s.barberId, r.user_id, now);
       run("UPDATE pix_checkouts SET status = 'paid', sale_id = ?, stamps = ?, error = NULL, paid_at = ? WHERE id = ?", [
         result.sale.id,
         JSON.stringify(result.stamps),
@@ -174,7 +196,7 @@ export function settlePixCheckout(shopId: number, id: number | null, paymentId: 
         {
           type: 'in',
           category: 'Atendimentos',
-          description: `PIX da comanda #${r.id} (conferir: ${err.message})`,
+          description: `PIX da comanda #${r.id} (conferir: ${err.message}${r.splits ? '; parte já foi para os barbeiros pelo split' : ''})`,
           amount_cents: r.amount_cents,
           method: 'pix',
           date: shopNow(shopId, now).date,

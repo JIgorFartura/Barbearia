@@ -107,6 +107,7 @@ export interface SaleView {
   gift_cents: number;
   /** Gorjeta paga junto (fora do total da venda) e quem recebe. */
   tip_cents: number;
+  tip_barber_id: number | null;
   tip_barber_name: string | null;
   method: Method;
   notes: string | null;
@@ -134,7 +135,8 @@ export interface SaleView {
 export function saleView(id: number): SaleView {
   const sale = get<Omit<SaleView, 'items'>>(
     `SELECT s.id, s.date, s.customer_id, c.name AS customer_name, s.appointment_id, s.subtotal_cents, s.discount_cents, s.total_cents, s.gift_cents,
-            s.tip_cents, (SELECT b.name FROM sale_tips t JOIN barbers b ON b.id = t.barber_id WHERE t.sale_id = s.id LIMIT 1) AS tip_barber_name,
+            s.tip_cents, (SELECT t.barber_id FROM sale_tips t WHERE t.sale_id = s.id LIMIT 1) AS tip_barber_id,
+            (SELECT b.name FROM sale_tips t JOIN barbers b ON b.id = t.barber_id WHERE t.sale_id = s.id LIMIT 1) AS tip_barber_name,
             s.method, s.notes, s.status, s.created_at, s.nfse_status, s.nfse_url, s.nfse_error
        FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?`,
     [id],
@@ -648,5 +650,39 @@ export function createPayout(input: { shopId: number; barberId: number; until: s
       [input.shopId, `Comissão de ${barber.name} até ${input.until.split('-').reverse().join('/')}`, amount, input.method, date, payoutId, input.userId, nowIso()],
     );
     return { id: payoutId, amount_cents: amount, items: open.length + tips.length };
+  });
+}
+
+/**
+ * Comissão (e gorjeta) que o Asaas já mandou direto para a conta do barbeiro (split do PIX da comanda):
+ * fica como paga, num pagamento "split", e sai do caixa como comissão, porque o dinheiro dele nem
+ * passou pela conta da barbearia.
+ */
+export function recordSplitPayout(shopId: number, saleId: number, barberId: number, userId: number | null, now?: Date): number {
+  return tx(() => {
+    const items = all<{ id: number; commission_cents: number }>(
+      'SELECT id, commission_cents FROM sale_items WHERE sale_id = ? AND barber_id = ? AND payout_id IS NULL AND commission_cents > 0',
+      [saleId, barberId],
+    );
+    const tips = all<{ id: number; amount_cents: number }>('SELECT id, amount_cents FROM sale_tips WHERE sale_id = ? AND barber_id = ? AND payout_id IS NULL', [
+      saleId,
+      barberId,
+    ]);
+    const amount = items.reduce((s, i) => s + i.commission_cents, 0) + tips.reduce((s, t) => s + t.amount_cents, 0);
+    if (!amount) return 0;
+    const barber = get<{ name: string }>('SELECT name FROM barbers WHERE id = ?', [barberId])!;
+    const date = shopNow(shopId, now).date;
+    const payoutId = run(
+      "INSERT INTO barber_payouts (barbershop_id, barber_id, amount_cents, items, until_date, date, method, notes, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pix', ?, ?, ?)",
+      [shopId, barberId, amount, items.length + tips.length, date, date, `Split do Asaas · venda #${saleId}`, userId, nowIso()],
+    ).lastInsertRowid;
+    for (const i of items) run('UPDATE sale_items SET payout_id = ? WHERE id = ?', [payoutId, i.id]);
+    for (const t of tips) run('UPDATE sale_tips SET payout_id = ? WHERE id = ?', [payoutId, t.id]);
+    run(
+      `INSERT INTO cash_entries (barbershop_id, type, category, description, amount_cents, method, date, status, payout_id, created_by, created_at)
+       VALUES (?, 'out', 'Comissões', ?, ?, 'pix', ?, 'paid', ?, ?, ?)`,
+      [shopId, `Comissão de ${barber.name} (split do Asaas, venda #${saleId})`, amount, date, payoutId, userId, nowIso()],
+    );
+    return amount;
   });
 }

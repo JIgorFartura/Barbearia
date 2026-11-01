@@ -26,6 +26,8 @@ interface Barber {
   phone: string | null;
   service_commission: number;
   product_commission: number;
+  /** Carteira Asaas do barbeiro: com o split ligado, a comissão do PIX da comanda cai direto nela. */
+  asaas_wallet_id: string | null;
   rates: Rate[];
   hours: Hours[];
   blocks: { id: number; starts_at: string; ends_at: string; reason: string | null }[];
@@ -371,6 +373,7 @@ function BarberModal({ barber, onClose, onDone }: { barber: Partial<Barber>; onC
   const [photo, setPhoto] = useState<string | null>(barber.photo_url ?? null);
   const [active, setActive] = useState(barber.active !== 0);
   const [barberPhone, setBarberPhone] = useState(barber.phone ?? '');
+  const [wallet, setWallet] = useState(barber.asaas_wallet_id ?? '');
   const [serviceCommission, setServiceCommission] = useState(String(barber.service_commission ?? 0));
   const [productCommission, setProductCommission] = useState(String(barber.product_commission ?? 0));
   const [rates, setRates] = useState<{ service_id: number; mode: 'percent' | 'fixed'; value: string }[]>(
@@ -402,6 +405,7 @@ function BarberModal({ barber, onClose, onDone }: { barber: Partial<Barber>; onC
         active,
         hours: fromForm(days),
         phone: barberPhone || null,
+        asaas_wallet_id: wallet.trim() || null,
         service_commission: num(serviceCommission),
         product_commission: num(productCommission),
         rates: rates.map((r) => ({ service_id: r.service_id, mode: r.mode, value: r.mode === 'fixed' ? parseMoney(r.value) : num(r.value) })),
@@ -524,6 +528,9 @@ function BarberModal({ barber, onClose, onDone }: { barber: Partial<Barber>; onC
         </div>
         <Field label="Celular do barbeiro (opcional)" hint="O robô avisa por WhatsApp quando um cliente pede para deixar algo separado (ex.: a cerveja).">
           <Input type="tel" placeholder="(11) 98888-7777" value={barberPhone} onChange={(e) => setBarberPhone(e.target.value)} />
+        </Field>
+        <Field label="Wallet ID do Asaas do barbeiro (opcional)" hint="Com o split ligado (Clube → PIX com baixa automática), a comissão e a gorjeta do PIX da comanda caem direto na conta dele. No Asaas dele: Minha conta → Integrações.">
+          <Input value={wallet} onChange={(e) => setWallet(e.target.value)} placeholder="ex.: 8a7f1c2e-..." autoComplete="off" />
         </Field>
         <label className="flex items-center gap-2 text-sm font-medium">
           <input type="checkbox" className="size-4 accent-zinc-900" checked={active} onChange={(e) => setActive(e.target.checked)} />

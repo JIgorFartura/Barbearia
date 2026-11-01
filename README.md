@@ -214,6 +214,12 @@ vencimento e caem sozinhas. Cancelar o clube ou desligar o débito cancela tamb�
 - **Fechar atendimento**: a comanda já vem com o serviço, o que o cliente pediu para separar e o
   que o clube cobre; dá para somar produtos, mudar quem atendeu, dar desconto e escolher a forma de
   pagamento.
+- **Comissão direto na conta do barbeiro (split do Asaas)**: com o Asaas da barbearia ligado e o split
+  marcado, o PIX da comanda sai com a comissão e a gorjeta de cada barbeiro que tem *Wallet ID* (em
+  *Barbeiros*) indo direto para a conta Asaas dele. Quando o PIX cai, essa parte já fica como paga (um
+  pagamento "Split do Asaas" e a saída de *Comissões* no caixa). Quem não tem Wallet ID recebe pelo
+  pagamento de comissões, como sempre. O split vale para o PIX da comanda pelo Asaas; dinheiro, cartão
+  na maquininha e PIX da chave seguem no pagamento de comissões.
 - **Gorjeta na comanda**: valor livre ou 10%/15% num toque. Vai **inteira para o barbeiro** (para quem
   fez o serviço, ou quem o dono escolher quando a comanda tem dois), soma na comissão a pagar e no
   extrato dele, e entra no caixa como *Gorjetas*, fora do faturamento da barbearia. No PIX da comanda,

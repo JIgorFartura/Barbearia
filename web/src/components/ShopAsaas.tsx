@@ -8,6 +8,7 @@ interface AsaasView {
   connected: boolean;
   env: 'sandbox' | 'production';
   pixAuto: boolean;
+  splitCommissions: boolean;
   webhookUrl: string | null;
   webhookToken: string | null;
   webhookAt: string | null;
@@ -19,13 +20,13 @@ interface AsaasView {
  */
 export function ShopAsaasCard() {
   const [data, setData] = useState<AsaasView | null>(null);
-  const [form, setForm] = useState({ env: 'sandbox' as AsaasView['env'], apiKey: '', pixAuto: false });
+  const [form, setForm] = useState({ env: 'sandbox' as AsaasView['env'], apiKey: '', pixAuto: false, splitCommissions: false });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const apply = (d: AsaasView) => {
     setData(d);
-    setForm({ env: d.env, apiKey: '', pixAuto: d.pixAuto });
+    setForm({ env: d.env, apiKey: '', pixAuto: d.pixAuto, splitCommissions: d.splitCommissions });
   };
   useEffect(() => {
     api<AsaasView>('GET', '/api/shop/asaas').then(apply, (e) => setError(e.message));
@@ -75,6 +76,13 @@ export function ShopAsaasCard() {
         <span>
           <b>Oferecer o Pix Automático</b> no clube: o cliente autoriza uma vez (pagando o 1º mês) e, nos meses seguintes, a mensalidade é debitada sozinha no
           vencimento. O Asaas precisa liberar o Pix Automático na sua conta: teste antes no ambiente de testes.
+        </span>
+      </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-0.5 size-4" checked={form.splitCommissions} onChange={(e) => setForm({ ...form, splitCommissions: e.target.checked })} />
+        <span>
+          <b>Comissão direto na conta do barbeiro (split)</b>: no PIX da comanda, a comissão e a gorjeta de cada barbeiro com Wallet ID cadastrado (em
+          Barbeiros) caem direto na conta Asaas dele, e já ficam como pagas. Quem não tem Wallet ID recebe pelo pagamento de comissões, como sempre.
         </span>
       </label>
       {data.webhookUrl && data.webhookToken && (

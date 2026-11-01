@@ -1298,6 +1298,12 @@ const MIGRATIONS: (string | Rebuild)[] = [
   );
   CREATE INDEX broadcasts_month ON broadcasts (barbershop_id, month);
   `,
+  // 35: comissão direto na conta Asaas do barbeiro (split do PIX da comanda).
+  `
+  ALTER TABLE barbers ADD COLUMN asaas_wallet_id TEXT;
+  ALTER TABLE barbershops ADD COLUMN split_commissions INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE pix_checkouts ADD COLUMN splits TEXT;
+  `,
 ];
 
 function migrate(): void {

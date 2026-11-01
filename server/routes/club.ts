@@ -200,7 +200,7 @@ export function registerClubRoutes(router: Router): void {
 
   router.put('/asaas', (req, res) => {
     const body = parseBody(
-      z.object({ env: z.enum(['sandbox', 'production']), apiKey: zText(300), pixAuto: z.boolean(), disconnect: z.boolean().default(false) }),
+      z.object({ env: z.enum(['sandbox', 'production']), apiKey: zText(300), pixAuto: z.boolean(), splitCommissions: z.boolean().nullish(), disconnect: z.boolean().default(false) }),
       req.body,
     );
     saveShopAsaas(shopId(req), body);

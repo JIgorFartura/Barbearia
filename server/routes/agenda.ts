@@ -48,6 +48,14 @@ const zBarber = z.object({
   service_commission: z.number().min(0).max(100),
   product_commission: z.number().min(0).max(100),
   rates: zRates,
+  /** Carteira (walletId) da conta Asaas do barbeiro, para a comissão cair direto nela (split). */
+  asaas_wallet_id: z
+    .string()
+    .trim()
+    .max(64)
+    .regex(/^[\w-]*$/, 'Wallet ID do Asaas inválido.')
+    .nullish()
+    .transform((v) => v || null),
 });
 
 function barberOf(shop: number, id: number) {
@@ -73,8 +81,8 @@ function saveRates(shop: number, barberId: number, rates: z.infer<typeof zRates>
 const cleanPhone = (phone: string | null) => (phone ? normalizePhone(phone) : null);
 
 function barbersWithHours(shop: number) {
-  const barbers = all<{ id: number; name: string; photo_url: string | null; active: number; phone: string | null; service_commission: number; product_commission: number }>(
-    'SELECT id, name, photo_url, active, phone, service_commission, product_commission FROM barbers WHERE barbershop_id = ? ORDER BY active DESC, name COLLATE NOCASE',
+  const barbers = all<{ id: number; name: string; photo_url: string | null; active: number; phone: string | null; service_commission: number; product_commission: number; asaas_wallet_id: string | null }>(
+    'SELECT id, name, photo_url, active, phone, service_commission, product_commission, asaas_wallet_id FROM barbers WHERE barbershop_id = ? ORDER BY active DESC, name COLLATE NOCASE',
     [shop],
   );
   const now = shopNow(shop).stamp;
@@ -99,8 +107,8 @@ export function registerAgendaRoutes(router: Router): void {
     const shop = shopId(req);
     tx(() => {
       const { lastInsertRowid } = run(
-        'INSERT INTO barbers (barbershop_id, name, photo_url, active, phone, service_commission, product_commission, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [shop, body.name, body.photo_url, body.active, cleanPhone(body.phone), body.service_commission, body.product_commission, nowIso()],
+        'INSERT INTO barbers (barbershop_id, name, photo_url, active, phone, service_commission, product_commission, asaas_wallet_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [shop, body.name, body.photo_url, body.active, cleanPhone(body.phone), body.service_commission, body.product_commission, body.asaas_wallet_id, nowIso()],
       );
       saveHours(lastInsertRowid, body.hours);
       saveRates(shop, lastInsertRowid, body.rates);
@@ -113,13 +121,14 @@ export function registerAgendaRoutes(router: Router): void {
     const id = barberOf(shop, idParam(req)).id;
     const body = parseBody(zBarber, req.body);
     tx(() => {
-      run('UPDATE barbers SET name = ?, photo_url = ?, active = ?, phone = ?, service_commission = ?, product_commission = ? WHERE id = ?', [
+      run('UPDATE barbers SET name = ?, photo_url = ?, active = ?, phone = ?, service_commission = ?, product_commission = ?, asaas_wallet_id = ? WHERE id = ?', [
         body.name,
         body.photo_url,
         body.active,
         cleanPhone(body.phone),
         body.service_commission,
         body.product_commission,
+        body.asaas_wallet_id,
         id,
       ]);
       saveHours(id, body.hours);

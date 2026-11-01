@@ -30,10 +30,11 @@ interface ShopAsaasRow {
   asaas_shop_token: string | null;
   asaas_shop_webhook_at: string | null;
   pix_auto_enabled: number;
+  split_commissions: number;
 }
 
 const row = (shopId: number) =>
-  get<ShopAsaasRow>('SELECT id, name, slug, asaas_shop_env, asaas_shop_key, asaas_shop_token, asaas_shop_webhook_at, pix_auto_enabled FROM barbershops WHERE id = ?', [shopId]);
+  get<ShopAsaasRow>('SELECT id, name, slug, asaas_shop_env, asaas_shop_key, asaas_shop_token, asaas_shop_webhook_at, pix_auto_enabled, split_commissions FROM barbershops WHERE id = ?', [shopId]);
 
 /** Conta Asaas ligada? */
 export const shopAsaasOn = (shopId: number) => Boolean(row(shopId)?.asaas_shop_key);
@@ -49,13 +50,14 @@ export function shopAsaasView(shopId: number, appUrl: string) {
     connected: Boolean(r.asaas_shop_key),
     env: (r.asaas_shop_env === 'production' ? 'production' : 'sandbox') as ShopAsaasEnv,
     pixAuto: Boolean(r.pix_auto_enabled),
+    splitCommissions: Boolean(r.split_commissions),
     webhookUrl: r.asaas_shop_token ? `${appUrl}/api/webhooks/asaas/barbearia/${r.asaas_shop_token}` : null,
     webhookToken: r.asaas_shop_token,
     webhookAt: r.asaas_shop_webhook_at,
   };
 }
 
-export function saveShopAsaas(shopId: number, s: { env: ShopAsaasEnv; apiKey?: string | null; pixAuto: boolean; disconnect?: boolean }): void {
+export function saveShopAsaas(shopId: number, s: { env: ShopAsaasEnv; apiKey?: string | null; pixAuto: boolean; splitCommissions?: boolean | null; disconnect?: boolean }): void {
   if (s.disconnect) {
     run('UPDATE barbershops SET asaas_shop_key = NULL, pix_auto_enabled = 0 WHERE id = ?', [shopId]);
     return;
@@ -65,10 +67,11 @@ export function saveShopAsaas(shopId: number, s: { env: ShopAsaasEnv; apiKey?: s
   if (!key) throw new HttpError(400, 'Cole a chave de API da sua conta Asaas.');
   // Trocou de conta: os cadastros dos clientes eram da outra.
   if (s.apiKey?.trim() && s.apiKey.trim() !== r.asaas_shop_key) run('UPDATE customers SET asaas_shop_customer_id = NULL WHERE barbershop_id = ?', [shopId]);
-  run('UPDATE barbershops SET asaas_shop_env = ?, asaas_shop_key = ?, pix_auto_enabled = ?, asaas_shop_token = COALESCE(asaas_shop_token, ?) WHERE id = ?', [
+  run('UPDATE barbershops SET asaas_shop_env = ?, asaas_shop_key = ?, pix_auto_enabled = ?, split_commissions = COALESCE(?, split_commissions), asaas_shop_token = COALESCE(asaas_shop_token, ?) WHERE id = ?', [
     s.env,
     key,
     s.pixAuto ? 1 : 0,
+    s.splitCommissions == null ? null : s.splitCommissions ? 1 : 0,
     crypto.randomBytes(24).toString('base64url'),
     shopId,
   ]);
