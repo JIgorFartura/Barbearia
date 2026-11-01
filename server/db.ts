@@ -1304,6 +1304,11 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbershops ADD COLUMN split_commissions INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE pix_checkouts ADD COLUMN splits TEXT;
   `,
+  // 36: troca de plano do clube (subir: cobra a diferença; descer: vale na próxima mensalidade).
+  `
+  ALTER TABLE club_members ADD COLUMN next_plan_id INTEGER REFERENCES club_plans(id);
+  ALTER TABLE charges ADD COLUMN plan_change_to INTEGER REFERENCES club_plans(id);
+  `,
 ];
 
 function migrate(): void {

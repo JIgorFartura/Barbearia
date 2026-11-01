@@ -5,7 +5,7 @@ import { asaasChargePix, cancelPixAuto, pixAutoOn, saveCustomerCpf, startPixAuto
 import { cancelMemberCard, payChargeByCard } from '../cards.js';
 import { shopCardStatus } from '../cardSettings.js';
 import { birthdayKey, customerReferral, growthSettings } from '../growth.js';
-import { cancelMembership, customerMembership, listPlans, subscribe } from '../club.js';
+import { cancelMembership, changePlan, customerMembership, listPlans, subscribe } from '../club.js';
 import { destroyCustomerSession, sessionCustomer } from '../customerAuth.js';
 import { anonymizeCustomer, exportCustomerData } from '../privacy.js';
 import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
@@ -333,6 +333,8 @@ async function clubState(shopId: number, customerId: number) {
       card: member.card.active,
       /** Pix Automático: ACTIVE = débito sozinho todo mês; CREATED = falta pagar o 1º QR. */
       pixAuto: get<{ pix_auto_status: string | null }>('SELECT pix_auto_status FROM club_members WHERE id = ?', [member.id])?.pix_auto_status ?? null,
+      /** Troca para um plano mais barato marcada para a próxima mensalidade. */
+      next_plan: member.next_plan,
     },
     /** A barbearia oferece o débito automático (Pix Automático). */
     pixAutoOffered: pixAutoOn(shopId),
@@ -366,6 +368,16 @@ customerRouter.post('/club/subscribe', async (req, res) => {
   const { plan_id } = parseBody(z.object({ plan_id: zId }), req.body);
   subscribe(shopId, customerId, plan_id);
   res.status(201).json(await clubState(shopId, customerId));
+});
+
+/** O cliente troca de plano pelo app (subir: paga a diferença; descer: vale na próxima mensalidade). */
+customerRouter.post('/club/change-plan', async (req, res) => {
+  const { shopId, customerId } = ctx(req);
+  const { plan_id } = parseBody(z.object({ plan_id: zId }), req.body);
+  const member = customerMembership(shopId, customerId);
+  if (!member || member.status === 'cancelled') throw new HttpError(404, 'Você não tem assinatura ativa no clube.');
+  const r = changePlan(shopId, member.id, plan_id);
+  res.json({ ...(await clubState(shopId, customerId)), changed: r.mode });
 });
 
 customerRouter.post('/club/charges/:id/claim', async (req, res) => {

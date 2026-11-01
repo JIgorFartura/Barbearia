@@ -31,6 +31,7 @@ interface ClubData {
     card: boolean;
     /** Pix Automático: ACTIVE = débito sozinho todo mês; CREATED = falta pagar o PIX que autoriza. */
     pixAuto: string | null;
+    next_plan: { id: number; name: string; price_cents: number } | null;
   } | null;
   /** A barbearia oferece o débito automático (Pix Automático). */
   pixAutoOffered: boolean;
@@ -275,6 +276,8 @@ export function ClubSection({ slug, accent, onPaid }: { slug: string; accent: st
             </div>
           )}
 
+          {m.status !== 'cancelled' && data.plans.length > 1 && <ChangePlan member={m} plans={data.plans} style={style} onChange={(planId) => act('change-plan', { plan_id: planId })} />}
+
           {m.status === 'cancelled' ? (
             <Button variant="ghost" onClick={() => act('subscribe', { plan_id: m.plan.id })}>
               Voltar a assinar
@@ -366,5 +369,69 @@ export function ClubSection({ slug, accent, onPaid }: { slug: string; accent: st
         </Modal>
       )}
     </Section>
+  );
+}
+
+/** Trocar de plano: subir cobra a diferença proporcional; descer vale na próxima mensalidade. */
+function ChangePlan({
+  member,
+  plans,
+  style,
+  onChange,
+}: {
+  member: NonNullable<ClubData['member']>;
+  plans: Plan[];
+  style: { background: string; color: string };
+  onChange: (planId: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const others = plans.filter((p) => p.id !== member.plan.id);
+  if (member.card || member.pixAuto === 'ACTIVE') {
+    return <p className="text-xs text-zinc-500">Para trocar de plano no débito automático, fale com a barbearia.</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {member.next_plan && (
+        <p className="rounded-xl bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
+          A partir da próxima mensalidade você passa para o <b>{member.next_plan.name}</b> ({money(member.next_plan.price_cents)}/mês).{' '}
+          <button className="underline" onClick={() => onChange(member.plan.id)}>
+            Desfazer
+          </button>
+        </p>
+      )}
+      {!open ? (
+        <button className="text-sm font-medium text-zinc-600 underline" onClick={() => setOpen(true)}>
+          Trocar de plano
+        </button>
+      ) : (
+        <div className="space-y-2">
+          {others.map((p) => {
+            const up = p.price_cents > member.plan.price_cents;
+            return (
+              <div key={p.id} className="flex items-center justify-between gap-3 rounded-xl p-3 ring-1 ring-zinc-200">
+                <div className="min-w-0">
+                  <p className="font-semibold">
+                    {p.name} · {money(p.price_cents)}/mês
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    {up ? 'Você paga só a diferença dos dias que faltam do mês e já passa a usar.' : 'Passa a valer na próxima mensalidade.'}
+                  </p>
+                </div>
+                <Button
+                  className="!py-1.5 whitespace-nowrap"
+                  style={style}
+                  onClick={() => {
+                    setOpen(false);
+                    onChange(p.id);
+                  }}
+                >
+                  {up ? 'Subir' : 'Trocar'}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

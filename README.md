@@ -209,6 +209,14 @@ vez; sem ele, continua o PIX da chave com o comprovante. O mesmo vale para o **P
 a autorização ativa, as mensalidades seguintes vão para o débito automático 8 dias antes do
 vencimento e caem sozinhas. Cancelar o clube ou desligar o débito cancela também no Asaas.
 
+**Troca de plano.** O assinante troca pelo app (ou o dono, na lista de assinantes). Para um plano
+mais caro, sai uma cobrança só com a diferença proporcional aos dias que faltam do mês pago, e o plano
+novo vale assim que ela é paga (se não pagar, ela cai na mensalidade seguinte, que sai normalmente).
+Para um mais barato, vale a partir da próxima mensalidade, sem devolução. Antes do primeiro pagamento
+(ou com a mensalidade atrasada), troca na hora e a cobrança em aberto passa a ter o valor novo. No
+débito automático (cartão ou Pix Automático) o valor já está autorizado, então a troca passa pela
+barbearia.
+
 ## Financeiro e estoque
 
 - **Fechar atendimento**: a comanda já vem com o serviço, o que o cliente pediu para separar e o

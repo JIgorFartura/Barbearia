@@ -2,7 +2,7 @@ import type { Router } from 'express';
 import { z } from 'zod';
 import { shopId } from '../auth.js';
 import { charge, chargesToConfirm, confirmCharge, pixSettings, rejectClaim, savePixSettings, undoConfirm } from '../charges.js';
-import { cancelMembership, clubCoverage, clubOverview, deletePlan, memberView, savePlan, sendClubCharge, subscribe } from '../club.js';
+import { cancelMembership, changePlan, clubCoverage, clubOverview, deletePlan, memberView, savePlan, sendClubCharge, subscribe } from '../club.js';
 import { shopNow } from '../clock.js';
 import { growthSettings, referralsOverview, saveGrowthSettings, upcomingBirthdays } from '../growth.js';
 import { IDLE_PER_DAY, idleStats } from '../idle.js';
@@ -93,6 +93,12 @@ export function registerClubRoutes(router: Router): void {
     const member = subscribe(shop, body.customer_id, body.plan_id, { userId: req.user!.id, paidMethod: body.paid_method ?? null });
     const sent = !body.paid_method && body.send_pix && member.open_charge ? await sendClubCharge(shopBot(shop), member.open_charge.id) : false;
     res.status(201).json({ member: memberView(member.id), sent });
+  });
+
+  /** Troca de plano de um assinante (pela barbearia). */
+  router.post('/club/members/:id/plan', (req, res) => {
+    const { plan_id } = parseBody(z.object({ plan_id: zId }), req.body);
+    res.json(changePlan(shopId(req), idParam(req), plan_id));
   });
 
   router.post('/club/members/:id/cancel', async (req, res) => {

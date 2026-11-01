@@ -132,6 +132,9 @@ export function confirmCharge(shopId: number, chargeId: number, opts: { method: 
         c.period_end,
         c.club_member_id,
       ]);
+      // Diferença de uma troca para um plano mais caro: o plano novo vale a partir de agora.
+      const to = get<{ plan_change_to: number | null }>('SELECT plan_change_to FROM charges WHERE id = ?', [chargeId])?.plan_change_to;
+      if (to) run('UPDATE club_members SET plan_id = ?, next_plan_id = NULL WHERE id = ?', [to, c.club_member_id]);
     }
     return charge(chargeId);
   });

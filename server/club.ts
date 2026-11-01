@@ -135,6 +135,8 @@ interface MemberRow {
   paid_until: string | null;
   created_at: string;
   cancelled_at: string | null;
+  /** Plano mais barato escolhido: passa a valer na próxima mensalidade. */
+  next_plan_id: number | null;
 }
 
 export interface MemberView extends MemberRow {
@@ -149,6 +151,8 @@ export interface MemberView extends MemberRow {
   open_charge: ChargeView | null;
   /** Cartão automático (Cielo): ligado, e o último problema (recusa ou falha ao cancelar). */
   card: { active: boolean; error: string | null };
+  /** Troca de plano marcada para a próxima mensalidade. */
+  next_plan: { id: number; name: string; price_cents: number } | null;
 }
 
 /** O assinante paga no cartão automático (a Cielo cobra todo mês). */
@@ -197,6 +201,7 @@ export function memberView(memberId: number, now: Date = new Date()): MemberView
     period: cover ? { start: cover.period_start, end: cover.period_end } : null,
     used: cover ? usedIn(m.id, cover.period_start, cover.period_end) : 0,
     open_charge: open ? charge(open.id) : null,
+    next_plan: m.next_plan_id ? (get<{ id: number; name: string; price_cents: number }>('SELECT id, name, price_cents FROM club_plans WHERE id = ?', [m.next_plan_id]) ?? null) : null,
     card: (() => {
       const l = get<{ status: string; error: string | null }>(
         "SELECT status, error FROM card_links WHERE club_member_id = ? AND kind = 'clube' AND status IN ('open', 'active') ORDER BY id DESC LIMIT 1",
@@ -227,6 +232,9 @@ export function listMembers(shopId: number, now: Date = new Date()): MemberView[
 }
 
 function createClubCharge(memberId: number, periodStart: string, now: Date): number {
+  // Mês novo: a troca para um plano mais barato passa a valer, e a diferença de uma subida não paga cai.
+  run('UPDATE club_members SET plan_id = COALESCE(next_plan_id, plan_id), next_plan_id = NULL WHERE id = ?', [memberId]);
+  run("UPDATE charges SET status = 'cancelled' WHERE club_member_id = ? AND status = 'open' AND plan_change_to IS NOT NULL AND claimed_at IS NULL", [memberId]);
   const m = get<MemberRow & { plan_name: string; price_cents: number }>(
     'SELECT m.*, p.name AS plan_name, p.price_cents FROM club_members m JOIN club_plans p ON p.id = m.plan_id WHERE m.id = ?',
     [memberId],
@@ -307,6 +315,67 @@ export function subscribe(shopId: number, customerId: number, planId: number, op
     const chargeId = createClubCharge(memberId, today, now);
     if (opts.paidMethod) confirmCharge(shopId, chargeId, { method: opts.paidMethod, userId: opts.userId ?? null, now });
     return memberView(memberId, now);
+  });
+}
+
+/**
+ * Troca de plano. Para um plano mais caro, cobra a diferença proporcional aos dias que faltam do mês
+ * pago, e o plano novo vale assim que ela for paga. Para um mais barato, vale na próxima mensalidade
+ * (sem devolução). Sem o mês pago (assinatura nova ou atrasada), troca na hora e a cobrança em aberto
+ * passa a ter o valor novo. No débito automático (cartão ou Pix Automático) o valor está autorizado, então
+ * a troca passa pela barbearia.
+ */
+export function changePlan(shopId: number, memberId: number, planId: number, now: Date = new Date()): { member: MemberView; mode: 'agora' | 'proximo' | 'diferenca' } {
+  return tx(() => {
+    const m = get<MemberRow & { price_cents: number; pix_auto_status: string | null }>(
+      'SELECT m.*, p.price_cents FROM club_members m JOIN club_plans p ON p.id = m.plan_id WHERE m.id = ? AND m.barbershop_id = ?',
+      [memberId, shopId],
+    );
+    if (!m || m.status === 'cancelled') throw new HttpError(404, 'Assinatura não encontrada.');
+    const plan = get<{ id: number; name: string; price_cents: number }>('SELECT id, name, price_cents FROM club_plans WHERE id = ? AND barbershop_id = ? AND active = 1', [planId, shopId]);
+    if (!plan) throw new HttpError(404, 'Plano não encontrado.');
+    if (plan.id === m.plan_id) {
+      if (m.next_plan_id) run('UPDATE club_members SET next_plan_id = NULL WHERE id = ?', [memberId]);
+      else throw new HttpError(409, 'Esse já é o seu plano.');
+      return { member: memberView(memberId, now), mode: 'agora' as const };
+    }
+    if (cardActive(memberId) || m.pix_auto_status === 'ACTIVE') {
+      throw new HttpError(409, 'A mensalidade está no débito automático, com o valor já autorizado. Para trocar de plano, fale com a barbearia.');
+    }
+    const today = shopNow(shopId, now).date;
+    // Some a diferença de uma subida anterior que ainda não foi paga.
+    run("UPDATE charges SET status = 'cancelled' WHERE club_member_id = ? AND status = 'open' AND plan_change_to IS NOT NULL AND claimed_at IS NULL", [memberId]);
+    const cover = coveringCharge(memberId, today);
+    if (!cover) {
+      run('UPDATE club_members SET plan_id = ?, next_plan_id = NULL WHERE id = ?', [plan.id, memberId]);
+      const open = all<{ id: number; period_start: string; period_end: string }>(
+        "SELECT id, period_start, period_end FROM charges WHERE club_member_id = ? AND status = 'open' AND claimed_at IS NULL AND plan_change_to IS NULL",
+        [memberId],
+      );
+      for (const c of open) {
+        run('UPDATE charges SET amount_cents = ?, description = ? WHERE id = ?', [plan.price_cents, `${planTitle(plan.name)} · ${br(c.period_start)} a ${br(c.period_end)}`, c.id]);
+      }
+      return { member: memberView(memberId, now), mode: 'agora' as const };
+    }
+    if (plan.price_cents <= m.price_cents) {
+      run('UPDATE club_members SET next_plan_id = ? WHERE id = ?', [plan.id, memberId]);
+      return { member: memberView(memberId, now), mode: 'proximo' as const };
+    }
+    const days = daysBetween(cover.period_start, cover.period_end) + 1;
+    const left = daysBetween(today, cover.period_end) + 1;
+    const diff = Math.round(((plan.price_cents - m.price_cents) * left) / days);
+    run('UPDATE club_members SET next_plan_id = NULL WHERE id = ?', [memberId]);
+    if (diff < 100) {
+      // Diferença de centavos (fim do mês): troca na hora.
+      run('UPDATE club_members SET plan_id = ? WHERE id = ?', [plan.id, memberId]);
+      return { member: memberView(memberId, now), mode: 'agora' as const };
+    }
+    run(
+      `INSERT INTO charges (barbershop_id, customer_id, kind, description, amount_cents, club_member_id, period_start, period_end, due_date, plan_change_to, created_at)
+       VALUES (?, ?, 'clube', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [shopId, m.customer_id, `Troca para o ${planTitle(plan.name)} · diferença até ${br(cover.period_end)}`, diff, memberId, today, cover.period_end, today, plan.id, now.toISOString()],
+    );
+    return { member: memberView(memberId, now), mode: 'diferenca' as const };
   });
 }
 
@@ -417,7 +486,8 @@ export async function clubBilling(shop: ShopBot, now: Date): Promise<number> {
 
   // Próxima mensalidade de quem está com o mês pago acabando (uma cobrança por vez). No cartão
   // automático quem cobra é a Cielo.
-  const withoutNext = `AND NOT EXISTS (SELECT 1 FROM charges c WHERE c.club_member_id = m.id AND (c.status = 'open' OR c.period_start > m.paid_until))`;
+  // A diferença de uma troca de plano em aberto não segura a próxima mensalidade.
+  const withoutNext = `AND NOT EXISTS (SELECT 1 FROM charges c WHERE c.club_member_id = m.id AND ((c.status = 'open' AND c.plan_change_to IS NULL) OR c.period_start > m.paid_until))`;
   const onCard = `EXISTS (SELECT 1 FROM card_links l WHERE l.club_member_id = m.id AND l.recurrent = 1 AND l.status = 'active')`;
   const renewing = all<{ id: number; paid_until: string }>(
     `SELECT m.id, m.paid_until FROM club_members m

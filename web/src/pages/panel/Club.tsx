@@ -37,6 +37,7 @@ interface Member {
   customer_name: string;
   phone: string;
   plan: { id: number; name: string; price_cents: number; uses_per_month: number | null };
+  next_plan: { id: number; name: string; price_cents: number } | null;
   status: 'pending' | 'active' | 'cancelled';
   state: 'pending' | 'ok' | 'late' | 'ending' | 'ended';
   paid_until: string | null;
@@ -195,6 +196,35 @@ export function Club() {
                             </div>
                           )}
                         </div>
+                      )}
+                      {m.next_plan && <p className="mt-1 text-xs text-zinc-500">Passa para o {m.next_plan.name} na próxima mensalidade.</p>}
+                      {m.status !== 'cancelled' && activePlans.length > 1 && (
+                        <select
+                          className="mt-1 mr-3 rounded-md border border-zinc-200 bg-white px-1.5 py-0.5 text-xs text-zinc-600"
+                          value=""
+                          aria-label={`Trocar o plano de ${m.customer_name}`}
+                          onChange={(e) =>
+                            e.target.value &&
+                            act(
+                              () => api<{ mode: 'agora' | 'proximo' | 'diferenca' }>('POST', `/api/shop/club/members/${m.id}/plan`, { plan_id: Number(e.target.value) }),
+                              (r) =>
+                                r.mode === 'diferenca'
+                                  ? 'Plano mais caro: a diferença dos dias que faltam ficou em aberto; o plano novo vale quando for paga.'
+                                  : r.mode === 'proximo'
+                                    ? 'Plano mais barato: passa a valer na próxima mensalidade.'
+                                    : 'Plano trocado.',
+                            )
+                          }
+                        >
+                          <option value="">Trocar plano…</option>
+                          {activePlans
+                            .filter((p) => p.id !== m.plan.id)
+                            .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                        </select>
                       )}
                       {m.status !== 'cancelled' && (
                         <button
