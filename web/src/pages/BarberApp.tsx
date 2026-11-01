@@ -1,4 +1,5 @@
 import { CalendarDays, ChevronLeft, ChevronRight, ListOrdered, LogOut, Megaphone, MessageCircle, Phone, Receipt, Star, UserCog, Wallet } from 'lucide-react';
+import { OfflineBanner } from '../components/Offline';
 import { useCallback, useEffect, useState } from 'react';
 import type { Me } from '../App';
 import { AccountModal } from '../components/Account';
@@ -89,6 +90,7 @@ export function BarberApp({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   return (
     <div className="min-h-screen bg-zinc-50">
+      <OfflineBanner />
       <header className="text-white" style={{ background: info.shop.primary_color }}>
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4">
           {info.shop.logo_url && <img src={info.shop.logo_url} alt="" className="size-9 rounded-lg bg-white object-contain p-0.5" />}

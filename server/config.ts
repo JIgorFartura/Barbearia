@@ -31,6 +31,15 @@ export const config = {
   anthropicKey: process.env.ANTHROPIC_API_KEY ?? '',
   botModel: process.env.BOT_MODEL ?? 'claude-opus-5-5',
   botEffort: (process.env.BOT_EFFORT ?? 'low') as 'low' | 'medium' | 'high',
+  /**
+   * App na Play Store (TWA): pacote e impressões digitais SHA-256 do certificado de assinatura,
+   * separadas por vírgula. Com eles, o site prova que o app é dele e abre sem a barra do navegador.
+   */
+  androidPackage: process.env.ANDROID_PACKAGE ?? '',
+  androidSha256: (process.env.ANDROID_SHA256 ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
   /** Liga as automações (lembretes, recontato). */
   automations: process.env.AUTOMATIONS !== '0',
 };

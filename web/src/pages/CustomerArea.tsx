@@ -1,4 +1,5 @@
 import { ArrowLeft, CalendarCheck, CalendarX, Camera, Clock, Download, Gift, History, LogOut, PackageCheck, Receipt, Repeat, Scissors, ShieldCheck, Ticket, Trash2 } from 'lucide-react';
+import { OfflineBanner } from '../components/Offline';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Section } from '../components/CustomerSection';
 import { StampCard, type Progress } from '../components/StampCard';
@@ -207,6 +208,7 @@ export function CustomerArea({ slug }: { slug: string }) {
 
   return (
     <div className="min-h-screen bg-zinc-50">
+      <OfflineBanner />
       <header className="text-white" style={{ background: brand.primary_color }}>
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4">
           <a href={`/b/${slug}`} className="rounded-full p-1 hover:bg-white/10" aria-label="Voltar ao site">

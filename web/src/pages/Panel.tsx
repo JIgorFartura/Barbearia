@@ -58,6 +58,7 @@ import { Stock } from './panel/Stock';
 import { Subscription } from './panel/Subscription';
 import { Summary } from './panel/Summary';
 import { Queue } from './panel/Queue';
+import { OfflineBanner } from '../components/Offline';
 import { Broadcasts } from './panel/Broadcasts';
 import { Promote } from './panel/Promote';
 import { Units, switchUnit } from './panel/Units';
@@ -545,6 +546,7 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
           </button>
           <span className="font-semibold">{SECTIONS.find((s) => s.id === current)?.label ?? 'Resumo'}</span>
         </header>
+        <OfflineBanner />
         <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-8">
           {status?.whatsapp?.status === 'down' && (
             <button

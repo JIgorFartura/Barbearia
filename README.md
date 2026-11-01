@@ -350,6 +350,33 @@ marcados e bloqueios).
 - O site mostra o botão *Entrar na fila*, e o robô do WhatsApp passa o link e a previsão para quem
   pergunta. Modelos da Meta novos: `fila` (entrou na fila) e `fila_vez` (é a sua vez).
 
+## Sem internet e app nas lojas
+
+**Agenda sem internet.** Com internet, o app sempre carrega a versão mais nova. A cada abertura, ele
+guarda no aparelho uma cópia das telas e da agenda (painel, app do barbeiro e área do cliente). Se a
+internet cair, o app abre com a última agenda guardada e um aviso no topo. Sair da conta apaga a cópia
+dos dados do aparelho.
+
+**Play Store (Android).** O mesmo app vai para a loja como *Trusted Web Activity*, sem reescrever nada:
+1. Crie a conta de desenvolvedor no Google Play (US$ 25, uma vez só).
+2. Em [pwabuilder.com](https://www.pwabuilder.com), informe o endereço do sistema → *Package for
+   stores* → Android, com o pacote (ex.: `br.com.bladr.app`). Baixe o pacote e **guarde a chave de
+   assinatura**.
+3. No servidor, defina `ANDROID_PACKAGE` e `ANDROID_SHA256` (a impressão SHA-256 do certificado; com
+   o *Play App Signing*, use a que o Play Console mostra) e reinicie. Confira em
+   `/.well-known/assetlinks.json`: com isso o app abre sem a barra do navegador.
+4. No Play Console: crie o app, envie o pacote `.aab`, preencha a ficha (ícone, prints e a política
+   de privacidade em `/privacidade`) e mande para revisão.
+
+**App Store (iPhone).** Precisa da conta Apple Developer (US$ 99 por ano) e de um Mac com Xcode. O
+PWABuilder gera o projeto, mas a Apple costuma recusar app que é só o site dentro de uma moldura
+(diretriz 4.2). Por isso, no iPhone o caminho continua sendo *Compartilhar → Adicionar à Tela de
+Início*, que já tem os avisos no celular (iOS 16.4 ou mais novo).
+
+O app da loja é o da plataforma (dono, recepção e barbeiro). O cliente segue instalando o app com a
+marca da barbearia pela área do cliente. Um app de loja só de uma barbearia é outra publicação, com
+conta e ficha próprias.
+
 ## Rede com filiais
 
 O dono abre mais unidades em *Unidades* (começam nos dias grátis, com as cores e o nome do robô da

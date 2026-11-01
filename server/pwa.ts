@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import zlib from 'node:zlib';
 import { Router } from 'express';
+import { config } from './config.js';
 import { get } from './db.js';
 
 /**
@@ -152,6 +153,19 @@ pwaRouter.get('/b/:slug/icons/:file', (req, res) => {
     return;
   }
   sendIcon(res, String(req.params.file), shop.primary_color, shop.accent_color);
+});
+
+// ---------- app na Play Store (Trusted Web Activity)
+
+/** Digital Asset Links: diz ao Android que o app da loja é deste site (sem barra do navegador). */
+pwaRouter.get('/.well-known/assetlinks.json', (_req, res) => {
+  if (!config.androidPackage || !config.androidSha256.length) return res.json([]);
+  res.json([
+    {
+      relation: ['delegate_permission/common.handle_all_urls'],
+      target: { namespace: 'android_app', package_name: config.androidPackage, sha256_cert_fingerprints: config.androidSha256 },
+    },
+  ]);
 });
 
 // ---------- manifest

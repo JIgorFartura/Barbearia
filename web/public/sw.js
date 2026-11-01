@@ -1,7 +1,76 @@
-// Service worker do app: mostra os avisos (push) e abre a tela certa ao tocar. Não guarda o app em
-// cache: cada abertura carrega a versão mais nova.
+// Service worker do app: mostra os avisos (push), abre a tela certa ao tocar e guarda uma cópia da
+// agenda para ver sem internet. Com internet, tudo vem sempre da rede (a versão mais nova); a cópia
+// só aparece quando a rede falha. Sair da conta apaga o que ficou guardado no aparelho.
+const SHELL = 'bladr-app-v1';
+const DATA = 'bladr-dados-v1';
+
+/** Respostas da API guardadas para ver sem internet (a agenda e quem está logado). */
+const OFFLINE_API = [
+  /^\/api\/auth\/me$/,
+  /^\/api\/barber\/(me|agenda)$/,
+  /^\/api\/shop\/(status|agenda|barbers|queue)$/,
+  /^\/api\/customer\/[\w-]+\/me$/,
+  /^\/api\/public\/shops\/[\w-]+\/brand$/,
+];
+const LOGOUT = [/^\/api\/auth\/logout$/, /^\/api\/customer\/[\w-]+\/logout$/];
+
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener('activate', (event) =>
+  event.waitUntil(
+    (async () => {
+      for (const key of await caches.keys()) if (key !== SHELL && key !== DATA) await caches.delete(key);
+      await self.clients.claim();
+    })(),
+  ),
+);
+
+/** Rede primeiro; sem rede, a última cópia guardada. */
+async function networkFirst(request, cacheName, fallbackUrl) {
+  const cache = await caches.open(cacheName);
+  try {
+    const response = await fetch(request);
+    if (response.ok) await cache.put(request, response.clone());
+    return response;
+  } catch (err) {
+    const hit = (await cache.match(request)) || (fallbackUrl && (await cache.match(fallbackUrl)));
+    if (hit) return hit;
+    throw err;
+  }
+}
+
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+
+  if (req.method === 'POST' && LOGOUT.some((r) => r.test(url.pathname))) {
+    event.waitUntil(caches.delete(DATA));
+    return;
+  }
+  if (req.method !== 'GET') return;
+
+  // Telas do app (páginas e arquivos do site): sempre a versão nova, com a cópia para sem internet.
+  if (req.mode === 'navigate') {
+    event.respondWith(networkFirst(req, SHELL, '/'));
+    return;
+  }
+  if (url.pathname.startsWith('/assets/')) {
+    // Arquivos com nome único por versão: se já tem, não muda.
+    event.respondWith(
+      caches.open(SHELL).then(async (cache) => {
+        const hit = await cache.match(req);
+        if (hit) return hit;
+        const response = await fetch(req);
+        if (response.ok) await cache.put(req, response.clone());
+        return response;
+      }),
+    );
+    return;
+  }
+  if (OFFLINE_API.some((r) => r.test(url.pathname))) {
+    event.respondWith(networkFirst(req, DATA));
+  }
+});
 
 self.addEventListener('push', (event) => {
   let data = {};
