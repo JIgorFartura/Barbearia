@@ -144,6 +144,8 @@ export function CheckoutModal({
   const [q, setQ] = useState('');
   const [found, setFound] = useState<{ id: number; name: string; phone: string }[]>([]);
   const [discount, setDiscount] = useState('');
+  const [tip, setTip] = useState('');
+  const [tipBarber, setTipBarber] = useState('');
   const [method, setMethod] = useState<Method>('pix');
   const [notes, setNotes] = useState('');
   const [adding, setAdding] = useState('');
@@ -286,7 +288,10 @@ export function CheckoutModal({
   const total = subtotal - discountCents;
   // Vale-presente: paga até o saldo dele; o resto vai na forma de pagamento escolhida.
   const giftCents = gift ? Math.min(gift.balance, total) : 0;
-  const toPay = total - giftCents;
+  // Gorjeta: vai inteira para o barbeiro e é paga junto (fora do total da venda).
+  const tipCents = parseMoney(tip);
+  const toPay = total - giftCents + tipCents;
+  const lineBarbers = [...new Set(lines.map((l) => l.barber_id).filter((b): b is number => b != null))];
 
   const update = (key: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
@@ -318,6 +323,8 @@ export function CheckoutModal({
       package_id: l.pack || null,
     })),
     discount_cents: discountCents,
+    tip_cents: tipCents,
+    tip_barber_id: tipCents > 0 && tipBarber ? Number(tipBarber) : null,
     gift_code: giftCents > 0 ? gift!.code : null,
     gift_cents: giftCents > 0 ? giftCents : null,
     notes: notes || null,
@@ -573,6 +580,38 @@ export function CheckoutModal({
             </Field>
           </div>
 
+          <div className="space-y-2">
+            <div className="flex items-end gap-2">
+              <Field label="Gorjeta (R$)" hint="Vai inteira para o barbeiro, junto com a comissão.">
+                <Input inputMode="decimal" placeholder="0,00" value={tip} onChange={(e) => setTip(e.target.value)} />
+              </Field>
+              {[10, 15].map((pct) => (
+                <button
+                  key={pct}
+                  type="button"
+                  className="mb-6 rounded-full px-3 py-1.5 text-sm font-medium ring-1 ring-zinc-200 hover:bg-zinc-100"
+                  onClick={() => setTip(((Math.round((total * pct) / 100 / 100) * 100) / 100).toFixed(2).replace('.', ','))}
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
+            {tipCents > 0 && lineBarbers.length > 1 && data && (
+              <Field label="Gorjeta para">
+                <select className={inputClass} value={tipBarber} onChange={(e) => setTipBarber(e.target.value)}>
+                  <option value="">Quem fez o serviço</option>
+                  {data.barbers
+                    .filter((b) => lineBarbers.includes(b.id))
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+            )}
+          </div>
+
           {gift ? (
             <p className="flex items-center justify-between gap-2 rounded-xl bg-violet-50 px-3 py-2 text-sm text-violet-950 ring-1 ring-violet-200">
               <span>
@@ -621,13 +660,20 @@ export function CheckoutModal({
             <p className="flex justify-between text-lg font-bold">
               <span>Total</span> <span className="tabular-nums">{money(total)}</span>
             </p>
-            {giftCents > 0 && (
+            {tipCents > 0 && (
+              <p className="flex justify-between text-emerald-800">
+                <span>Gorjeta (para o barbeiro)</span> <span className="tabular-nums">+ {money(tipCents)}</span>
+              </p>
+            )}
+            {(giftCents > 0 || tipCents > 0) && (
               <>
-                <p className="flex justify-between text-violet-800">
-                  <span>Pago com o vale-presente</span> <span className="tabular-nums">− {money(giftCents)}</span>
-                </p>
+                {giftCents > 0 && (
+                  <p className="flex justify-between text-violet-800">
+                    <span>Pago com o vale-presente</span> <span className="tabular-nums">− {money(giftCents)}</span>
+                  </p>
+                )}
                 <p className="flex justify-between font-semibold">
-                  <span>Falta pagar</span> <span className="tabular-nums">{money(toPay)}</span>
+                  <span>{giftCents > 0 ? 'Falta pagar' : 'A pagar'}</span> <span className="tabular-nums">{money(toPay)}</span>
                 </p>
               </>
             )}

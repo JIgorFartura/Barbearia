@@ -86,6 +86,9 @@ export interface SaleInput {
   category?: string;
   /** Atendimento da fila de chegada que esta comanda fecha. */
   queueEntryId?: number | null;
+  /** Gorjeta: 100% do barbeiro (padrão: quem fez o serviço), fora do faturamento da barbearia. */
+  tipCents?: number;
+  tipBarberId?: number | null;
   now?: Date;
   /** Só conferir e calcular (previewSale): sem avisos para fora (prêmio de indicação). */
   preview?: boolean;
@@ -102,6 +105,9 @@ export interface SaleView {
   total_cents: number;
   /** Parte paga com vale-presente. */
   gift_cents: number;
+  /** Gorjeta paga junto (fora do total da venda) e quem recebe. */
+  tip_cents: number;
+  tip_barber_name: string | null;
   method: Method;
   notes: string | null;
   status: 'closed' | 'cancelled';
@@ -128,6 +134,7 @@ export interface SaleView {
 export function saleView(id: number): SaleView {
   const sale = get<Omit<SaleView, 'items'>>(
     `SELECT s.id, s.date, s.customer_id, c.name AS customer_name, s.appointment_id, s.subtotal_cents, s.discount_cents, s.total_cents, s.gift_cents,
+            s.tip_cents, (SELECT b.name FROM sale_tips t JOIN barbers b ON b.id = t.barber_id WHERE t.sale_id = s.id LIMIT 1) AS tip_barber_name,
             s.method, s.notes, s.status, s.created_at, s.nfse_status, s.nfse_url, s.nfse_error
        FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?`,
     [id],
@@ -323,6 +330,22 @@ export function createSale(input: SaleInput): SaleResult {
       );
     }
 
+    // Gorjeta: vai inteira para o barbeiro (soma na comissão a pagar) e entra no caixa à parte.
+    const tip = Math.max(0, input.tipCents ?? 0);
+    if (tip > 0) {
+      const tipBarber = input.tipBarberId ?? defaultBarber ?? items.find((i) => i.kind === 'service' && i.barberId)?.barberId ?? items.find((i) => i.barberId)?.barberId ?? null;
+      if (!tipBarber) throw new HttpError(400, 'Escolha o barbeiro que recebe a gorjeta.');
+      const b = get<{ name: string }>('SELECT name FROM barbers WHERE id = ? AND barbershop_id = ?', [tipBarber, shop]);
+      if (!b) throw new HttpError(404, 'Barbeiro da gorjeta não encontrado.');
+      run('INSERT INTO sale_tips (sale_id, barber_id, amount_cents, created_at) VALUES (?, ?, ?, ?)', [saleId, tipBarber, tip, nowIso()]);
+      run('UPDATE sales SET tip_cents = ? WHERE id = ?', [tip, saleId]);
+      run(
+        `INSERT INTO cash_entries (barbershop_id, type, category, description, amount_cents, method, date, status, sale_id, created_by, created_at)
+         VALUES (?, 'in', 'Gorjetas', ?, ?, ?, ?, 'paid', ?, ?, ?)`,
+        [shop, `Gorjeta para ${b.name} · Venda #${saleId}`, tip, input.method, date, saleId, input.userId, nowIso()],
+      );
+    }
+
     // Primeira visita de quem veio indicado: quem indicou ganha o prêmio.
     if (customerId && !input.preview) rewardReferrer(shop, customerId);
 
@@ -350,7 +373,7 @@ export function cancelSale(shopId: number, saleId: number, userId: number | null
     const sale = get<{ status: string }>('SELECT status FROM sales WHERE id = ? AND barbershop_id = ?', [saleId, shopId]);
     if (!sale) throw new HttpError(404, 'Venda não encontrada.');
     if (sale.status === 'cancelled') throw new HttpError(409, 'Essa venda já foi cancelada.');
-    if (get('SELECT 1 AS ok FROM sale_items WHERE sale_id = ? AND payout_id IS NOT NULL', [saleId])) {
+    if (get('SELECT 1 AS ok FROM sale_items WHERE sale_id = ? AND payout_id IS NOT NULL UNION SELECT 1 FROM sale_tips WHERE sale_id = ? AND payout_id IS NOT NULL', [saleId, saleId])) {
       throw new HttpError(409, 'A comissão desta venda já foi paga ao barbeiro. Lance um ajuste no caixa.');
     }
     if (get("SELECT 1 AS ok FROM customer_packages WHERE sale_id = ? AND used > 0 AND status <> 'cancelled'", [saleId])) {
@@ -551,10 +574,22 @@ export function commissionBalances(shopId: number) {
       WHERE b.barbershop_id = ?
       GROUP BY b.id ORDER BY b.active DESC, b.name COLLATE NOCASE`,
     [shopId],
-  ).map((b) => ({
-    ...b,
-    lastPayout: get<{ date: string; amount_cents: number }>('SELECT date, amount_cents FROM barber_payouts WHERE barber_id = ? ORDER BY id DESC LIMIT 1', [b.barber_id]) ?? null,
-  }));
+  ).map((b) => {
+    // Gorjetas ainda não pagas somam na comissão a pagar.
+    const tips = get<{ cents: number; n: number; since: string | null }>(
+      `SELECT COALESCE(SUM(t.amount_cents), 0) AS cents, COUNT(*) AS n, MIN(s.date) AS since
+         FROM sale_tips t JOIN sales s ON s.id = t.sale_id WHERE t.barber_id = ? AND s.status = 'closed' AND t.payout_id IS NULL`,
+      [b.barber_id],
+    )!;
+    return {
+      ...b,
+      unpaid_cents: b.unpaid_cents + tips.cents,
+      unpaid_items: b.unpaid_items + tips.n,
+      since: [b.since, tips.since].filter(Boolean).sort()[0] ?? null,
+      tips_cents: tips.cents,
+      lastPayout: get<{ date: string; amount_cents: number }>('SELECT date, amount_cents FROM barber_payouts WHERE barber_id = ? ORDER BY id DESC LIMIT 1', [b.barber_id]) ?? null,
+    };
+  });
 }
 
 export function barberStatement(shopId: number, barberId: number, from: string, to: string) {
@@ -566,9 +601,18 @@ export function barberStatement(shopId: number, barberId: number, from: string, 
       ORDER BY s.date DESC, i.id DESC`,
     [shopId, barberId, from, to],
   );
+  // Gorjetas aparecem no extrato como uma linha dele (100%).
+  const tips = all<(typeof items)[number]>(
+    `SELECT s.date, s.id AS sale_id, c.name AS customer, 'Gorjeta' AS name, 'gorjeta' AS kind, 1 AS qty, t.amount_cents AS total_cents, t.amount_cents AS commission_cents, t.payout_id
+       FROM sale_tips t JOIN sales s ON s.id = t.sale_id LEFT JOIN customers c ON c.id = s.customer_id
+      WHERE s.barbershop_id = ? AND t.barber_id = ? AND s.status = 'closed' AND s.date >= ? AND s.date <= ?`,
+    [shopId, barberId, from, to],
+  );
+  items.push(...tips);
+  items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.sale_id - a.sale_id));
   return {
     items: items.map(({ payout_id, ...i }) => ({ ...i, paid: payout_id != null })),
-    revenue: items.reduce((s, i) => s + i.total_cents, 0),
+    revenue: items.filter((i) => i.kind !== 'gorjeta').reduce((s, i) => s + i.total_cents, 0),
     commission: items.reduce((s, i) => s + i.commission_cents, 0),
     payouts: all('SELECT id, date, amount_cents, items, until_date, method FROM barber_payouts WHERE barber_id = ? ORDER BY id DESC LIMIT 20', [barberId]),
   };
@@ -584,19 +628,25 @@ export function createPayout(input: { shopId: number; barberId: number; until: s
         WHERE s.barbershop_id = ? AND s.status = 'closed' AND i.barber_id = ? AND i.payout_id IS NULL AND i.commission_cents > 0 AND s.date <= ?`,
       [input.shopId, input.barberId, input.until],
     );
-    const amount = open.reduce((s, i) => s + i.commission_cents, 0);
+    const tips = all<{ id: number; amount_cents: number }>(
+      `SELECT t.id, t.amount_cents FROM sale_tips t JOIN sales s ON s.id = t.sale_id
+        WHERE s.barbershop_id = ? AND s.status = 'closed' AND t.barber_id = ? AND t.payout_id IS NULL AND s.date <= ?`,
+      [input.shopId, input.barberId, input.until],
+    );
+    const amount = open.reduce((s, i) => s + i.commission_cents, 0) + tips.reduce((s, t) => s + t.amount_cents, 0);
     if (!amount) throw new HttpError(400, 'Não há comissão em aberto até essa data.');
     const date = shopNow(input.shopId, input.now).date;
     const payoutId = run(
       'INSERT INTO barber_payouts (barbershop_id, barber_id, amount_cents, items, until_date, date, method, notes, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [input.shopId, input.barberId, amount, open.length, input.until, date, input.method, input.notes, input.userId, nowIso()],
+      [input.shopId, input.barberId, amount, open.length + tips.length, input.until, date, input.method, input.notes, input.userId, nowIso()],
     ).lastInsertRowid;
     for (const i of open) run('UPDATE sale_items SET payout_id = ? WHERE id = ?', [payoutId, i.id]);
+    for (const t of tips) run('UPDATE sale_tips SET payout_id = ? WHERE id = ?', [payoutId, t.id]);
     run(
       `INSERT INTO cash_entries (barbershop_id, type, category, description, amount_cents, method, date, status, payout_id, created_by, created_at)
        VALUES (?, 'out', 'Comissões', ?, ?, ?, ?, 'paid', ?, ?, ?)`,
       [input.shopId, `Comissão de ${barber.name} até ${input.until.split('-').reverse().join('/')}`, amount, input.method, date, payoutId, input.userId, nowIso()],
     );
-    return { id: payoutId, amount_cents: amount, items: open.length };
+    return { id: payoutId, amount_cents: amount, items: open.length + tips.length };
   });
 }

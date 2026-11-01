@@ -214,6 +214,10 @@ vencimento e caem sozinhas. Cancelar o clube ou desligar o débito cancela tamb�
 - **Fechar atendimento**: a comanda já vem com o serviço, o que o cliente pediu para separar e o
   que o clube cobre; dá para somar produtos, mudar quem atendeu, dar desconto e escolher a forma de
   pagamento.
+- **Gorjeta na comanda**: valor livre ou 10%/15% num toque. Vai **inteira para o barbeiro** (para quem
+  fez o serviço, ou quem o dono escolher quando a comanda tem dois), soma na comissão a pagar e no
+  extrato dele, e entra no caixa como *Gorjetas*, fora do faturamento da barbearia. No PIX da comanda,
+  a gorjeta vai no mesmo QR.
 - **PIX na comanda com confirmação automática** (com o Asaas da barbearia ligado): em PIX, o botão
   vira *Gerar PIX* e o QR aparece na tela para o cliente pagar no balcão. Nada entra no caixa
   enquanto espera; quando o Asaas avisa que caiu, a venda é registrada sozinha (caixa, comissão,

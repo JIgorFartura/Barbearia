@@ -1264,6 +1264,19 @@ const MIGRATIONS: (string | Rebuild)[] = [
   );
   CREATE INDEX queue_day ON queue_entries (barbershop_id, date, status);
   `,
+  // 33: gorjeta na comanda: 100% do barbeiro (entra com a comissão dele) e fora do faturamento.
+  `
+  ALTER TABLE sales ADD COLUMN tip_cents INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE sale_tips (
+    id INTEGER PRIMARY KEY,
+    sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+    barber_id INTEGER NOT NULL REFERENCES barbers(id),
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    payout_id INTEGER REFERENCES barber_payouts(id),
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX sale_tips_barber ON sale_tips (barber_id, payout_id);
+  `,
 ];
 
 function migrate(): void {

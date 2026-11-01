@@ -235,6 +235,7 @@ barberRouter.post('/sales', (req, res) => {
       discount_cents: z.number().int().min(0).max(10_000_000).default(0),
         gift_code: z.string().trim().max(20).nullish(),
         gift_cents: z.number().int().min(1).max(10_000_000).nullish(),
+      tip_cents: z.number().int().min(0).max(100_000).default(0),
       method: z.enum(METHODS),
       notes: zText(300),
     }),
@@ -254,6 +255,9 @@ barberRouter.post('/sales', (req, res) => {
       discountCents: body.discount_cents,
       giftCode: body.gift_code,
       giftCents: body.gift_cents,
+      // A gorjeta lançada pelo barbeiro é dele.
+      tipCents: body.tip_cents,
+      tipBarberId: body.tip_cents ? barber : null,
       method: body.method,
       notes: body.notes,
     });

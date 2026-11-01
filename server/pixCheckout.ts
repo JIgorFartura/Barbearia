@@ -12,7 +12,7 @@ import { ensureCustomer, normalizeCpf, qrFrom, saveCustomerCpf, shopAsaasCall, s
  */
 
 /** A comanda como foi montada na tela (vira a venda quando o PIX cai). */
-export type PixSaleInput = Pick<SaleInput, 'appointmentId' | 'customerId' | 'items' | 'discountCents' | 'giftCode' | 'giftCents' | 'notes' | 'queueEntryId'>;
+export type PixSaleInput = Pick<SaleInput, 'appointmentId' | 'customerId' | 'items' | 'discountCents' | 'giftCode' | 'giftCents' | 'notes' | 'queueEntryId' | 'tipCents' | 'tipBarberId'>;
 
 export interface PixCheckoutView {
   id: number;
@@ -88,7 +88,8 @@ export async function startPixCheckout(
     throw new HttpError(409, 'Para o PIX com confirmação automática, ligue o Asaas da barbearia (Clube de assinatura → PIX com baixa automática).');
   }
   const sale = previewSale({ ...input, shopId, userId, method: 'pix', now });
-  const amount = sale.total_cents - sale.gift_cents;
+  // A gorjeta vai no mesmo PIX (e entra para o barbeiro quando o pagamento cai).
+  const amount = sale.total_cents - sale.gift_cents + sale.tip_cents;
   if (amount <= 0) throw new HttpError(400, 'Não sobra nada para pagar no PIX: registre a venda normalmente.');
   const customerId = sale.customer_id ?? null;
 

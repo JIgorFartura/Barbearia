@@ -98,6 +98,8 @@ const zComanda = z.object({
   discount_cents: z.number().int().min(0).max(10_000_000).default(0),
   gift_code: z.string().trim().max(20).nullish(),
   gift_cents: z.number().int().min(1).max(10_000_000).nullish(),
+  tip_cents: z.number().int().min(0).max(100_000).default(0),
+  tip_barber_id: zId.nullish(),
   notes: zText(300),
 });
 
@@ -363,6 +365,8 @@ export function registerFinanceRoutes(router: Router): void {
       discountCents: body.discount_cents,
       giftCode: body.gift_code,
       giftCents: body.gift_cents,
+      tipCents: body.tip_cents,
+      tipBarberId: body.tip_barber_id,
       method: body.method,
       notes: body.notes,
     });
@@ -400,6 +404,8 @@ export function registerFinanceRoutes(router: Router): void {
         discountCents: body.discount_cents,
         giftCode: body.gift_code,
         giftCents: body.gift_cents,
+        tipCents: body.tip_cents,
+        tipBarberId: body.tip_barber_id,
         notes: body.notes,
       },
       body.payer_cpf,
