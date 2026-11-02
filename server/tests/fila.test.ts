@@ -126,15 +126,19 @@ describe('fila de chegada', () => {
     assert.equal(get<{ status: string }>("SELECT status FROM queue_entries WHERE name = 'Bruno'")!.status, 'left');
   });
 
-  test('a recepção põe quem chegou no balcão; só o dono liga e desliga a fila', async () => {
-    const r = await desk('POST', '/api/shop/queue', { name: 'Carlos Souza' });
-    assert.equal(r.status, 201, JSON.stringify(r.data));
-    assert.equal(r.data.source, 'balcao');
-    const list = await desk('GET', '/api/shop/queue');
-    assert.equal(list.status, 200);
-    assert.ok(list.data.entries.some((e: { name: string }) => e.name === 'Carlos Souza'));
+  test('quem chega no balcão entra na fila sem celular', async () => {
+    const carlos = await joinQueue({ shopId, name: 'Carlos Souza', source: 'balcao', now: at('10:05') });
+    assert.deepEqual([carlos.source, carlos.phone, carlos.customer_id, carlos.status], ['balcao', null, null, 'waiting']);
+    leaveQueue(shopId, carlos.id);
+  });
+
+  test('a recepção usa a fila (vê e põe gente), mas só o dono liga e desliga', async () => {
+    assert.equal((await desk('GET', '/api/shop/queue')).status, 200);
+    // Pôr na fila é da recepção (se entra ou não depende do relógio de agora: só não pode ser recusado por perfil).
+    const r = await desk('POST', '/api/shop/queue', { name: 'Diego Alves' });
+    assert.notEqual(r.status, 403, JSON.stringify(r.data));
+    if (r.status === 201) leaveQueue(shopId, r.data.id);
     assert.equal((await desk('PUT', '/api/shop/queue/settings', { enabled: false })).status, 403);
-    leaveQueue(shopId, r.data.id);
     assert.equal((await owner('PUT', '/api/shop/queue/settings', { enabled: false })).status, 200);
   });
 

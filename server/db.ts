@@ -1309,7 +1309,7 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE club_members ADD COLUMN next_plan_id INTEGER REFERENCES club_plans(id);
   ALTER TABLE charges ADD COLUMN plan_change_to INTEGER REFERENCES club_plans(id);
   `,
-  // 37: sinal só para quem falta (desligado = 0 faltas).
+  // 37: sinal só para quem falta (retirado na 41).
   `
   ALTER TABLE barbershops ADD COLUMN deposit_no_shows INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE barbershops ADD COLUMN deposit_cents INTEGER NOT NULL DEFAULT 2000;
@@ -1332,6 +1332,12 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbershops ADD COLUMN guide_listed INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE barbershops ADD COLUMN city TEXT;
   ALTER TABLE barbershops ADD COLUMN district TEXT;
+  `,
+  // 41: sai o sinal para quem falta (a 37): nem toda barbearia cobra de quem falta.
+  `
+  ALTER TABLE barbershops DROP COLUMN deposit_no_shows;
+  ALTER TABLE barbershops DROP COLUMN deposit_cents;
+  ALTER TABLE barbershops DROP COLUMN deposit_hold_min;
   `,
 ];
 

@@ -1,5 +1,4 @@
 import type { Request, Router } from 'express';
-import { prepaidDeposit } from '../deposits.js';
 import { z } from 'zod';
 import { isReception, shopId } from '../auth.js';
 import {
@@ -343,8 +342,6 @@ export function registerFinanceRoutes(router: Router): void {
     res.json({
       appointment,
       reserved: appointmentId ? reservedItems(appointmentId) : [],
-      // Sinal já pago do horário: abatido no que falta pagar.
-      deposit_cents: appointmentId ? (prepaidDeposit(appointmentId)?.amount_cents ?? 0) : 0,
       // Produtos com controle de estoque trazem quanto ainda tem (descontado o que está separado).
       catalog: all<{ id: number; kind: string; name: string; price_cents: number; track_stock: number }>(
         'SELECT id, kind, name, price_cents, track_stock FROM catalog_items WHERE barbershop_id = ? AND active = 1 ORDER BY kind DESC, name COLLATE NOCASE',

@@ -1,5 +1,4 @@
 import type { Router } from 'express';
-import { depositSettings, saveDepositSettings } from '../deposits.js';
 import { z } from 'zod';
 import { shopId } from '../auth.js';
 import { awayCustomers, sendWinback, winbackResults } from '../automations.js';
@@ -81,22 +80,6 @@ const zSettings = z.object({
 
 /** Robô do WhatsApp, simulador, conversas e clientes sumidos (painel do dono). */
 export function registerBotRoutes(router: Router): void {
-  // Sinal só para quem falta (desligado = 0).
-  router.get('/deposit-settings', (req, res) => {
-    res.json(depositSettings(shopId(req)));
-  });
-  router.put('/deposit-settings', (req, res) => {
-    const body = parseBody(
-      z.object({
-        deposit_no_shows: z.number().int().min(0).max(5),
-        deposit_cents: z.number().int().min(500).max(50_000),
-        deposit_hold_min: z.number().int().min(15).max(24 * 60),
-      }),
-      req.body,
-    );
-    res.json(saveDepositSettings(shopId(req), body));
-  });
-
   router.get('/bot', (req, res) => {
     res.json(botSettings(shopId(req)));
   });

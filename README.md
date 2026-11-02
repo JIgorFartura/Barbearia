@@ -172,15 +172,6 @@ de receber as de marketing.
   copiar, e o link para pagar no cartão quando a barbearia aceita) e um lembrete se atrasar. No
   cartão automático não vai cobrança: só o aviso se o cartão não passar.
 
-**Sinal só para quem falta** (*Robô WhatsApp → Lembretes*, desligado por padrão): quem confirma pelo
-WhatsApp segue sem pagar nada. Com o dono ligando (1, 2 ou 3 faltas em 6 meses), o cliente que já faltou
-e marca sozinho (site, app ou robô) paga um sinal no PIX (QR com baixa automática, se o Asaas da
-barbearia está ligado, ou a chave PIX com o *Já paguei*). Sem pagar no prazo, a vaga é liberada e ele é
-avisado. O sinal entra no caixa como *Sinal* e é abatido na comanda (só o resto entra como
-atendimento). Cancelou com 24 horas ou mais (ou a barbearia cancelou): vira crédito para o próximo
-horário; em cima da hora ou falta: fica com a barbearia. Horário marcado no balcão e assinante do clube
-em dia não pagam sinal.
-
 ## Agenda e barbeiros
 
 - **Agenda** por barbeiro, encaixe pelo balcão, falta, cancelamento e **fechar o atendimento**,

@@ -1,5 +1,4 @@
 import { all, get, nowIso, run, tx } from './db.js';
-import { prepaidDeposit } from './deposits.js';
 import { HttpError } from './http.js';
 import { addStamps, isRunning, type Campaign } from './loyalty.js';
 import { stockBackForSale, stockOutForSale } from './stock.js';
@@ -141,8 +140,6 @@ export interface SaleView {
   total_cents: number;
   /** Parte paga com vale-presente. */
   gift_cents: number;
-  /** Parte já paga antes (sinal do horário). */
-  prepaid_cents: number;
   /** Gorjeta paga junto (fora do total da venda) e quem recebe. */
   tip_cents: number;
   tip_barber_id: number | null;
@@ -172,7 +169,7 @@ export interface SaleView {
 
 export function saleView(id: number): SaleView {
   const sale = get<Omit<SaleView, 'items'>>(
-    `SELECT s.id, s.date, s.customer_id, c.name AS customer_name, s.appointment_id, s.subtotal_cents, s.discount_cents, s.total_cents, s.gift_cents, s.prepaid_cents,
+    `SELECT s.id, s.date, s.customer_id, c.name AS customer_name, s.appointment_id, s.subtotal_cents, s.discount_cents, s.total_cents, s.gift_cents,
             s.tip_cents, (SELECT t.barber_id FROM sale_tips t WHERE t.sale_id = s.id LIMIT 1) AS tip_barber_id,
             (SELECT b.name FROM sale_tips t JOIN barbers b ON b.id = t.barber_id WHERE t.sale_id = s.id LIMIT 1) AS tip_barber_name,
             s.method, s.notes, s.status, s.created_at, s.nfse_status, s.nfse_url, s.nfse_error
@@ -362,15 +359,8 @@ export function createSale(input: SaleInput): SaleResult {
     }
 
     const customerName = customerId ? get<{ name: string }>('SELECT name FROM customers WHERE id = ?', [customerId])?.name : null;
-    // Sinal pago do horário: já entrou no caixa quando foi pago, então sai do que falta receber.
-    const deposit = input.appointmentId ? prepaidDeposit(input.appointmentId) : null;
-    const prepaid = deposit ? Math.min(deposit.amount_cents, total - (gift?.amount ?? 0)) : 0;
-    if (deposit && prepaid > 0) {
-      run('UPDATE charges SET sale_id = ? WHERE id = ?', [saleId, deposit.id]);
-      run('UPDATE sales SET prepaid_cents = ? WHERE id = ?', [prepaid, saleId]);
-    }
     // O que foi pago com vale-presente já entrou no caixa quando o vale foi vendido.
-    const received = total - (gift?.amount ?? 0) - prepaid;
+    const received = total - (gift?.amount ?? 0);
     if (received > 0) {
       run(
         `INSERT INTO cash_entries (barbershop_id, type, category, description, amount_cents, method, date, status, sale_id, created_by, created_at)
@@ -441,8 +431,6 @@ export function cancelSale(shopId: number, saleId: number, userId: number | null
       run("UPDATE gift_cards SET balance_cents = balance_cents + ?, status = CASE WHEN status = 'used' THEN 'active' ELSE status END WHERE id = ?", [u.amount_cents, u.gift_card_id]);
     }
     run('DELETE FROM gift_card_uses WHERE sale_id = ?', [saleId]);
-    // O sinal abatido volta a valer para o horário.
-    run('UPDATE charges SET sale_id = NULL WHERE sale_id = ?', [saleId]);
     run("UPDATE sales SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [nowIso(), saleId]);
     run('DELETE FROM cash_entries WHERE sale_id = ?', [saleId]);
     run('DELETE FROM loyalty_events WHERE sale_id = ?', [saleId]);

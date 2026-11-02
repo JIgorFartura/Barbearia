@@ -9,7 +9,6 @@ import { FeaturedAds, PartnersSection, StoreSection, useVitrine } from './Custom
 import type { ReceiptInfo } from '../components/Receipt';
 import { PhotoThumb, photoDate, type CutPhoto } from '../components/Profile';
 import { AppSection } from '../components/AppInstall';
-import { PixPay } from '../components/Pix';
 import { Button, ErrorText, Field, Input, Modal, inputClass } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import { methodLabel } from '../lib/finance';
@@ -43,8 +42,6 @@ interface Appointment {
   /** Desconto do horário vazio ou de volta (o preço já sai com ele). */
   promo_percent?: number | null;
   promo_kind?: 'vazio' | 'volta' | null;
-  /** Sinal para segurar o horário (quem faltou antes, se a barbearia pede). */
-  deposit?: { id: number; status: 'open' | 'paid'; amount_cents: number; claimed: boolean; expires_at: string | null; pix: { payload: string; qr: string; auto: boolean } | null } | null;
 }
 
 type Period = 'qualquer' | 'manha' | 'tarde' | 'noite';
@@ -488,7 +485,6 @@ function Dashboard({ slug, brand, me, reload }: { slug: string; brand: Brand; me
                   {a.items && a.items.length > 0 && (
                     <p className="text-xs text-amber-800">🛍️ Separado pra você: {a.items.map((i) => `${i.qty} ${i.name.toLowerCase()}`).join(', ')}</p>
                   )}
-                  {a.deposit && <DepositBox slug={slug} deposit={a.deposit} onClaimed={reload} />}
                   {a.confirmed_at ? (
                     <p className="text-xs font-medium text-emerald-700">✓ Presença confirmada</p>
                   ) : (
@@ -1228,30 +1224,5 @@ function PrefsModal({ slug, me, botName, onClose, onDone }: { slug: string; me: 
         </div>
       </form>
     </Modal>
-  );
-}
-
-/** Sinal do horário: pago, avisado ou o PIX para pagar até o prazo. */
-function DepositBox({ slug, deposit, onClaimed }: { slug: string; deposit: NonNullable<Appointment['deposit']>; onClaimed: () => void }) {
-  const [show, setShow] = useState(true);
-  if (deposit.status === 'paid') return <p className="text-xs font-medium text-emerald-700">✓ Sinal de {money(deposit.amount_cents)} pago (descontado no dia)</p>;
-  if (deposit.claimed) return <p className="text-xs text-amber-800">Sinal avisado: a barbearia está conferindo o PIX.</p>;
-  const until = deposit.expires_at ? new Date(deposit.expires_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null;
-  return (
-    <div className="my-2 space-y-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-950 ring-1 ring-amber-200">
-      <p>
-        Para segurar esse horário, pague o sinal de <b>{money(deposit.amount_cents)}</b> no PIX{until ? ` até as ${until}` : ''}. Ele é descontado no dia; sem o
-        pagamento, o horário é liberado.
-      </p>
-      {deposit.pix && show && <PixPay pix={deposit.pix} />}
-      {deposit.pix && !deposit.pix.auto && (
-        <button
-          className="text-xs font-semibold underline"
-          onClick={() => api('POST', `/api/customer/${slug}/deposits/${deposit.id}/claim`).then(() => (setShow(false), onClaimed()))}
-        >
-          Já paguei
-        </button>
-      )}
-    </div>
   );
 }

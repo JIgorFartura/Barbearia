@@ -16,7 +16,7 @@ import { dropReceipt } from './receipts.js';
 export interface ChargeView {
   id: number;
   barbershop_id: number;
-  kind: 'clube' | 'sinal';
+  kind: 'clube';
   customer_id: number;
   customer_name: string;
   phone: string;
@@ -36,10 +36,6 @@ export interface ChargeView {
   receipt_file: string | null;
   receipt_type: string | null;
   receipt_at: string | null;
-  /** Sinal: o horário que ele segura, até quando dá para pagar e a venda em que foi abatido. */
-  appointment_id: number | null;
-  expires_at: string | null;
-  sale_id: number | null;
   created_at: string;
 }
 
@@ -121,7 +117,7 @@ export function confirmCharge(shopId: number, chargeId: number, opts: { method: 
        VALUES (?, 'in', ?, ?, ?, ?, ?, 'paid', ?, ?, ?)`,
       [
         shopId,
-        c.kind === 'sinal' ? 'Sinal' : 'Clube de assinatura',
+        'Clube de assinatura',
         `${c.description} · ${c.customer_name}`,
         c.amount_cents,
         opts.method,

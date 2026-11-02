@@ -1,5 +1,4 @@
 import { dailyBackup } from './backup.js';
-import { expireDeposits } from './deposits.js';
 import { checkConnections } from './connection.js';
 import { purgeOldData } from './privacy.js';
 import { askReviews } from './reviews.js';
@@ -500,7 +499,6 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
       // próprio horário de envio (são resposta ao que o cliente pediu), fora a regra das automáticas.
       try {
         summary.released += await releaseUnconfirmed(shop, now);
-        summary.released += await expireDeposits(shop.id, now);
         summary.waitlist += await offerFreedSlots(shop, now);
       } catch (err) {
         console.error(`[lista de espera] ${shop.slug}:`, err);

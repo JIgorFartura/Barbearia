@@ -1,7 +1,6 @@
 import type { Router } from 'express';
 import { commissionFees, saveCommissionFees } from '../finance.js';
 import { calendarLink } from '../calendar.js';
-import { depositOnNoShow } from '../deposits.js';
 import { z } from 'zod';
 import { hashPassword, isReception, shopId } from '../auth.js';
 import { zPassword } from './auth.js';
@@ -339,7 +338,6 @@ export function registerAgendaRoutes(router: Router): void {
       shopId(req),
     ]);
     if (!changes) throw new HttpError(404, 'Horário não encontrado.');
-    depositOnNoShow(idParam(req), status === 'no_show');
     res.json({ ok: true });
   });
 
