@@ -1,8 +1,38 @@
 // Cria uma barbearia de demonstração (para apresentar a clientes): npm run demo
-// Login do dono: demo@barbearia.com / demo12345 · Site: /b/demo
+// Login do dono: demo@barbearia.com / demo12345 · Site: /b/demo · Área do cliente: /b/demo/conta
 import { hashPassword } from '../server/auth.js';
 import { get, nowIso, run, tx } from '../server/db.js';
-import { addStamps } from '../server/loyalty.js';
+import { ensureInvoices, savePlatformSettings } from '../server/billing.js';
+import { addEntry, createSale } from '../server/finance.js';
+import { savePlan, subscribe } from '../server/club.js';
+import { saveGrowthSettings } from '../server/growth.js';
+import { saveReceipt } from '../server/receipts.js';
+import { book } from '../server/scheduling.js';
+import { stockEntry } from '../server/stock.js';
+import { addDays, localNow, weekdayOf } from '../server/time.js';
+import { showcase } from './demo-showcase.js';
+
+/** Comprovante de PIX de mentira (PDF de uma página), para a demonstração mostrar a cópia que chega à barbearia. */
+function demoReceiptPdf(lines: string[]): Buffer {
+  const text = lines.map((l, i) => `BT /F1 ${i ? 11 : 15} Tf 24 ${360 - i * 28} Td (${l}) Tj ET`).join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${Buffer.byteLength(text, 'latin1')} >>\nstream\n${text}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = objects.map((o, i) => {
+    const offset = Buffer.byteLength(pdf, 'latin1');
+    pdf += `${i + 1} 0 obj\n${o}\nendobj\n`;
+    return offset;
+  });
+  const xref = Buffer.byteLength(pdf, 'latin1');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((n) => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, 'latin1');
+}
 
 if (get("SELECT 1 AS ok FROM barbershops WHERE slug = 'demo'")) {
   console.log('A barbearia "demo" já existe.');
@@ -12,8 +42,8 @@ if (get("SELECT 1 AS ok FROM barbershops WHERE slug = 'demo'")) {
 tx(() => {
   const now = nowIso();
   const shop = run(
-    `INSERT INTO barbershops (slug, name, tagline, about, primary_color, accent_color, whatsapp, instagram, address, hours, created_at)
-     VALUES ('demo', 'Barbearia Navalha de Ouro', 'Mais que um corte: uma comunidade.', ?, '#1c1917', '#f59e0b', '11988887777', '@navalhadeouro', 'Rua das Flores, 123 - Centro', 'Ter a Sáb, 9h às 20h', ?)`,
+    `INSERT INTO barbershops (slug, name, tagline, about, primary_color, accent_color, whatsapp, instagram, address, hours, bot_name, created_at)
+     VALUES ('demo', 'Barbearia Navalha de Ouro', 'Mais que um corte: uma comunidade.', ?, '#1c1917', '#f59e0b', '11988887777', '@navalhadeouro', 'Rua das Flores, 123 - Centro', 'Ter a Sáb, 9h às 20h', 'João', ?)`,
     ['Desde 2015 cuidando do visual da rapaziada. Cerveja gelada, resenha boa e corte na régua.', now],
   ).lastInsertRowid;
   run("INSERT INTO users (barbershop_id, role, name, email, password_hash, created_at) VALUES (?, 'owner', 'Dono Demo', 'demo@barbearia.com', ?, ?)", [
@@ -32,11 +62,21 @@ tx(() => {
       duration,
       now,
     ]).lastInsertRowid;
-  item('service', 'Corte', 5000, 40, 'Máquina e tesoura, com lavagem.');
-  item('service', 'Barba', 3500, 30, 'Toalha quente e navalha.');
+  const corte = item('service', 'Corte', 5000, 40, 'Máquina e tesoura, com lavagem.');
+  const barba = item('service', 'Barba', 3500, 30, 'Toalha quente e navalha.');
   item('service', 'Corte + Barba', 7500, 60);
   const beer = item('product', 'Cerveja long neck', 1200, null);
-  item('product', 'Pomada modeladora', 4500, null);
+  const pomada = item('product', 'Pomada modeladora', 4500, null);
+  // Estoque: a compra da semana passada entrou no caixa; as vendas abaixo dão baixa sozinhas.
+  run('UPDATE catalog_items SET stock_min = 6 WHERE id IN (?, ?)', [beer, pomada]);
+  stockEntry(
+    shop,
+    [
+      { catalog_item_id: beer, qty: 24, unit_cost_cents: 450 },
+      { catalog_item_id: pomada, qty: 6, unit_cost_cents: 2200 },
+    ],
+    { supplier: 'Distribuidora Sul', cash: { status: 'paid', date: addDays(localNow().date, -7), method: 'pix' }, userId: null },
+  );
 
   const partner = (name: string, category: string, benefit: string) =>
     run('INSERT INTO partners (barbershop_id, name, category, benefit, instagram, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
@@ -55,17 +95,144 @@ tx(() => {
     [shop, burger, now],
   );
 
-  const beerCampaign = run(
+  // Cada cerveja e cada corte vendidos viram carimbo automaticamente.
+  run(
     "INSERT INTO campaigns (barbershop_id, name, description, unit_label, goal, reward, catalog_item_id, created_at) VALUES (?, 'Clube da Cerveja', 'Cada long neck conta um carimbo.', 'cervejas', 5, 'Copo personalizado da barbearia', ?, ?)",
     [shop, beer, now],
-  ).lastInsertRowid;
+  );
   run(
-    "INSERT INTO campaigns (barbershop_id, name, unit_label, goal, reward, partner_id, created_at) VALUES (?, 'Corte Fiel', 'cortes', 10, 'Um corte grátis + um burger na Brasa', ?, ?)",
+    "INSERT INTO campaigns (barbershop_id, name, unit_label, goal, reward, partner_id, catalog_item_id, created_at) VALUES (?, 'Corte Fiel', 'cortes', 10, 'Um corte grátis + um burger na Brasa', ?, ?, ?)",
+    [shop, burger, corte, now],
+  );
+
+  // Barbeiros: terça a sábado, 9h às 20h (o Paulo almoça das 12h às 13h).
+  // Paulo: 40% nos serviços, R$ 15 fixos por barba e 10% nos produtos; Marcos: 50% e 10%.
+  const barber = (name: string, lunch: boolean, phone: string | null, service: number) => {
+    const id = run('INSERT INTO barbers (barbershop_id, name, phone, service_commission, product_commission, created_at) VALUES (?, ?, ?, ?, 10, ?)', [
+      shop,
+      name,
+      phone,
+      service,
+      now,
+    ]).lastInsertRowid;
+    for (let d = 2; d <= 6; d++) {
+      const ranges = lunch ? [['09:00', '12:00'], ['13:00', '20:00']] : [['09:00', '20:00']];
+      for (const [start, end] of ranges) run('INSERT INTO barber_hours (barber_id, weekday, start_time, end_time) VALUES (?, ?, ?, ?)', [id, d, start, end]);
+    }
+    return id;
+  };
+  const paulo = barber('Paulo', true, '11955554444', 40);
+  const marcos = barber('Marcos', false, null, 50);
+  run("INSERT INTO barber_service_rates (barber_id, service_id, mode, value) VALUES (?, ?, 'fixed', 1500)", [paulo, barba]);
+  // O Paulo tem acesso ao sistema pelo celular: (11) 95555-4444 / paulo1234.
+  run("INSERT INTO users (barbershop_id, role, name, phone, barber_id, password_hash, created_at) VALUES (?, 'barber', 'Paulo', '11955554444', ?, ?, ?)", [
+    shop,
+    paulo,
+    hashPassword('paulo1234'),
+    now,
+  ]);
+
+  run(
+    "INSERT INTO offers (barbershop_id, title, description, valid_days, per_customer, created_at) VALUES (?, 'Cerveja grátis no próximo corte', 'Mostre o voucher no balcão.', 7, 1, ?)",
+    [shop, now],
+  );
+  run(
+    "INSERT INTO offers (barbershop_id, title, description, partner_id, valid_days, per_customer, max_total, created_at) VALUES (?, 'Batata grátis na Brasa Burger', 'Na compra de qualquer burger.', ?, 15, 1, 50, ?)",
     [shop, burger, now],
   );
 
-  const joao = run("INSERT INTO customers (barbershop_id, name, phone, created_at) VALUES (?, 'João Pereira', '11999990000', ?)", [shop, now]).lastInsertRowid;
-  addStamps(shop, beerCampaign, joao, 3, null);
-});
+  const customer = (name: string, phone: string) =>
+    run('INSERT INTO customers (barbershop_id, name, phone, created_at) VALUES (?, ?, ?, ?)', [shop, name, phone, now]).lastInsertRowid;
+  const joao = customer('João Pereira', '11999990000');
+  const maria = customer('Maria Souza', '11988880000');
+  const pedro = customer('Pedro Alves', '11977770000');
+  const at = (date: string, time = '18:00') => new Date(`${date}T${time}:00-03:00`);
 
-console.log('Barbearia demo criada. Login: demo@barbearia.com / demo12345 · Site: /b/demo · Cartão do João: (11) 99999-0000');
+  // Histórico: o João vem toda sexta às 17h com o Paulo, corta e toma 1 cerveja (os carimbos saem das vendas).
+  const today = localNow().date;
+  let friday = addDays(today, -1);
+  while (weekdayOf(friday) !== 5) friday = addDays(friday, -1);
+  let lastVisit = 0;
+  for (const weeks of [2, 1, 0]) {
+    const date = addDays(friday, -7 * weeks);
+    const a = book({ shopId: shop, customerId: joao, barberId: paulo, serviceId: corte, date, time: '17:00', source: 'painel' });
+    createSale({ shopId: shop, userId: null, appointmentId: a.id, items: [{ catalog_item_id: corte, qty: 1 }, { catalog_item_id: beer, qty: 1 }], method: 'pix', now: at(date) });
+    lastVisit = a.id;
+  }
+  // A Maria sumiu há 40 dias.
+  const mariaDay = addDays(today, -40);
+  const m = book({ shopId: shop, customerId: maria, barberId: marcos, serviceId: corte, date: mariaDay, time: '10:00', source: 'painel' });
+  createSale({ shopId: shop, userId: null, appointmentId: m.id, items: [{ catalog_item_id: corte, qty: 1 }], method: 'dinheiro', now: at(mariaDay, '10:40') });
+  // Avaliações pelo WhatsApp: o João deu 5 para o Paulo; a Maria deu 3 para o Marcos e comentou.
+  run("INSERT INTO reviews (barbershop_id, customer_id, appointment_id, barber_id, rating, status, asked_at, answered_at) VALUES (?, ?, ?, ?, 5, 'done', ?, ?)", [
+    shop,
+    joao,
+    lastVisit,
+    paulo,
+    at(friday, '19:30').toISOString(),
+    at(friday, '19:41').toISOString(),
+  ]);
+  run(
+    "INSERT INTO reviews (barbershop_id, customer_id, appointment_id, barber_id, rating, comment, status, asked_at, answered_at) VALUES (?, ?, ?, ?, 3, 'Esperei uns 20 minutos além do horário marcado.', 'done', ?, ?)",
+    [shop, maria, m.id, marcos, at(mariaDay, '12:30').toISOString(), at(mariaDay, '12:52').toISOString()],
+  );
+  // Movimento do mês: Pedro (corte + barba com o Marcos) e vendas de balcão.
+  for (const [days, items, method] of [
+    [-6, [{ catalog_item_id: corte, qty: 1, barber_id: marcos }, { catalog_item_id: barba, qty: 1, barber_id: marcos }], 'credito'],
+    [-4, [{ catalog_item_id: pomada, qty: 1, barber_id: paulo }], 'dinheiro'],
+    [-3, [{ catalog_item_id: barba, qty: 1, barber_id: paulo }, { catalog_item_id: beer, qty: 2, barber_id: paulo }], 'pix'],
+    [-2, [{ catalog_item_id: corte, qty: 1, barber_id: marcos }], 'debito'],
+  ] as const) {
+    createSale({ shopId: shop, userId: null, customerId: days === -6 ? pedro : null, items: items.map((i) => ({ ...i })), method, now: at(addDays(today, days)) });
+  }
+  // Clube de assinatura: Plano Corte (até 4 por mês). O Pedro assinou há 6 dias e pagou no PIX.
+  // Chave PIX de mentira (formato de chave aleatória): na demonstração ninguém deve pagar de verdade.
+  run("UPDATE barbershops SET pix_key = '00000000-0000-0000-0000-000000000000', pix_name = 'Navalha de Ouro', pix_city = 'Sao Paulo' WHERE id = ?", [shop]);
+  const plan = savePlan(shop, null, {
+    name: 'Plano Corte',
+    description: 'Cabelo sempre em dia, sem se preocupar com a conta.',
+    price_cents: 8990,
+    uses_per_month: 4,
+    active: true,
+    item_ids: [corte, barba],
+  });
+  subscribe(shop, pedro, plan.id, { paidMethod: 'pix', now: at(addDays(today, -6), '11:00') });
+  // A Maria assinou hoje, pagou no PIX e mandou o comprovante: aparece para o dono conferir.
+  subscribe(shop, maria, plan.id, { now: at(today, '08:30') });
+  const mariaCharge = get<{ id: number }>("SELECT id FROM charges WHERE customer_id = ? AND status = 'open'", [maria])!.id;
+  const receipt = demoReceiptPdf(['Comprovante de PIX', 'Valor: R$ 89,90', 'Para: Navalha de Ouro', `Data: ${today.split('-').reverse().join('/')}`, 'Demonstração: não é um pagamento real']);
+  saveReceipt(shop, maria, mariaCharge, `data:application/pdf;base64,${receipt.toString('base64')}`, at(today, '08:40'));
+  // Indique um amigo e aniversário: o Pedro veio por indicação do João (que ganhou o corte grátis).
+  saveGrowthSettings(shop, {
+    referral_enabled: true,
+    friend_reward: { title: 'R$ 10 de desconto no primeiro corte', valid_days: 30 },
+    referrer_reward: { title: 'Corte grátis', valid_days: 60 },
+    birthday_enabled: true,
+    birthday_reward: { title: '1 cerveja grátis', valid_days: 7 },
+  });
+  run('UPDATE customers SET referred_by = ?, referral_rewarded_at = ? WHERE id = ?', [joao, at(addDays(today, -6)).toISOString(), pedro]);
+  run('UPDATE customers SET birth_date = ? WHERE id = ?', [addDays(today, 5).slice(5), joao]);
+  let next = addDays(today, 1);
+  while (weekdayOf(next) < 2) next = addDays(next, 1);
+  book({ shopId: shop, customerId: pedro, barberId: marcos, serviceId: corte, date: next, time: '10:00', source: 'painel' });
+
+  // Gastos: aluguel e estoque pagos; conta de luz a pagar.
+  addEntry(shop, { type: 'out', category: 'Aluguel', description: 'Aluguel do salão', amount_cents: 180000, method: 'pix', date: addDays(today, -5), status: 'paid' }, null);
+  addEntry(shop, { type: 'out', category: 'Contas (água, luz, internet)', description: 'Conta de luz', amount_cents: 31500, method: null, date: addDays(today, 3), status: 'pending' }, null);
+
+  // Plataforma: plano, PIX do master e um aviso para as barbearias.
+  const platformPlan = get<{ id: number }>("SELECT id FROM plans WHERE name = 'Equipe'")!.id;
+  run('UPDATE barbershops SET plan_id = ?, billing_day = 10 WHERE id = ?', [platformPlan, shop]);
+  savePlatformSettings({ grace_days: 5, trial_days: 14, pix_key: 'pix@bladr.com.br', pix_name: 'Bladr', pix_city: 'São Paulo', signup_enabled: true });
+  run(
+    "INSERT INTO announcements (title, body, level, active, created_at) VALUES ('Financeiro integrado', 'Agora cada atendimento fechado na Agenda entra no caixa, calcula a comissão do barbeiro e dá o carimbo do cartão fidelidade.', 'novidade', 1, ?)",
+    [now],
+  );
+});
+// Oito semanas de movimento e as novidades (ficha, pacotes, recepção, unidades, recontato...).
+await showcase(get<{ id: number }>("SELECT id FROM barbershops WHERE slug = 'demo'")!.id);
+ensureInvoices();
+
+console.log(
+  'Barbearia demo criada. Painel: demo@barbearia.com / demo12345 · Recepção: (11) 96666-5555 / recepcao123 · Barbeiro Paulo: (11) 95555-4444 / paulo1234 · Site: /b/demo · Área do cliente: /b/demo/conta (João: (11) 99999-0000)',
+);
