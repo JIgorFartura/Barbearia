@@ -30,3 +30,14 @@ jobs:
           CLOCK_SHIFT_DAYS: '120'
           NODE_OPTIONS: --import ./tools/clock-shift.mjs
       - run: npm run build
+      # Cliques de ponta a ponta nos caminhos que geram dinheiro (cadastro, agendamento, comanda, barbeiro, fila).
+      - name: Navegador dos testes de ponta a ponta
+        run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - name: Telas dos testes de ponta a ponta que falharam
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-falhas
+          path: test-results/
+          retention-days: 7
