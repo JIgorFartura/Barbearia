@@ -48,6 +48,27 @@ publicRouter.get('/signup', (_req, res) => {
   res.json({ enabled: s.signup_enabled, trialDays: s.trial_days });
 });
 
+/**
+ * Preços da Bladr para a página de vendas: os planos ativos (cadastrados no master), os descontos por
+ * período e a implantação. Mudou no master, muda na página.
+ */
+publicRouter.get('/pricing', (_req, res) => {
+  const s = platformSettings();
+  const plans = all<{ name: string; price_cents: number; description: string | null }>('SELECT name, price_cents, description FROM plans WHERE active = 1 ORDER BY price_cents');
+  const network = plans.filter((p) => /^rede\b/i.test(p.name));
+  res.json({
+    trialDays: s.trial_days,
+    signupEnabled: s.signup_enabled,
+    plans: plans.filter((p) => !network.includes(p)),
+    // Rede: valor por unidade; a página mostra o menor (o das redes maiores).
+    network: network.length ? { minPerUnitCents: Math.min(...network.map((p) => p.price_cents)), plans: network.length } : null,
+    discounts: { trimestral: s.quarterly_discount_pct, semestral: s.semiannual_discount_pct, anual: s.annual_discount_pct },
+    setupFeeCents: s.setup_fee_cents,
+    // Implantação grátis a partir do semestral (quando o master deixa ligado).
+    setupFreeFromSemester: s.setup_free_on_annual,
+  });
+});
+
 /** Prévia do endereço do site enquanto o dono digita o nome da barbearia (o mesmo que o cadastro vai criar). */
 publicRouter.get('/signup/link', (req, res) => {
   const name = typeof req.query.name === 'string' ? req.query.name.trim().slice(0, 80) : '';
