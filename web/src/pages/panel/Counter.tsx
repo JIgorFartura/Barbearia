@@ -1,9 +1,12 @@
-import { Gift, Minus, Plus, Search, Undo2, UserPlus, Users } from 'lucide-react';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal } from '../../components/ui';
+import { CalendarCheck, Download, FileUp, Gift, Link2, Minus, Plus, Receipt, Repeat, Search, Ticket, Trash2, Undo2, UserPlus, Users } from 'lucide-react';
+import { CheckoutModal } from '../../components/Checkout';
+import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { Badge, Button, Card, EmptyState, ErrorText, Field, Input, Modal, inputClass } from '../../components/ui';
 import { api } from '../../lib/api';
-import { phone } from '../../lib/format';
+import { WEEKDAYS, hourLabel, phone, stampLabel, whatsappLink } from '../../lib/format';
 import { StampCard, type Progress } from '../../components/StampCard';
+import { useDesk } from '../../lib/role';
+import { guessColumns, parseCsv, readCsvFile } from '../../lib/csv';
 
 interface Customer {
   id: number;
@@ -27,6 +30,8 @@ interface Detail {
 
 /** Balcão: acha o cliente pelo nome/celular, lança carimbos e entrega prêmios. */
 export function Counter() {
+  const desk = useDesk();
+  const [importing, setImporting] = useState(false);
   const [q, setQ] = useState('');
   const [list, setList] = useState<Customer[] | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -47,10 +52,19 @@ export function Counter() {
           <h1 className="text-2xl font-bold">Balcão</h1>
           <p className="text-sm text-zinc-500">Ache o cliente pelo nome ou celular e lance o consumo das campanhas.</p>
         </div>
-        <Button onClick={() => setCreating(true)}>
-          <UserPlus className="size-4" /> Novo cliente
-        </Button>
+        <div className="flex gap-2">
+          {!desk && (
+            <Button variant="ghost" onClick={() => setImporting(true)}>
+              <FileUp className="size-4" /> Importar planilha
+            </Button>
+          )}
+          <Button onClick={() => setCreating(true)}>
+            <UserPlus className="size-4" /> Novo cliente
+          </Button>
+        </div>
       </div>
+
+      <VoucherCheck />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
         <div>
@@ -76,15 +90,37 @@ export function Counter() {
                     <span className="block font-medium">{c.name}</span>
                     <span className="text-sm text-zinc-500">{phone(c.phone)}</span>
                   </span>
-                  {!!c.stamps_total && <Badge tone="gold">{c.stamps_total} carimbos</Badge>}
+                  {!!c.stamps_total && <Badge tone="gold">{c.stamps_total} {c.stamps_total === 1 ? 'carimbo' : 'carimbos'}</Badge>}
                 </button>
               </li>
             ))}
           </ul>
         </div>
-        <div>{selected ? <CustomerDetail id={selected} onChange={() => search(q)} /> : <p className="text-sm text-zinc-500">Escolha um cliente na lista.</p>}</div>
+        <div>
+          {selected ? (
+            <CustomerDetail
+              id={selected}
+              onChange={() => search(q)}
+              onRemoved={() => {
+                setSelected(null);
+                search(q);
+              }}
+            />
+          ) : (
+            <p className="text-sm text-zinc-500">Escolha um cliente na lista.</p>
+          )}
+        </div>
       </div>
 
+      {importing && (
+        <ImportModal
+          onClose={() => setImporting(false)}
+          onDone={() => {
+            setQ('');
+            search('');
+          }}
+        />
+      )}
       {creating && (
         <NewCustomerModal
           onClose={() => setCreating(false)}
@@ -100,8 +136,10 @@ export function Counter() {
   );
 }
 
-function CustomerDetail({ id, onChange }: { id: number; onChange: () => void }) {
+function CustomerDetail({ id, onChange, onRemoved }: { id: number; onChange: () => void; onRemoved: () => void }) {
+  const desk = useDesk();
   const [data, setData] = useState<Detail | null>(null);
+  const [removing, setRemoving] = useState(false);
   const [qty, setQty] = useState<Record<number, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -128,7 +166,7 @@ function CustomerDetail({ id, onChange }: { id: number; onChange: () => void }) 
       });
       if (path === 'redeem') setFlash(`Prêmio entregue: ${entry.campaign.reward}.`);
       else if (p.available > entry.progress.available) setFlash(`${data?.customer.name.split(' ')[0]} ganhou: ${entry.campaign.reward}! 🎉`);
-      else setFlash(`+${n} ${entry.campaign.unit_label}. Faltam ${p.goal - p.stamps} para o prêmio.`);
+      else setFlash(`+${n} ${entry.campaign.unit_label}. ${p.goal - p.stamps === 1 ? 'Falta só 1' : `Faltam ${p.goal - p.stamps}`} para o prêmio.`);
       setQty({ ...qty, [entry.campaign.id]: 1 });
       load();
       onChange();
@@ -150,7 +188,29 @@ function CustomerDetail({ id, onChange }: { id: number; onChange: () => void }) 
       <Card>
         <p className="text-lg font-semibold">{data.customer.name}</p>
         <p className="text-sm text-zinc-500">{phone(data.customer.phone)}</p>
+        <CustomerAgenda
+          customerId={id}
+          name={data.customer.name}
+          customerPhone={data.customer.phone}
+          onSale={() => {
+            // A venda pode ter dado carimbos: atualiza o cartão e a lista.
+            load();
+            onChange();
+          }}
+        />
+        {/* LGPD (cópia e exclusão dos dados): só o dono. */}
+        {!desk && (
+          <p className="mt-3 flex flex-wrap gap-4 border-t border-zinc-100 pt-3 text-xs">
+            <a href={`/api/shop/customers/${id}/export`} download className="inline-flex items-center gap-1 font-medium text-zinc-500 hover:text-zinc-900">
+              <Download className="size-3.5" /> Exportar dados (LGPD)
+            </a>
+            <button className="inline-flex items-center gap-1 font-medium text-zinc-500 hover:text-red-600" onClick={() => setRemoving(true)}>
+              <Trash2 className="size-3.5" /> Excluir dados a pedido do cliente
+            </button>
+          </p>
+        )}
       </Card>
+      {removing && <RemoveCustomerModal id={id} name={data.customer.name} onClose={() => setRemoving(false)} onDone={onRemoved} />}
       {flash && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">{flash}</p>}
       <ErrorText error={error} />
       {data.card.length === 0 && <p className="text-sm text-zinc-500">Nenhuma campanha valendo. Crie uma em Campanhas.</p>}
@@ -247,6 +307,303 @@ function NewCustomerModal({ onClose, onDone }: { onClose: () => void; onDone: (c
           </Button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+interface Habit {
+  weekday: number;
+  time: string;
+  barberId: number | null;
+  intervalDays: number;
+  source: 'cliente' | 'automatico';
+}
+
+/** Costume, próximos horários e link de acesso à área do cliente. */
+function CustomerAgenda({ customerId, name, customerPhone, onSale }: { customerId: number; name: string; customerPhone: string; onSale: () => void }) {
+  const [info, setInfo] = useState<{ habit: Habit | null; upcoming: { id: number; starts_at: string; barber_name: string; service_name: string }[] } | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const [selling, setSelling] = useState(false);
+  useEffect(() => {
+    setLink(null);
+    api<typeof info>('GET', `/api/shop/customers/${customerId}/agenda`).then(setInfo);
+  }, [customerId]);
+  if (!info) return null;
+  return (
+    <div className="mt-3 space-y-1.5 border-t border-zinc-100 pt-3 text-sm">
+      <p className="flex items-center gap-2 text-zinc-600">
+        <Repeat className="size-4 text-zinc-400" />
+        {info.habit
+          ? `Costuma vir ${WEEKDAYS[info.habit.weekday]} às ${hourLabel(info.habit.time)}, a cada ${info.habit.intervalDays} dias (${info.habit.source === 'cliente' ? 'informado' : 'pelo histórico'})`
+          : 'Sem horário de costume ainda'}
+      </p>
+      <p className="flex items-center gap-2 text-zinc-600">
+        <CalendarCheck className="size-4 text-zinc-400" />
+        {info.upcoming.length ? info.upcoming.map((a) => `${stampLabel(a.starts_at)} com ${a.barber_name}`).join(' · ') : 'Nenhum horário marcado'}
+      </p>
+      <button className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 hover:text-zinc-900" onClick={() => setSelling(true)}>
+        <Receipt className="size-3.5" /> Registrar venda para {name.split(' ')[0]}
+      </button>
+      {selling && (
+        <CheckoutModal
+          customer={{ id: customerId, name }}
+          onClose={() => setSelling(false)}
+          onDone={() => {
+            setSelling(false);
+            onSale();
+          }}
+        />
+      )}
+      {link ? (
+        <div className="space-y-1">
+          <input readOnly value={link} className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-xs" onFocus={(e) => e.target.select()} />
+          <a
+            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline"
+            href={whatsappLink(customerPhone, `Oi, ${name.split(' ')[0]}! Este é o seu acesso à área do cliente (agenda, cartão fidelidade e vouchers): ${link}`)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Enviar pelo meu WhatsApp
+          </a>
+        </div>
+      ) : (
+        <button
+          className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 hover:text-zinc-900"
+          onClick={() => api<{ url: string }>('POST', `/api/shop/customers/${customerId}/access-link`).then((r) => setLink(r.url))}
+        >
+          <Link2 className="size-3.5" /> Gerar link de acesso à área do cliente
+        </button>
+      )}
+    </div>
+  );
+}
+
+interface VoucherInfo {
+  code: string;
+  status: 'active' | 'used' | 'expired';
+  title: string;
+  customer_name: string;
+  expires_on: string;
+}
+
+/** Validação do voucher que o cliente mostra no balcão. */
+function VoucherCheck() {
+  const [code, setCode] = useState('');
+  const [voucher, setVoucher] = useState<VoucherInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function lookup(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setDone(false);
+    setVoucher(null);
+    try {
+      setVoucher(await api<VoucherInfo>('GET', `/api/shop/vouchers/${encodeURIComponent(code.trim().toUpperCase())}`));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function redeem() {
+    if (!voucher) return;
+    setError(null);
+    try {
+      setVoucher(await api<VoucherInfo>('POST', '/api/shop/vouchers/redeem', { code: voucher.code }));
+      setDone(true);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  return (
+    <Card className="mb-5 !p-4">
+      <form onSubmit={lookup} className="flex flex-wrap items-center gap-2">
+        <Ticket className="size-5 text-zinc-400" />
+        <span className="font-semibold">Validar voucher</span>
+        <Input className="!w-44 font-mono uppercase" placeholder="NAV-ABC123" value={code} onChange={(e) => setCode(e.target.value)} />
+        <Button type="submit" variant="ghost" disabled={code.trim().length < 3}>
+          Conferir
+        </Button>
+      </form>
+      {voucher && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-zinc-50 px-3 py-2 text-sm">
+          <span>
+            <b>{voucher.title}</b> · {voucher.customer_name} · vale até {voucher.expires_on.split('-').reverse().join('/')}
+          </span>
+          {voucher.status === 'active' ? (
+            <Button variant="gold" className="!py-1.5" onClick={redeem}>
+              Dar baixa
+            </Button>
+          ) : (
+            <Badge tone={voucher.status === 'used' ? (done ? 'green' : 'red') : 'red'}>
+              {voucher.status === 'used' ? (done ? 'Baixa feita ✓' : 'Já usado') : 'Vencido'}
+            </Badge>
+          )}
+        </div>
+      )}
+      {error && <div className="mt-2"><ErrorText error={error} /></div>}
+    </Card>
+  );
+}
+
+/** LGPD: exclusão dos dados pessoais a pedido do cliente (as vendas ficam sem identificação). */
+function RemoveCustomerModal({ id, name, onClose, onDone }: { id: number; name: string; onClose: () => void; onDone: () => void }) {
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <Modal title={`Excluir dados de ${name}`} onClose={onClose}>
+      <div className="space-y-3 text-sm">
+        <p>
+          Apaga nome, celular, mensagens, cartão fidelidade, vouchers e horários futuros. As vendas continuam no caixa, sem identificar o cliente. Use quando o
+          próprio cliente pedir. Não pode ser desfeito.
+        </p>
+        <Field label="Para confirmar, digite EXCLUIR">
+          <Input value={confirm} onChange={(e) => setConfirm(e.target.value.toUpperCase())} />
+        </Field>
+        <ErrorText error={error} />
+        <Button
+          variant="danger"
+          className="w-full"
+          disabled={confirm !== 'EXCLUIR'}
+          onClick={() => api('POST', `/api/shop/customers/${id}/anonymize`, { confirm }).then(onDone, (e) => setError(e.message))}
+        >
+          Excluir dados
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Importar clientes de uma planilha (CSV): nome, celular e, se tiver, o aniversário. Mostra as colunas
+ * que achou e as primeiras linhas antes de importar; quem já está cadastrado fica como está.
+ */
+function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [rows, setRows] = useState<string[][] | null>(null);
+  const [cols, setCols] = useState({ name: -1, phone: -1, birth: -1 });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ created: number; skipped: { line: number; name: string; reason: string }[]; skippedTotal: number } | null>(null);
+
+  async function pick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError(null);
+    const parsed = parseCsv(await readCsvFile(file));
+    if (parsed.length < 2) return setError('Não achei linhas nessa planilha. Salve como CSV e tente de novo.');
+    setRows(parsed);
+    setCols(guessColumns(parsed[0]));
+  }
+
+  async function send() {
+    if (!rows) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const cell = (r: string[], i: number) => (i >= 0 ? (r[i] ?? '').trim() : '');
+      const body = rows.slice(1).map((r) => ({ name: cell(r, cols.name), phone: cell(r, cols.phone), birth: cell(r, cols.birth) || null }));
+      setResult(await api('POST', '/api/shop/customers/import', { rows: body }));
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const header = rows?.[0] ?? [];
+  const select = (label: string, key: keyof typeof cols, optional = false) => (
+    <Field label={label}>
+      <select className={inputClass} value={cols[key]} onChange={(e) => setCols({ ...cols, [key]: Number(e.target.value) })}>
+        <option value={-1}>{optional ? '— não tem —' : '— escolha a coluna —'}</option>
+        {header.map((h, i) => (
+          <option key={i} value={i}>
+            {h || `Coluna ${i + 1}`}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+
+  return (
+    <Modal title="Importar clientes" onClose={onClose}>
+      {result ? (
+        <div className="space-y-3 text-sm">
+          <p className="rounded-xl bg-emerald-50 px-4 py-3 text-emerald-950 ring-1 ring-emerald-200">
+            ✅ <b>{result.created}</b> {result.created === 1 ? 'cliente importado' : 'clientes importados'}.
+            {result.skippedTotal > 0 && ` ${result.skippedTotal} ${result.skippedTotal === 1 ? 'linha pulada' : 'linhas puladas'}.`}
+          </p>
+          {result.skipped.length > 0 && (
+            <ul className="max-h-60 divide-y divide-zinc-100 overflow-y-auto text-xs">
+              {result.skipped.map((s) => (
+                <li key={s.line} className="flex justify-between gap-2 py-1">
+                  <span>
+                    Linha {s.line}
+                    {s.name ? ` · ${s.name}` : ''}
+                  </span>
+                  <span className="text-zinc-500">{s.reason}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Button className="w-full" onClick={onClose}>
+            Concluir
+          </Button>
+        </div>
+      ) : !rows ? (
+        <div className="space-y-3 text-sm">
+          <p className="text-zinc-600">
+            Use a planilha do sistema antigo, do Excel ou do Google Planilhas com as colunas <b>nome</b>, <b>celular</b> e, se tiver, <b>aniversário</b>. Salve em
+            CSV (Arquivo → Salvar como / Baixar → CSV).
+          </p>
+          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-zinc-300 px-4 py-8 text-zinc-500 hover:border-zinc-400">
+            <FileUp className="size-6" /> Escolher o arquivo CSV
+            <input type="file" accept=".csv,text/csv,.txt" className="hidden" onChange={pick} />
+          </label>
+          <p className="text-xs text-zinc-500">Quem já está cadastrado (mesmo celular) fica como está. Os clientes importados recebem o aviso de privacidade da barbearia na primeira conversa com o robô.</p>
+          <ErrorText error={error} />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm text-zinc-600">{rows.length - 1} linhas na planilha. Confira as colunas:</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {select('Nome', 'name')}
+            {select('Celular', 'phone')}
+            {select('Aniversário', 'birth', true)}
+          </div>
+          <div className="overflow-x-auto rounded-lg ring-1 ring-zinc-200">
+            <table className="w-full text-xs">
+              <thead className="bg-zinc-50 text-left text-zinc-500">
+                <tr>
+                  <th className="px-2 py-1.5">Nome</th>
+                  <th className="px-2 py-1.5">Celular</th>
+                  <th className="px-2 py-1.5">Aniversário</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.slice(1, 6).map((r, i) => (
+                  <tr key={i} className="border-t border-zinc-100">
+                    <td className="px-2 py-1.5">{cols.name >= 0 ? r[cols.name] : '—'}</td>
+                    <td className="px-2 py-1.5">{cols.phone >= 0 ? r[cols.phone] : '—'}</td>
+                    <td className="px-2 py-1.5">{cols.birth >= 0 ? r[cols.birth] : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <ErrorText error={error} />
+          <div className="flex gap-2">
+            <Button className="flex-1" loading={busy} disabled={cols.name < 0 || cols.phone < 0} onClick={send}>
+              Importar {rows.length - 1} {rows.length === 2 ? 'cliente' : 'clientes'}
+            </Button>
+            <Button variant="ghost" onClick={() => setRows(null)}>
+              Outro arquivo
+            </Button>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

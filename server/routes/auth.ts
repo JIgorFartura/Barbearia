@@ -2,12 +2,18 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { checkLoginRate, createSession, destroySession, hashPassword, hasMaster, verifyPassword } from '../auth.js';
 import { get, nowIso, run } from '../db.js';
-import { HttpError, parseBody } from '../http.js';
+import { platformSettings, savePlatformSettings } from '../billing.js';
+import { HttpError, normalizePhone, parseBody, rateLimit } from '../http.js';
+import { consumePasswordCode, findLogin, requestPasswordCode } from '../passwordReset.js';
+import { removeSubscription, saveSubscription, zPushEndpoint, zPushSubscription } from '../push.js';
+import { isUnitOf, ownerUnits } from '../shops.js';
 
 export const authRouter = Router();
 
 const zEmail = z.string().trim().toLowerCase().email('E-mail inválido.');
 export const zPassword = z.string().min(8, 'A senha precisa de pelo menos 8 caracteres.').max(200);
+/** E-mail ou celular. */
+const zLogin = z.string().trim().min(3, 'Informe o e-mail ou o celular.').max(120);
 
 authRouter.get('/me', (req, res) => {
   const shop = req.user?.barbershopId ? get('SELECT id, slug, name FROM barbershops WHERE id = ?', [req.user.barbershopId]) : null;
@@ -19,18 +25,26 @@ authRouter.post('/setup', (req, res) => {
   if (hasMaster()) throw new HttpError(409, 'O sistema já foi configurado.');
   const body = parseBody(z.object({ name: z.string().trim().min(2), email: zEmail, password: zPassword }), req.body);
   const { lastInsertRowid } = run(
-    "INSERT INTO users (role, name, email, password_hash, created_at) VALUES ('master', ?, ?, ?, ?)",
-    [body.name, body.email, hashPassword(body.password), nowIso()],
+    "INSERT INTO users (role, name, email, password_hash, terms_accepted_at, created_at) VALUES ('master', ?, ?, ?, ?, ?)",
+    [body.name, body.email, hashPassword(body.password), nowIso(), nowIso()],
   );
+  // Padrões da Bladr numa instalação nova: 7 dias grátis e implantação de R$ 197 (grátis no anual).
+  if (!get("SELECT 1 AS ok FROM platform_settings WHERE key = 'setup_fee_cents'")) {
+    const s = platformSettings();
+    savePlatformSettings({ ...s, trial_days: s.trial_days === 14 ? 7 : s.trial_days, setup_fee_cents: 19700, setup_free_on_annual: true });
+  }
   createSession(res, lastInsertRowid);
   res.status(201).json({ ok: true });
 });
 
+/** Entra com e-mail ou celular (barbeiros costumam usar o celular). */
 authRouter.post('/login', (req, res) => {
   checkLoginRate(req.ip ?? '');
-  const body = parseBody(z.object({ email: zEmail, password: z.string().max(200) }), req.body);
-  const user = get<{ id: number; password_hash: string }>('SELECT id, password_hash FROM users WHERE email = ?', [body.email]);
-  if (!user || !verifyPassword(body.password, user.password_hash)) throw new HttpError(401, 'E-mail ou senha incorretos.');
+  const body = parseBody(z.object({ login: zLogin.optional(), email: z.string().max(120).optional(), password: z.string().max(200) }), req.body);
+  const login = body.login ?? body.email ?? '';
+  const found = login ? findLogin(login) : undefined;
+  const user = found ? get<{ id: number; password_hash: string }>('SELECT id, password_hash FROM users WHERE id = ?', [found.id]) : undefined;
+  if (!user || !verifyPassword(body.password, user.password_hash)) throw new HttpError(401, 'Login ou senha incorretos.');
   createSession(res, user.id);
   res.json({ ok: true });
 });
@@ -46,5 +60,73 @@ authRouter.post('/password', (req, res) => {
   const row = get<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = ?', [req.user.id]);
   if (!row || !verifyPassword(body.current, row.password_hash)) throw new HttpError(400, 'Senha atual incorreta.');
   run('UPDATE users SET password_hash = ? WHERE id = ?', [hashPassword(body.password), req.user.id]);
+  res.json({ ok: true });
+});
+
+/** Nome e celular do próprio login (o celular recebe o código de "esqueci minha senha" e os avisos). */
+authRouter.put('/profile', (req, res) => {
+  if (!req.user) throw new HttpError(401, 'Faça login para continuar.');
+  const body = parseBody(z.object({ name: z.string().trim().min(2).max(80), phone: z.string().max(30).nullish() }), req.body);
+  const phone = body.phone?.trim() ? normalizePhone(body.phone) : null;
+  if (!phone && !req.user.email) throw new HttpError(400, 'Seu login é pelo celular: ele não pode ficar em branco.');
+  if (phone && get('SELECT 1 AS ok FROM users WHERE phone = ? AND id <> ?', [phone, req.user.id])) throw new HttpError(409, 'Esse celular já está em outro login.');
+  run('UPDATE users SET name = ?, phone = ? WHERE id = ?', [body.name, phone, req.user.id]);
+  res.json({ ok: true });
+});
+
+/** Avisos no celular do dono e do barbeiro (horário novo, cancelado). */
+// A inscrição fica na unidade de origem do login (o dono de uma rede recebe os avisos de todas as unidades).
+authRouter.post('/push', (req, res) => {
+  const shop = req.user?.homeShopId ?? req.user?.barbershopId;
+  if (!req.user || !shop) throw new HttpError(401, 'Faça login para continuar.');
+  saveSubscription({ shopId: shop, userId: req.user.id }, parseBody(zPushSubscription, req.body), req.get('user-agent') ?? null);
+  res.json({ ok: true });
+});
+
+authRouter.delete('/push', (req, res) => {
+  const shop = req.user?.homeShopId ?? req.user?.barbershopId;
+  if (!req.user || !shop) throw new HttpError(401, 'Faça login para continuar.');
+  removeSubscription({ shopId: shop, userId: req.user.id }, parseBody(zPushEndpoint, req.body).endpoint);
+  res.json({ ok: true });
+});
+
+// ---------- rede com filiais: o dono troca de unidade no painel
+
+authRouter.get('/units', (req, res) => {
+  if (req.user?.role !== 'owner') throw new HttpError(403, 'Só o dono tem unidades.');
+  res.json({ current: req.user.barbershopId, units: ownerUnits(req.user.id) });
+});
+
+authRouter.post('/units/switch', (req, res) => {
+  if (req.user?.role !== 'owner' || !req.sessionId) throw new HttpError(403, 'Só o dono tem unidades.');
+  const { shop_id } = parseBody(z.object({ shop_id: z.number().int().positive() }), req.body);
+  if (!isUnitOf(req.user.id, shop_id)) throw new HttpError(404, 'Unidade não encontrada.');
+  run('UPDATE sessions SET acting_shop_id = ? WHERE id = ?', [shop_id === req.user.homeShopId ? null : shop_id, req.sessionId]);
+  res.json({ ok: true });
+});
+
+/** Aceite dos termos de uso e da política de privacidade (dono e barbeiro, no primeiro acesso). */
+authRouter.post('/accept-terms', (req, res) => {
+  if (!req.user) throw new HttpError(401, 'Faça login para continuar.');
+  run('UPDATE users SET terms_accepted_at = COALESCE(terms_accepted_at, ?) WHERE id = ?', [nowIso(), req.user.id]);
+  res.json({ ok: true });
+});
+
+/** Esqueci minha senha (1): manda o código para o celular do login. */
+authRouter.post('/forgot', async (req, res) => {
+  rateLimit(`forgot:${req.ip ?? ''}`, 10, 3600000, 'Muitos pedidos. Tente mais tarde.');
+  const { login } = parseBody(z.object({ login: zLogin }), req.body);
+  res.json(await requestPasswordCode(login));
+});
+
+/** Esqueci minha senha (2): confere o código, grava a nova senha e já entra. */
+authRouter.post('/reset', (req, res) => {
+  rateLimit(`reset:${req.ip ?? ''}`, 30, 3600000, 'Muitas tentativas. Tente mais tarde.');
+  const body = parseBody(z.object({ login: zLogin, code: z.string().max(10), password: zPassword }), req.body);
+  const user = consumePasswordCode(body.login, body.code);
+  run('UPDATE users SET password_hash = ? WHERE id = ?', [hashPassword(body.password), user.id]);
+  // Senha nova derruba as sessões abertas (ex.: num celular perdido).
+  run('DELETE FROM sessions WHERE user_id = ?', [user.id]);
+  createSession(res, user.id);
   res.json({ ok: true });
 });
