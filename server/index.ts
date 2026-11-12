@@ -5,9 +5,10 @@ import express from 'express';
 import helmet from 'helmet';
 import { z } from 'zod';
 import { loadUser } from './auth.js';
-import { startAutomations } from './automations.js';
+import { automationStatus, startAutomations } from './automations.js';
 import { llmEnabled } from './bot/brain.js';
 import { config } from './config.js';
+import { get } from './db.js';
 import { recordError } from './errors.js';
 import { HttpError, errorHandler, parseBody, rateLimit, setErrorReporter } from './http.js';
 import { pwaRouter, renderIndex } from './pwa.js';
@@ -69,8 +70,22 @@ app.use('/api', (req, res, next) => {
 });
 
 app.use('/api', loadUser);
+/**
+ * Saúde do sistema, para o monitor de disponibilidade (README, "Monitoramento"): responde 503 se o banco
+ * não responde ou se as automações (lembretes, recontato, reenvio do WhatsApp) pararam de rodar.
+ */
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true });
+  let database = false;
+  try {
+    database = get<{ ok: number }>('SELECT 1 AS ok')?.ok === 1;
+  } catch {
+    database = false;
+  }
+  const lastRun = automationStatus.lastRun ? Date.parse(automationStatus.lastRun) : null;
+  // Rodam a cada minuto: mais de 10 minutos sem rodar é sinal de que travaram.
+  const automations = !config.automations || lastRun === null || Date.now() - lastRun < 10 * 60000;
+  const ok = database && automations;
+  res.status(ok ? 200 : 503).json({ ok, database, automations });
 });
 
 // Erros inesperados: os do servidor (pelo tratador de erros) e os das telas (o navegador avisa aqui).

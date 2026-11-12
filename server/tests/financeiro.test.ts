@@ -357,7 +357,7 @@ describe('mensalidades da plataforma', () => {
     assert.equal((await dono('GET', '/api/shop/status')).data.active, false);
     run('UPDATE barbershops SET active = 1 WHERE id = ?', [shopId]);
     const system = await master('GET', '/api/master/system');
-    assert.equal(system.data.version, '0.1.0');
+    assert.equal(system.data.version, JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version);
     assert.equal(system.data.counts.shops, 1);
     assert.equal(system.data.counts.sales, undefined, 'o master não vê o movimento das barbearias');
     const billing = await master('GET', '/api/master/billing');
