@@ -1,10 +1,14 @@
-# Confere cada envio: tipos, testes automáticos e o build (servidor e telas).
+# Confere cada envio: tipos, testes automáticos e o build (servidor e telas). Roda também toda noite,
+# para pegar teste que quebra só com a passagem do tempo.
 name: Testes
 
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '17 6 * * *' # 3h17 em Brasília
+  workflow_dispatch:
 
 jobs:
   testes:
@@ -19,4 +23,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # A mesma suíte com o relógio 120 dias adiantado: teste de data fixa que não parou o relógio quebra aqui.
+      - name: npm test (relógio adiantado)
+        run: npm test
+        env:
+          CLOCK_SHIFT_DAYS: '120'
+          NODE_OPTIONS: --import ./tools/clock-shift.mjs
       - run: npm run build

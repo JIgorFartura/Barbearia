@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { after, before, describe, test, mock } from 'node:test';
-
-// Os testes usam datas fixas (novembro de 2026): o relógio fica parado num instante conhecido,
-// para o resultado não depender do dia nem da hora em que rodam.
-mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T15:00:00Z') });
+import { after, before, describe, test } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { makeClient } from './client.js';
+import { freezeClock } from './clock.js';
+
+// Datas fixas (novembro de 2026): relógio parado num instante conhecido.
+freezeClock();
 
 process.env.DB_FILE = ':memory:';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'barbearia-estoque-'));
@@ -50,7 +50,6 @@ run("INSERT INTO catalog_items (barbershop_id, kind, name, price_cents, duration
 const beer = run("INSERT INTO catalog_items (barbershop_id, kind, name, price_cents, created_at) VALUES (?, 'product', 'Cerveja', 1200, ?)", [shopId, nowIso()]).lastInsertRowid;
 const joao = run("INSERT INTO customers (barbershop_id, name, phone, created_at) VALUES (?, 'João Pereira', '11999990000', ?)", [shopId, nowIso()]).lastInsertRowid;
 const stock = () => get<{ stock_qty: number; track_stock: number }>('SELECT stock_qty, track_stock FROM catalog_items WHERE id = ?', [beer])!;
-
 
 describe('estoque', () => {
   test('entrada de mercadoria liga o controle, soma o estoque e lança a compra no caixa', async () => {
