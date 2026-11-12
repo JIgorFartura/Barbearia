@@ -36,12 +36,14 @@ after(() => server.close());
 const realFetch = globalThis.fetch;
 const outbound: { url: string; body: any }[] = [];
 let evolutionState = 'open';
+let externalSeq = 0;
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input instanceof Request ? input.url : input);
   if (url.startsWith(base)) return realFetch(input, init);
   outbound.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
   if (url.includes('/instance/connectionState/')) return new Response(JSON.stringify({ instance: { instanceName: 'navalha', state: evolutionState } }), { status: 200 });
-  return new Response(JSON.stringify({ messages: [{ id: `wamid.${outbound.length}.${Date.now()}` }], key: { id: `evo-${outbound.length}.${Date.now()}` } }), { status: 200 });
+  externalSeq++;
+  return new Response(JSON.stringify({ messages: [{ id: `wamid.${externalSeq}` }], key: { id: `evo-${externalSeq}` } }), { status: 200 });
 }) as typeof fetch;
 beforeEach(() => {
   outbound.length = 0;
@@ -100,7 +102,9 @@ describe('modelos da Meta por tipo de mensagem', () => {
     assert.equal(reply.type, 'text');
   });
 
-  test('lembrete pela Meta: modelo fora da janela (pede a confirmação); texto dentro dela, e a cerveja depois do SIM', async () => {
+  test('lembrete pela Meta: modelo fora da janela (pede a confirmação); texto dentro dela, e a cerveja depois do SIM', async (t) => {
+    // Datas fixas de novembro de 2026: o relógio fica parado num instante conhecido.
+    t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T15:00:00Z') });
     // João toma cerveja toda vez: o lembrete costuma perguntar se pode separar.
     const beer = run("INSERT INTO catalog_items (barbershop_id, kind, name, price_cents, created_at) VALUES (?, 'product', 'Cerveja', 1200, ?)", [shopId, nowIso()]).lastInsertRowid;
     for (const day of ['2026-10-02', '2026-10-09']) {

@@ -11,6 +11,7 @@ const Panel = lazy(() => import('./pages/Panel').then((m) => ({ default: m.Panel
 const PrivacyPage = lazy(() => import('./pages/Legal').then((m) => ({ default: m.PrivacyPage })));
 const ShopLanding = lazy(() => import('./pages/ShopLanding').then((m) => ({ default: m.ShopLanding })));
 const Guide = lazy(() => import('./pages/Guide').then((m) => ({ default: m.Guide })));
+const TeamLogin = lazy(() => import('./pages/TeamLogin').then((m) => ({ default: m.TeamLogin })));
 const QueuePage = lazy(() => import('./pages/QueuePage').then((m) => ({ default: m.QueuePage })));
 const ShopPrivacyPage = lazy(() => import('./pages/Legal').then((m) => ({ default: m.ShopPrivacyPage })));
 const TermsPage = lazy(() => import('./pages/Legal').then((m) => ({ default: m.TermsPage })));
@@ -42,8 +43,8 @@ function Routes() {
   const path = usePath();
   const [me, setMe] = useState<Me | null>(null);
   const refresh = useCallback(() => api<Me>('GET', '/api/auth/me').then(setMe), []);
-  // Site da barbearia (/b/barbearia-do-ze), área do cliente (/conta), fila de chegada (/fila) e privacidade.
-  const shopMatch = /^\/b\/([a-z0-9-]+)(\/conta|\/privacidade|\/fila)?\/?$/.exec(path);
+  // Site da barbearia (/b/barbearia-do-ze), área do cliente (/conta), fila de chegada (/fila), entrada da equipe (/equipe) e privacidade.
+  const shopMatch = /^\/b\/([a-z0-9-]+)(\/conta|\/privacidade|\/fila|\/equipe)?\/?$/.exec(path);
   const publicPage = Boolean(shopMatch) || path === '/termos' || path === '/privacidade' || path === '/barbearias';
   useEffect(() => {
     // As páginas públicas não dependem do login do painel.
@@ -53,6 +54,7 @@ function Routes() {
   if (shopMatch) {
     if (shopMatch[2] === '/privacidade') return <ShopPrivacyPage slug={shopMatch[1]} />;
     if (shopMatch[2] === '/fila') return <QueuePage slug={shopMatch[1]} />;
+    if (shopMatch[2] === '/equipe') return <TeamLogin slug={shopMatch[1]} />;
     return shopMatch[2] ? <CustomerArea slug={shopMatch[1]} /> : <ShopLanding slug={shopMatch[1]} />;
   }
   if (path === '/termos') return <TermsPage />;

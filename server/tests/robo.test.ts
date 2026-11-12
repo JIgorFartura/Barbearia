@@ -3,7 +3,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { after, before, describe, test } from 'node:test';
+import { after, before, describe, test, mock } from 'node:test';
+
+// Os testes usam datas fixas (novembro de 2026): o relógio fica parado num instante conhecido,
+// para o resultado não depender do dia nem da hora em que rodam.
+mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T15:00:00Z') });
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 

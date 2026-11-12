@@ -160,7 +160,7 @@ function SignupCard({ trialDays, onBack, onDone }: { trialDays: number; onBack: 
   );
 }
 
-function LoginCard({ onDone }: { onDone: () => void }) {
+export function LoginCard({ onDone, title = 'Entrar no painel' }: { onDone: () => void; title?: string }) {
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -185,7 +185,7 @@ function LoginCard({ onDone }: { onDone: () => void }) {
 
   return (
     <form onSubmit={submit} className="space-y-4 rounded-2xl bg-white p-6 text-zinc-900 shadow-2xl">
-      <h2 className="text-xl font-bold">Entrar no painel</h2>
+      <h2 className="text-xl font-bold">{title}</h2>
       <Field label="E-mail ou celular">
         <Input autoComplete="username" required value={login} onChange={(e) => setLogin(e.target.value)} />
       </Field>

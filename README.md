@@ -85,6 +85,11 @@ cliente instalar, com avisos no celular. Serve da barbearia de uma cadeira à **
   marca falta e acompanha **Meus ganhos** e a nota que os clientes dão para ele. Do dinheiro, vê só
   **a parte dele**: a comissão de cada atendimento, o que tem a receber e os pagamentos recebidos
   (não vê o total que o cliente pagou, o faturamento, o caixa nem a comissão dos colegas).
+- **Por onde cada um entra:** o dono, a recepção, os barbeiros e o master entram na página inicial
+  do sistema (`/`), que é também a página de vendas. Pelo site de cada barbearia, a equipe entra em
+  **`/b/<endereço>/equipe`** (link *Acesso da equipe* no rodapé do site), com a marca da barbearia,
+  e o cliente em *Entrar* / *Área do cliente* (`/b/<endereço>/conta`). Depois do login, cada um
+  cai na sua área: painel, balcão ou app do barbeiro.
 - **Cliente** (`/b/<endereço>/conta`): entra pelo celular com um **código enviado pelo robô no
   WhatsApp** (ou pelo link que o robô manda) e fica logado por 180 dias. Agenda e cancela, assina o
   **clube** e paga por PIX (com **confirmação automática** ou mandando o **comprovante**), pelo **Pix

@@ -264,7 +264,13 @@ export function ShopLanding({ slug }: { slug: string }) {
             </a>
           )}
         </div>
-        <p className="pb-6 text-center text-xs opacity-70">
+        <p className="flex flex-wrap justify-center gap-x-4 gap-y-1 pb-6 text-center text-xs opacity-70">
+          <a href={`/b/${slug}/conta`} className="hover:underline">
+            Área do cliente
+          </a>
+          <a href={`/b/${slug}/equipe`} className="hover:underline">
+            Acesso da equipe
+          </a>
           <a href={`/b/${slug}/privacidade`} className="hover:underline">
             Política de privacidade
           </a>
