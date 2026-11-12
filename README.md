@@ -386,6 +386,18 @@ mensalidade próprios; a tela *Unidades* mostra os números de todas lado a lado
 resumo da semana e as notificações chegam ao dono de todas. O master também liga um dono já
 cadastrado a outra barbearia.
 
+## Página de vendas da Bladr
+
+A página inicial do sistema (`/`) é a página de vendas, com a mesma linguagem da landing desenhada no
+Framer: abertura com o robô conversando no WhatsApp, recursos, como começar, planos, dúvidas e o
+contato. Fica tudo num servidor só, sem pagar o Framer.
+
+- **Os preços vêm do master** (`/api/public/pricing`): os planos ativos, os descontos por período, a
+  implantação e os dias grátis. Mudou no master, muda na página.
+- **Entrar** e **Criar minha barbearia** abrem numa janela. Os links `/#entrar` e `/#cadastro` (para
+  anúncios, bio do Instagram e WhatsApp) abrem direto nela.
+- O WhatsApp e o Instagram comerciais ficam no começo de `web/src/pages/Landing.tsx`.
+
 ## Cadastro sozinho e importação de clientes
 
 - **Criar minha barbearia** na página inicial: nome, celular, senha e o aceite dos termos; começa

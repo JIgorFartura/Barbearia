@@ -2,6 +2,12 @@
 
 Cada versão instalada no servidor. A `main` é sempre a versão estável.
 
+## 1.2.0
+
+- **Página de vendas dentro do sistema**: a landing da Bladr (no visual feito no Framer) é a página
+  inicial, com os preços vindos do master (`/api/public/pricing`) e a entrada e o cadastro numa janela
+  (`/#entrar` e `/#cadastro`). Um servidor só, sem o plano pago do Framer.
+
 ## 1.1.0
 
 - **Fila de reenvio do WhatsApp**: mensagem que falha tenta de novo 1, 5 e 15 minutos depois. Se não

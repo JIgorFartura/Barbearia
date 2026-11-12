@@ -3,16 +3,30 @@ import { DEMO, acceptTermsIfAsked, expect, freshPhone, test } from './fixtures';
 // Os caminhos que geram dinheiro, clicando como uma pessoa: se algum quebrar, o GitHub avisa antes de
 // chegar às barbearias. Relógio: quarta-feira, 04/11/2026, 10h (o mesmo do servidor de teste).
 
+test('a página de vendas mostra os planos do master e abre o cadastro', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: /Agenda cheia/ })).toBeVisible();
+  const plans = page.locator('#planos');
+  await expect(plans.getByText('Mais escolhido')).toBeVisible();
+  await expect(plans.getByText('99,90')).toBeVisible();
+  // O link /#cadastro (usado nos anúncios e no WhatsApp) abre direto o cadastro.
+  await page.goto('/#cadastro');
+  await expect(page.getByRole('dialog', { name: 'Criar minha barbearia' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeHidden();
+});
+
 test('a barbearia cria a conta sozinha e monta a marca', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /Criar minha barbearia/ }).click();
-  await page.getByLabel('Nome da barbearia').fill('Barbearia Teste E2E');
-  await expect(page.getByText('Seu site:')).toBeVisible();
-  await page.getByLabel('Seu nome').fill('Rafael Teste');
-  await page.getByLabel('Celular (WhatsApp)').fill(freshPhone('219'));
-  await page.getByLabel('Senha').fill('senha-forte-1');
-  await page.getByRole('checkbox').check();
-  await page.getByRole('button', { name: 'Criar minha barbearia', exact: true }).click();
+  await page.getByRole('button', { name: 'Testar grátis' }).first().click();
+  const form = page.getByRole('dialog', { name: 'Criar minha barbearia' });
+  await form.getByLabel('Nome da barbearia').fill('Barbearia Teste E2E');
+  await expect(form.getByText('Seu site:')).toBeVisible();
+  await form.getByLabel('Seu nome').fill('Rafael Teste');
+  await form.getByLabel('Celular (WhatsApp)').fill(freshPhone('219'));
+  await form.getByLabel('Senha').fill('senha-forte-1');
+  await form.getByRole('checkbox').check();
+  await form.getByRole('button', { name: 'Criar minha barbearia', exact: true }).click();
   await expect(page.getByText('Monte sua marca em 1 minuto')).toBeVisible();
   await page.getByRole('button', { name: 'Usar esta marca' }).click();
   await page.goto('/painel');
@@ -47,9 +61,11 @@ test('cliente novo entra pelo celular e agenda um horário', async ({ page }) =>
 
 test('o dono fecha a comanda no PIX e o atendimento fica pago', async ({ page }) => {
   await page.goto('/');
-  await page.getByLabel('E-mail ou celular').fill(DEMO.owner.login);
-  await page.getByLabel('Senha').fill(DEMO.owner.password);
-  await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+  await page.getByRole('button', { name: 'Entrar', exact: true }).first().click();
+  const login = page.getByRole('dialog', { name: 'Entrar' });
+  await login.getByLabel('E-mail ou celular').fill(DEMO.owner.login);
+  await login.getByLabel('Senha').fill(DEMO.owner.password);
+  await login.getByRole('button', { name: 'Entrar', exact: true }).click();
   await page.waitForURL('**/painel');
   await page.goto('/painel/agenda');
   await acceptTermsIfAsked(page, page.getByText('15:00 Ricardo Vieira'));

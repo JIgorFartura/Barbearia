@@ -5,6 +5,7 @@ import type { Me } from '../App';
 import { Button, ErrorText, Field, Input } from '../components/ui';
 import { api } from '../lib/api';
 import { navigate } from '../lib/router';
+import { Landing } from './Landing';
 import { LegalLinks } from './Legal';
 
 const FEATURES = [
@@ -18,8 +19,12 @@ const FEATURES = [
   { icon: Camera, title: 'Ficha do cliente', text: 'O jeito que ele gosta e as fotos do corte: na próxima visita, qualquer barbeiro repete igual.' },
 ];
 
-/** Página do sistema (não da barbearia): apresentação + entrada. */
+/**
+ * Página do sistema (não da barbearia). Na primeira vez, cria o login master; depois, é a página de
+ * vendas da Bladr (Landing), com a entrada e o cadastro numa janela.
+ */
 export function Home({ me, onLogin }: { me: Me; onLogin: () => void }) {
+  if (!me.setupNeeded) return <Landing onLogin={onLogin} />;
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-10 sm:px-6 lg:grid-cols-[1.2fr_1fr] lg:py-20">
@@ -30,9 +35,6 @@ export function Home({ me, onLogin }: { me: Me; onLogin: () => void }) {
           <h1 className="text-4xl font-extrabold leading-tight sm:text-5xl">
             A agenda cheia e o caixa em dia: <span className="text-gold">o sistema trabalha por você</span> no WhatsApp.
           </h1>
-          <p className="mt-4 max-w-xl text-lg text-zinc-400">
-            Agenda, robô, financeiro, clube, relatórios e app com a sua marca, num painel só. Para a barbearia de uma cadeira e para a rede com várias unidades.
-          </p>
           <div className="mt-10 grid gap-4 sm:grid-cols-2">
             {FEATURES.map(({ icon: Icon, title, text }) => (
               <div key={title} className="rounded-2xl bg-white/5 p-4 ring-1 ring-white/10">
@@ -43,7 +45,9 @@ export function Home({ me, onLogin }: { me: Me; onLogin: () => void }) {
             ))}
           </div>
         </div>
-        <div className="lg:pt-16">{me.setupNeeded ? <SetupCard onDone={onLogin} /> : <EntryCard onDone={onLogin} />}</div>
+        <div className="lg:pt-16">
+          <SetupCard onDone={onLogin} />
+        </div>
       </div>
       <LegalLinks className="pb-8 text-zinc-500" />
     </div>
@@ -51,9 +55,9 @@ export function Home({ me, onLogin }: { me: Me; onLogin: () => void }) {
 }
 
 /** Entrar ou criar a barbearia (cadastro sozinho com os dias grátis, quando o master deixa aberto). */
-function EntryCard({ onDone }: { onDone: () => void }) {
+export function EntryCard({ onDone, initialMode }: { onDone: () => void; initialMode?: 'login' | 'signup' }) {
   const [signup, setSignup] = useState<{ enabled: boolean; trialDays: number } | null>(null);
-  const [mode, setMode] = useState<'login' | 'signup'>(() => (location.hash === '#cadastro' ? 'signup' : 'login'));
+  const [mode, setMode] = useState<'login' | 'signup'>(() => initialMode ?? (location.hash === '#cadastro' ? 'signup' : 'login'));
   useEffect(() => {
     api<{ enabled: boolean; trialDays: number }>('GET', '/api/public/signup').then(setSignup, () => undefined);
   }, []);
