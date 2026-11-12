@@ -1,4 +1,4 @@
-import { AtSign, CalendarCheck, Check, Clock, Crown, Gift, Handshake, ListOrdered, MapPin, MessageCircle, Package, Scissors, Sparkles, UserRound } from 'lucide-react';
+import { AtSign, CalendarCheck, Check, Clock, Crown, Gift, Handshake, ListOrdered, MapPin, MessageCircle, Package, Scissors, Sparkles, UserRound, Users } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { instagramLink, money, whatsappLink } from '../lib/format';
@@ -57,7 +57,16 @@ export function ShopLanding({ slug }: { slug: string }) {
     <div className="min-h-screen bg-zinc-50" style={{ ['--accent' as string]: accent }}>
       <header className="relative overflow-hidden text-white" style={{ background: shop.primary_color }}>
         {shop.cover_url && <img src={shop.cover_url} alt="" className="absolute inset-0 size-full object-cover opacity-30" />}
-        <div className="relative mx-auto max-w-5xl px-4 py-14 sm:px-6 sm:py-20">
+        {/* Acessos no topo: o cliente entra na área dele; barbeiros, balcão e dono, na da equipe. */}
+        <nav className="relative mx-auto flex max-w-5xl justify-end gap-2 px-4 pt-4 sm:px-6" aria-label="Acessos">
+          <a href={`/b/${slug}/conta`} className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-2 text-sm font-semibold backdrop-blur hover:bg-white/25">
+            <UserRound className="size-4" /> {data.loggedIn ? 'Minha área' : 'Área do cliente'}
+          </a>
+          <a href={`/b/${slug}/equipe`} className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-2 text-sm font-semibold backdrop-blur hover:bg-white/25">
+            <Users className="size-4" /> Equipe
+          </a>
+        </nav>
+        <div className="relative mx-auto max-w-5xl px-4 pt-6 pb-14 sm:px-6 sm:pt-8 sm:pb-20">
           {shop.logo_url && <img src={shop.logo_url} alt={shop.name} className="mb-5 size-20 rounded-2xl bg-white object-contain p-1 shadow-lg" />}
           <h1 className="text-4xl font-extrabold sm:text-5xl">{shop.name}</h1>
           {shop.tagline && <p className="mt-2 text-lg opacity-90">{shop.tagline}</p>}
@@ -84,9 +93,6 @@ export function ShopLanding({ slug }: { slug: string }) {
                 <ListOrdered className="size-5" /> Entrar na fila
               </a>
             )}
-            <a href={`/b/${slug}/conta`} className="inline-flex items-center gap-2 rounded-full bg-white/15 px-5 py-2.5 font-semibold backdrop-blur hover:bg-white/25">
-              <UserRound className="size-5" /> {data.loggedIn ? 'Minha área' : 'Entrar'}
-            </a>
             {data.canBook && shop.whatsapp && (
               <a
                 href={whatsappLink(shop.whatsapp, `Oi, ${shop.bot_name}!`)}
@@ -264,13 +270,7 @@ export function ShopLanding({ slug }: { slug: string }) {
             </a>
           )}
         </div>
-        <p className="flex flex-wrap justify-center gap-x-4 gap-y-1 pb-6 text-center text-xs opacity-70">
-          <a href={`/b/${slug}/conta`} className="hover:underline">
-            Área do cliente
-          </a>
-          <a href={`/b/${slug}/equipe`} className="hover:underline">
-            Acesso da equipe
-          </a>
+        <p className="pb-6 text-center text-xs opacity-70">
           <a href={`/b/${slug}/privacidade`} className="hover:underline">
             Política de privacidade
           </a>
