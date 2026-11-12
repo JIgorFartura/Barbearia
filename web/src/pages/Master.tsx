@@ -1216,6 +1216,8 @@ interface SystemInfo {
   llm: { enabled: boolean; model: string | null; effort: string };
   publicUrl: string | null;
   failures24h: { shop: string; failed: number; last_error: string | null }[];
+  /** Mensagens esperando a próxima tentativa de envio. */
+  retrying: number;
   counts: { shops: number };
   /** Erros inesperados do servidor e das telas (agrupados). */
   errors: { id: number; source: 'server' | 'web'; message: string; path: string; count: number; first_at: string; last_at: string }[];
@@ -1540,7 +1542,7 @@ function PlatformWhatsAppCard() {
             {data.recent.map((m) => (
               <li key={m.id}>
                 {new Date(m.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} · {PLATFORM_KIND[m.kind] ?? m.kind} para {fmtPhone(m.phone)} ·{' '}
-                {m.status === 'failed' ? <span className="text-red-600">falhou{m.error ? `: ${m.error}` : ''}</span> : m.status === 'simulated' ? 'só registrado' : 'enviado'}
+                {m.status === 'failed' ? <span className="text-red-600">falhou{m.error ? `: ${m.error}` : ''}</span> : m.status === 'retrying' ? <span className="text-amber-700">tentando de novo</span> : m.status === 'simulated' ? 'só registrado' : 'enviado'}
               </li>
             ))}
           </ul>
@@ -1685,12 +1687,13 @@ function SystemTab() {
                 recontato(s)
               </p>
             )}
+            {info.retrying > 0 && <p className="text-amber-700">↻ {info.retrying} mensagem(ns) na fila de reenvio (nova tentativa em até 15 min).</p>}
             {info.failures24h.length === 0 ? (
-              <p className="text-emerald-700">Nenhuma falha de envio de WhatsApp nas últimas 24h.</p>
+              <p className="text-emerald-700">Nenhuma mensagem perdida no WhatsApp nas últimas 24h.</p>
             ) : (
               info.failures24h.map((f) => (
                 <p key={f.shop} className="text-red-700">
-                  ⚠ {f.shop}: {f.failed} falha(s) · {f.last_error}
+                  ⚠ {f.shop}: {f.failed} não chegaram, mesmo tentando de novo · {f.last_error}
                 </p>
               ))
             )}

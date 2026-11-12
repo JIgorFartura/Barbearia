@@ -1339,6 +1339,13 @@ const MIGRATIONS: (string | Rebuild)[] = [
   ALTER TABLE barbershops DROP COLUMN deposit_cents;
   ALTER TABLE barbershops DROP COLUMN deposit_hold_min;
   `,
+  // 42: mensagem que falhou no WhatsApp tenta de novo (1, 5 e 15 minutos depois) antes de desistir.
+  `
+  ALTER TABLE messages ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE messages ADD COLUMN retry_at TEXT;
+  ALTER TABLE messages ADD COLUMN retry_payload TEXT;
+  CREATE INDEX messages_retry ON messages (retry_at) WHERE retry_at IS NOT NULL;
+  `,
 ];
 
 function migrate(): void {

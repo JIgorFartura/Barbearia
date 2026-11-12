@@ -6,6 +6,10 @@ import { after, before, describe, test } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { makeClient } from './client.js';
+import { freezeClock } from './clock.js';
+
+// Datas fixas (novembro de 2026): relógio parado num instante conhecido.
+freezeClock();
 
 process.env.DB_FILE = ':memory:';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'barbearia-avaliacao-'));

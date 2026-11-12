@@ -25,6 +25,7 @@ import { setBillingCycle } from '../annual.js';
 import { cancelSignup, continueAfterTrial } from '../trial.js';
 import { cancelSubscriptionCard, subscriptionCardLink, subscriptionCardState } from '../cards.js';
 import { connectionInfo } from '../connection.js';
+import { undeliveredCount } from '../messaging.js';
 import { availableQty } from '../stock.js';
 import { reservedItems, reserveItems, suggestionFor } from '../consumption.js';
 import { all, get } from '../db.js';
@@ -130,6 +131,8 @@ export function registerFinanceRoutes(router: Router): void {
             "SELECT COUNT(*) AS n FROM charges WHERE barbershop_id = ? AND status = 'open' AND claimed_at IS NOT NULL AND receipt_file IS NOT NULL",
             [shop],
           )!.n,
+      // Mensagens do robô que não chegaram nem tentando de novo (últimas 24h).
+      undelivered: undeliveredCount(shop),
       announcements: all("SELECT id, title, body, level, created_at FROM announcements WHERE active = 1 ORDER BY id DESC LIMIT 5"),
     });
   });

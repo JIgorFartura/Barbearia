@@ -732,6 +732,8 @@ masterRouter.get('/system', (_req, res) => {
         WHERE m.status = 'failed' AND m.created_at >= ? GROUP BY b.id ORDER BY failed DESC`,
       [since],
     ).map((f) => ({ ...f, last_error: f.last_error?.replace(/\d{8,}/g, '•••') ?? null })),
+    // Mensagens esperando a próxima tentativa de envio (fila de reenvio).
+    retrying: get<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE status = 'retrying'")!.n,
     counts: get('SELECT (SELECT COUNT(*) FROM barbershops) AS shops'),
     // Erros inesperados do servidor e das telas (sem dados de clientes: números e e-mails mascarados).
     errors: recentErrors(15),

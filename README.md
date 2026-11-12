@@ -150,6 +150,11 @@ pelo WhatsApp da plataforma (e o painel mostra uma faixa vermelha).
 Só das 8h às 21h (no fuso de cada barbearia), cada uma uma única vez, e quem responde PARAR deixa
 de receber as de marketing.
 
+**Se o WhatsApp falhar**, a mensagem tenta de novo **1, 5 e 15 minutos depois** (menos o código de
+acesso, que vence logo, e o teste do dono). Se mesmo assim não chegar, o painel do dono mostra um
+aviso com o atalho para o robô, e a tela *Sistema* do master mostra as mensagens perdidas e quantas
+estão na fila de reenvio. WhatsApp mal configurado no painel não fica tentando.
+
 - **Lembrete do horário** X horas antes (padrão 24h), pedindo a **confirmação** (SIM confirma; NÃO
   libera a vaga). Se o dono quiser, quem não confirma até N horas antes tem o horário liberado.
 - **Lista de espera**: abriu vaga (cancelamento, horário liberado), o robô oferece na ordem da fila;
@@ -597,8 +602,22 @@ LGPD, cópia de segurança, acesso do barbeiro, limites do master, isolamento en
 confirmação e lista de espera, ficha do cliente, horário vazio, app e avisos no celular (com o
 exemplo oficial da criptografia RFC 8291), gerente virtual e relatórios, pacotes e vale-presente,
 recepção e rede, cadastro e importação, PIX com baixa automática e Pix Automático, PIX na comanda, nota fiscal,
-recontato pelo ritmo com desconto de volta e segunda mensagem),
-`npm run typecheck`, `npm run build && npm start`. Os testes rodam no GitHub a cada envio.
+recontato pelo ritmo com desconto de volta e segunda mensagem, fila de reenvio do WhatsApp),
+`npm run typecheck`, `npm run build && npm start`.
+
+**Testes que protegem o que já funciona** (rodam no GitHub a cada envio e toda noite):
+
+- **Isolamento entre barbearias** (`server/tests/isolamento.test.ts`): o dono, o barbeiro e um
+  cliente de outra barbearia percorrem **todas** as rotas com os IDs da barbearia de demonstração;
+  nenhuma resposta pode trazer celular ou nome de cliente dela, e nenhum dado dela pode mudar. Rota
+  nova entra sozinha no teste.
+- **Relógio**: teste com data fixa para o relógio com `freezeClock()` (`server/tests/clock.ts`). O
+  GitHub roda a suíte também com o relógio **120 dias adiantado**
+  (`CLOCK_SHIFT_DAYS=120 NODE_OPTIONS="--import ./tools/clock-shift.mjs" npm test`): teste que
+  depender da data quebra ali, antes de quebrar de verdade.
+- **De ponta a ponta nas telas** (`e2e/`, Playwright, num celular): cadastro da barbearia, cliente
+  novo agendando, comanda no PIX, barbeiro entrando pelo site e fila de chegada. Rodam contra o
+  build com a demonstração, numa quarta-feira às 10h de mentira: `npm run build && npm run e2e`.
 
 ## Hospedar
 
@@ -622,6 +641,27 @@ npm run restore -- <arquivo> --forcar                          # substitui o ban
 consumo por barbearia nos últimos 30 dias). O padrão é o `claude-opus-5-5` com esforço baixo; dá
 para trocar com `BOT_MODEL` (ex.: `claude-sonnet-5-5` ou o mais barato `claude-haiku-5-5`) e `BOT_EFFORT`. As respostas rápidas (SIM/NÃO/CANCELAR/PARAR/PAGUEI,
 nota da avaliação) e todas as mensagens automáticas não usam IA.
+
+### Monitoramento (avisa se o sistema cair)
+
+`/api/health` responde **200** com tudo certo e **503** se o banco não responde ou se as automações
+(lembretes, recontato, reenvio do WhatsApp) pararam há mais de 10 minutos. Para receber o aviso no
+celular, em 10 minutos e de graça, no [UptimeRobot](https://uptimerobot.com):
+
+1. Crie a conta e instale o app do UptimeRobot no celular (é por ele que chega o alerta).
+2. *New monitor* → tipo **HTTP(s)** → URL `https://<seu domínio>/api/health` → intervalo de
+   **5 minutos**.
+3. Em *Alert contacts*, marque o seu e-mail e o app. Pronto: se o sistema cair ou travar, você sabe
+   antes das barbearias.
+
+## Versões e como mudar o sistema
+
+- A `main` é sempre a versão estável, a que vai para o servidor. Cada mudança entra por um pedido
+  pequeno (pull request) e só junta com os testes verdes no GitHub.
+- Cada versão instalada tem um número no `package.json` (aparece na tela *Sistema* do master) e no
+  [CHANGELOG.md](CHANGELOG.md). Para marcar no GitHub: *Releases* → *Draft a new release* →
+  tag `v1.1.0` na `main` → *Publish*. Para voltar atrás, instale a versão anterior e restaure a cópia
+  de segurança do dia, se a nova tiver mudado o banco.
 
 ## Como o código está organizado
 

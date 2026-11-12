@@ -3,13 +3,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { after, before, describe, test, mock } from 'node:test';
-
-// Os testes usam datas fixas (novembro de 2026): o relógio fica parado num instante conhecido,
-// para o resultado não depender do dia nem da hora em que rodam.
-mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T15:00:00Z') });
+import { after, before, describe, test } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
+import { freezeClock } from './clock.js';
+
+// Datas fixas (novembro de 2026): relógio parado num instante conhecido.
+freezeClock();
 
 // Banco em memória, sem automações em segundo plano e sem chave da Anthropic.
 process.env.DB_FILE = ':memory:';
@@ -163,7 +163,7 @@ describe('automações', () => {
     book({ shopId, customerId: maria, barberId: marcos, date: '2026-09-20', time: '10:00', source: 'painel' });
 
     const first = await runAutomations(MONDAY);
-    assert.deepEqual(first, { reminders: 0, habits: 1, winbacks: 1, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0, summaries: 0 });
+    assert.deepEqual(first, { reminders: 0, habits: 1, winbacks: 1, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0, summaries: 0, resent: 0 });
     const offer = lastOut(joao)!;
     assert.equal(offer.kind, 'costume');
     assert.equal(offer.status, 'simulated');
@@ -175,7 +175,7 @@ describe('automações', () => {
     assert.match(winback.body, /Faz 43 dias/);
     assert.match(winback.body, /PARAR/);
 
-    assert.deepEqual(await runAutomations(at('2026-11-02 09:30')), { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0, summaries: 0 });
+    assert.deepEqual(await runAutomations(at('2026-11-02 09:30')), { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0, summaries: 0, resent: 0 });
   });
 
   test('cliente responde SIM e o robô marca o horário oferecido', async () => {
@@ -189,7 +189,7 @@ describe('automações', () => {
 
   test('lembrete do horário 24h antes, uma vez só, e nunca de madrugada', async () => {
     book({ shopId, customerId: pedro, barberId: marcos, date: '2026-11-06', time: '18:00', source: 'painel' });
-    assert.deepEqual(await runAutomations(at('2026-11-05 22:00')), { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0, summaries: 0 });
+    assert.deepEqual(await runAutomations(at('2026-11-05 22:00')), { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0, summaries: 0, resent: 0 });
     const r = await runAutomations(at('2026-11-06 08:00'));
     assert.equal(r.reminders, 2);
     assert.match(lastOut(joao)!.body, /hoje \(sexta, 06\/11\) às 17h com Paulo/);

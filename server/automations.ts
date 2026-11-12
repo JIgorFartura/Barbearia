@@ -22,7 +22,7 @@ import { askConsumption } from './consumption.js';
 import { all, get, nowIso, run } from './db.js';
 import { awayAfter, customerHabit, lastVisitDate, rhythmDays, shopVisitDays, type Habit } from './habits.js';
 import { availableComeback, availableComebacks, grantComeback } from './comeback.js';
-import { sendMessage, sendsTemplate, shopBot, waConfig, type MessageKind, type ShopBot } from './messaging.js';
+import { retryMessages, sendMessage, sendsTemplate, shopBot, waConfig, type MessageKind, type ShopBot } from './messaging.js';
 import { templateField, type TemplateKind, type TemplateUse } from './templates.js';
 import { freeTimes, upcomingFor } from './scheduling.js';
 import { shopNow, shopTz } from './clock.js';
@@ -449,6 +449,8 @@ export interface RunSummary {
   idle: number;
   /** Resumos da semana enviados aos donos. */
   summaries: number;
+  /** Mensagens que tinham falhado e foram entregues numa nova tentativa. */
+  resent: number;
 }
 
 let running = false;
@@ -463,7 +465,7 @@ export const automationStatus: { lastRun: string | null; lastSummary: RunSummary
 
 /** Roda tudo uma vez. Chamado a cada minuto; cada envio é registrado para não repetir. */
 export async function runAutomations(now: Date = new Date()): Promise<RunSummary> {
-  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0, summaries: 0 };
+  const summary: RunSummary = { reminders: 0, habits: 0, winbacks: 0, reviews: 0, club: 0, birthdays: 0, released: 0, waitlist: 0, idle: 0, summaries: 0, resent: 0 };
   if (running) return summary;
   running = true;
   try {
@@ -483,6 +485,8 @@ export async function runAutomations(now: Date = new Date()): Promise<RunSummary
     const backedUp = await dailyBackup(now).catch((err) => console.error('[backup]', err));
     // Uma vez por dia, junto da cópia: apaga o que não precisa mais ser guardado (LGPD).
     if (backedUp) purgeOldData(now);
+    // Mensagens que falharam no WhatsApp: nova tentativa (1, 5 e 15 minutos depois).
+    summary.resent = (await retryMessages(now).catch((err) => (console.error('[reenvio]', err), { resent: 0 }))).resent;
     // Conexão do WhatsApp de cada barbearia (avisa o dono se cair) e erros novos do sistema (avisa o master).
     if (config.automations) {
       await checkConnections(now).catch((err) => console.error('[conexão]', err));

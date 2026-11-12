@@ -5,6 +5,7 @@ import path from 'node:path';
 import { after, before, beforeEach, describe, test } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
+import { TEST_NOW } from './clock.js';
 import { makeClient } from './client.js';
 
 process.env.DB_FILE = ':memory:';
@@ -104,7 +105,7 @@ describe('modelos da Meta por tipo de mensagem', () => {
 
   test('lembrete pela Meta: modelo fora da janela (pede a confirmação); texto dentro dela, e a cerveja depois do SIM', async (t) => {
     // Datas fixas de novembro de 2026: o relógio fica parado num instante conhecido.
-    t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T15:00:00Z') });
+    t.mock.timers.enable({ apis: ['Date'], now: new Date(TEST_NOW) });
     // João toma cerveja toda vez: o lembrete costuma perguntar se pode separar.
     const beer = run("INSERT INTO catalog_items (barbershop_id, kind, name, price_cents, created_at) VALUES (?, 'product', 'Cerveja', 1200, ?)", [shopId, nowIso()]).lastInsertRowid;
     for (const day of ['2026-10-02', '2026-10-09']) {

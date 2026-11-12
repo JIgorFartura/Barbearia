@@ -6,3 +6,7 @@ data/
 .env.*
 !.env.example
 .DS_Store
+
+# Testes de ponta a ponta (Playwright)
+test-results/
+playwright-report/

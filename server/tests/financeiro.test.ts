@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { after, before, describe, test, mock } from 'node:test';
-
-// Os testes usam datas fixas (novembro de 2026): o relógio fica parado num instante conhecido,
-// para o resultado não depender do dia nem da hora em que rodam.
-mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T15:00:00Z') });
+import { after, before, describe, test } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
+import { freezeClock } from './clock.js';
+
+// Datas fixas (novembro de 2026): relógio parado num instante conhecido.
+freezeClock();
 
 process.env.DB_FILE = ':memory:';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'barbearia-fin-'));
@@ -357,7 +357,7 @@ describe('mensalidades da plataforma', () => {
     assert.equal((await dono('GET', '/api/shop/status')).data.active, false);
     run('UPDATE barbershops SET active = 1 WHERE id = ?', [shopId]);
     const system = await master('GET', '/api/master/system');
-    assert.equal(system.data.version, '0.1.0');
+    assert.equal(system.data.version, JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version);
     assert.equal(system.data.counts.shops, 1);
     assert.equal(system.data.counts.sales, undefined, 'o master não vê o movimento das barbearias');
     const billing = await master('GET', '/api/master/billing');

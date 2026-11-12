@@ -32,6 +32,7 @@ import {
   Wallet,
   WifiOff,
   X,
+  MessageCircleWarning,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Me } from '../App';
@@ -107,6 +108,8 @@ interface ShopStatus {
   pixToConfirm?: number;
   /** Desses, quantos vieram com o comprovante. */
   receiptsToConfirm?: number;
+  /** Mensagens do robô que não chegaram nem tentando de novo (últimas 24h). */
+  undelivered?: number;
   announcements: { id: number; title: string; body: string; level: 'novidade' | 'aviso' | 'manutencao' }[];
 }
 
@@ -596,6 +599,18 @@ export function Panel({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <CreditCard className="size-4 shrink-0" />
               <span>
                 ⚠ Há mensalidade vencida{status.blockOn ? `. Pague até ${date(status.blockOn)} para não ter o acesso suspenso` : ''}. <b>Ver fatura</b>
+              </span>
+            </button>
+          )}
+          {Boolean(status?.undelivered) && !locked && section !== 'robo' && (
+            <button
+              onClick={() => navigate('/painel/robo')}
+              className="mb-4 flex w-full items-center gap-2 rounded-xl bg-red-50 px-4 py-2.5 text-left text-sm text-red-900 ring-1 ring-red-200"
+            >
+              <MessageCircleWarning className="size-4 shrink-0" />
+              <span>
+                ⚠ {status!.undelivered === 1 ? '1 mensagem do robô não chegou' : `${status!.undelivered} mensagens do robô não chegaram`} ao cliente nas últimas 24h,
+                mesmo tentando de novo. Confira a conexão do WhatsApp. <b>Abrir o robô</b>
               </span>
             </button>
           )}
